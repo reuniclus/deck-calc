@@ -2,10 +2,12 @@
  * Tiny query language, so the harness (and later the URL/advanced mode) can accept text.
  *   Athletes>=2 & Spells>=1
  *   (A>=1 | B>=1) & !C=0
- *   any 2 of (A>=1, B>=1, C>=2)
  *   "Blue Mana">=2 & !Dead
  * `true` / `false` are literals, so every expression can be printed and re-parsed.
  * Bare `A` means `A>=1`. Operators: >= <= = == > < ; & | ! and parentheses.
+ * There is deliberately no "any k of (...)" shorthand — write it as an explicit
+ * OR of the combinations you mean; that's the same expressive power with one
+ * fewer concept to learn, and it's what the query builder does too.
  */
 import { type Expr, type GroupId } from './expr';
 
@@ -112,7 +114,6 @@ export function parseQuery(src: string, resolve: (name: string) => GroupId | nul
 
     if (t.k === 'id') {
       const word = t.v.toLowerCase();
-      if (!t.quoted && (word === 'any' || word === 'atleast')) return parseAtLeastK();
       if (!t.quoted && word === 'true') { p++; return { t: 'and', kids: [] }; }
       if (!t.quoted && word === 'false') { p++; return { t: 'or', kids: [] }; }
       p++;
@@ -133,18 +134,6 @@ export function parseQuery(src: string, resolve: (name: string) => GroupId | nul
       return { t: 'atom', g: gid, lo: 1, hi: null }; // bare name = at least one
     }
     throw new ParseError('expected a group name or "("', t.i);
-  }
-
-  function parseAtLeastK(): Expr {
-    p++; // any | atleast
-    const n = expect('num') as Extract<Tok, { k: 'num' }>;
-    const of = peek();
-    if (of?.k === 'id' && of.v.toLowerCase() === 'of') p++;
-    expect('(');
-    const kids = [parseOr()];
-    while (at(',')) { p++; kids.push(parseOr()); }
-    expect(')');
-    return { t: 'atLeastK', k: n.v, kids };
   }
 
   if (toks.length === 0) throw new ParseError('empty query', 0);

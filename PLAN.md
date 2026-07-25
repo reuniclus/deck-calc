@@ -263,6 +263,23 @@ special case — a fresh single combo simply has k = rows.length. UI: a "require
 checkbox per combo (checked ⟺ k===rows.length) with a threshold number revealed
 underneath when unchecked, shown only for combos with 2+ conditions.
 
+### 4c. Removed: "any k of" / per-combo threshold
+
+The per-combo "require at least k of these" threshold (added in §4b) turned out to
+be a false economy: `atLeastK` has no single-token text spelling (it printed as the
+keyword-based `any k of (...)`), and that keyword was the one piece of syntax
+distinct from everything else in the grammar — confusing on its own, and, per the
+insight that prompted removing it, redundant: `atLeastK(k, rows)` is exactly the OR
+of every k-sized subset of those rows, which the builder can already author
+directly as separate combos. Removed the keyword from `parse.ts` entirely and the
+threshold UI from the builder; `builder.ts`'s `Clause` is back to `{ rows: Row[] }`
+with no `k`. `printExpr` still handles an `atLeastK` **Expr** node correctly if one
+is ever constructed directly (e.g. by future code, or a query authored before this
+change) — it expands to the equivalent OR-of-ANDs text via the same combinatorial
+expansion `normalize.ts` already used internally (`expandAtLeastK`, now exported),
+so nothing the math layer can produce becomes unparseable; the builder simply has
+no path to construct one anymore, which is the actual UI simplification requested.
+
 ### 5.3b Interaction term (grid "Δ both")
 
 `interaction(k,n) = P(k,n) - P(k,n-1) - P(k-1,n) + P(k-1,n-1)` — the discrete mixed

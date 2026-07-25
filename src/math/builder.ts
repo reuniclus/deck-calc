@@ -1,24 +1,19 @@
 /**
  * Bridge between a structured "pick group / comparator / number" UI and the
  * Expr AST. Exists because the text query language, while total and tested,
- * still requires knowing precedence, quoting rules, and `any k of (...)`
- * syntax by hand — a picker that can only ever emit valid Expr trees removes
- * that whole failure class for the shape below. Free-text remains the escape
- * hatch for anything that doesn't fit.
+ * still requires knowing precedence and quoting rules by hand — a picker
+ * that can only ever emit valid Expr trees removes that whole failure class.
+ * Free-text remains the escape hatch for anything that doesn't fit.
  *
- * Unified model: a query is a union of COMBOS (OR'd together). Each combo is
- * a list of conditions plus a threshold k — "at least k of these conditions
- * must hold." k defaults to the full row count, which IS an AND — so "all of
- * these," "any of these," and "at least N of these" are not three separate
- * shapes, they're the same one combo with different threshold values:
- *   - one combo, k = rows.length           -> old "all of these" (AND)
- *   - several 1-row combos, each k = 1      -> old "any of these" (OR)
- *   - one combo, k < rows.length            -> old "at least N of these"
- *   - several combos, some with k < rows.length -> the general case,
- *     e.g. (any 2 of A,B,C) | (D>=1)
- * A single combo pre-filled with k = rows.length (i.e. AND) is exactly what
- * a fresh query should look like, and it emerges from this model for free —
- * no special-casing needed to make "OR mode with AND preloaded" the default.
+ * Model: a query is a union of COMBOS (OR'd together). Each combo is a plain
+ * AND of conditions. There is deliberately no per-combo "at least k of these"
+ * threshold — that was the same idea as just adding more combos (an
+ * "at least 2 of {A,B,C}" combo is exactly the OR of its three 2-subsets),
+ * and it couldn't survive a text round-trip anyway once the text grammar
+ * dropped its "any k of" keyword (see parse.ts) — so it's not offered here
+ * either, to avoid a picker state that TEXT can't represent as the same
+ * shape. One combo, pre-filled with every condition ANDed, is exactly what a
+ * fresh query should look like — that's just the single-combo case below.
  */
 import type { Expr, GroupId } from './expr';
 
@@ -29,10 +24,9 @@ export interface Row {
   hi: number | null;
 }
 
-/** One combo: "at least k of these rows." k === rows.length means all of them (AND). */
+/** One combo: every row ANDed together. */
 export interface Clause {
   rows: Row[];
-  k: number;
 }
 
 export interface FlatQuery {
@@ -47,8 +41,7 @@ function rowExpr(r: Row): Expr {
 
 function clauseExpr(c: Clause): Expr {
   if (c.rows.length === 1) return rowExpr(c.rows[0]!);
-  if (c.k >= c.rows.length) return { t: 'and', kids: c.rows.map(rowExpr) };
-  return { t: 'atLeastK', k: c.k, kids: c.rows.map(rowExpr) };
+  return { t: 'and', kids: c.rows.map(rowExpr) };
 }
 
 export function compileFlat(fq: FlatQuery): Expr {
@@ -63,28 +56,6 @@ function tryAtomOrNeg(e: Expr): Row | null {
   if (e.t === 'atom') return { g: e.g, neg: false, lo: e.lo, hi: e.hi };
   if (e.t === 'not' && e.kid.t === 'atom') {
     return { g: e.kid.g, neg: true, lo: e.kid.lo, hi: e.kid.hi };
-  }
-  return null;
-}
-
-/**
- * Like tryAtomOrNeg, but also recognizes a SINGLE kid that is itself an AND of
- * exactly two same-group atoms — printExpr's only spelling for one range
- * condition. Needed anywhere a condition is read as one standalone kid rather
- * than scanned for a sibling pair (atLeastK's kids are each independent; an
- * AND's kids are scanned together by rowsFromAndKids instead).
- */
-function rowFromCondition(e: Expr): Row | null {
-  const direct = tryAtomOrNeg(e);
-  if (direct) return direct;
-  if (e.t === 'and' && e.kids.length === 2) {
-    const [x, y] = e.kids;
-    if (x!.t === 'atom' && y!.t === 'atom' && x!.g === y!.g) {
-      const his = [x!.hi, y!.hi].filter((h): h is number => h !== null);
-      if (his.length > 0) {
-        return { g: x!.g, neg: false, lo: Math.max(x!.lo, y!.lo), hi: Math.min(...his) };
-      }
-    }
   }
   return null;
 }
@@ -117,7 +88,7 @@ function rowsFromAndKids(kids: readonly Expr[]): Row[] | null {
       rows.push({ g: e.g, neg: false, lo: e.lo, hi: e.hi });
       continue;
     }
-    const row = rowFromCondition(e);
+    const row = tryAtomOrNeg(e);
     if (!row) return null; // genuine nesting inside this AND — not flat
     rows.push(row);
   }
@@ -127,25 +98,23 @@ function rowsFromAndKids(kids: readonly Expr[]): Row[] | null {
 /** One combo's worth of Expr -> Clause, or null if it's not a flat shape. */
 function clauseFromExpr(e: Expr): Clause | null {
   const single = tryAtomOrNeg(e);
-  if (single) return { rows: [single], k: 1 };
+  if (single) return { rows: [single] };
   if (e.t === 'and') {
     const rows = rowsFromAndKids(e.kids);
-    return rows ? { rows, k: rows.length } : null;
+    return rows ? { rows } : null;
   }
-  if (e.t === 'atLeastK') {
-    const rows = e.kids.map(rowFromCondition);
-    if (rows.some((r) => r === null)) return null;
-    return { rows: rows as Row[], k: e.k };
-  }
+  // atLeastK has no text spelling anymore and the builder has no way to
+  // author one — if it somehow shows up (e.g. a query built before this
+  // change), treat it like any other shape this picker can't represent.
   return null;
 }
 
 /**
  * Inverse of compileFlat, when possible. A top-level OR becomes several
- * combos; anything else (a bare atom, an AND, an atLeastK) becomes a single
- * combo. Returns null for real nesting this shape doesn't cover (an OR
- * inside an AND, an OR nested inside another OR, a NOT of something other
- * than a bare atom) — those queries still work fine as text.
+ * combos; anything else (a bare atom, an AND) becomes a single combo.
+ * Returns null for real nesting this shape doesn't cover (an OR inside an
+ * AND, an OR nested inside another OR, a NOT of something other than a bare
+ * atom, an atLeastK) — those queries still work fine as text.
  */
 export function decompileFlat(e: Expr): FlatQuery | null {
   if (e.t === 'or') {

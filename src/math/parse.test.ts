@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseQuery, ParseError } from './parse';
 import { normalize } from './normalize';
 import { evaluate } from './evaluate';
-import { atLeast, atMost, exactly, and, or, not, atLeastKOf, type Sizes } from './expr';
+import { atLeast, atMost, exactly, and, or, not, type Sizes } from './expr';
 
 const SIZES: Sizes = { a: 3, b: 3, c: 2, 'blue mana': 4 };
 const resolve = (name: string): string | null => {
@@ -39,10 +39,8 @@ describe('parseQuery', () => {
     same('not a', not(atLeast('a', 1)));
   });
 
-  it('parses any-k-of', () => {
-    same('any 2 of (a, b, c>=2)',
-      atLeastKOf(2, atLeast('a', 1), atLeast('b', 1), atLeast('c', 2)));
-    same('atleast 2 (a, b)', atLeastKOf(2, atLeast('a', 1), atLeast('b', 1)));
+  it('has no "any k of" shorthand — write an explicit OR instead', () => {
+    expect(() => p('any 2 of (a, b)')).toThrow(/unknown group/);
   });
 
   it('parses quoted multi-word names without keyword collisions', () => {

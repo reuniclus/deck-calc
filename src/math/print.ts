@@ -4,6 +4,7 @@
  * not invalidate a query. PLAN.md §8.
  */
 import type { Expr, GroupId } from './expr';
+import { expandAtLeastK } from './normalize';
 
 const KEYWORDS = new Set(['and', 'or', 'not', 'any', 'atleast', 'of', 'true', 'false']);
 const BARE = /^[A-Za-z_][A-Za-z0-9_\-]*$/;
@@ -38,8 +39,12 @@ export function printExpr(e: Expr, nameOf: (g: GroupId) => string): string {
         if (x.kids.length === 1) return go(x.kids[0]!, parent);
         return wrap(x.kids.map((k) => go(k, OR)).join(' | '), OR, parent);
       case 'atLeastK':
-        // Self-delimiting, so it never needs outer parentheses.
-        return `any ${x.k} of (${x.kids.map((k) => go(k, OR)).join(', ')})`;
+        // The text grammar has no "any k of" keyword anymore (removed — an
+        // explicit OR of combos covers the same ground without a separate
+        // concept to learn). Expand to that OR-of-ANDs form so whatever this
+        // prints is always reparseable, reusing the same expansion normalize
+        // already relies on (same combinatorial cap applies).
+        return go(expandAtLeastK(x), parent);
     }
   }
 }

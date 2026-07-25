@@ -74,9 +74,6 @@
   .bclause-rows{display:flex;flex-direction:column;gap:.2rem}
   .bclause-actions{display:flex;gap:.6rem;margin-top:.4rem;flex-wrap:wrap;align-items:center}
   .bclause-actions button{font-size:.72rem;color:var(--dim);padding:.15rem .4rem}
-  .bthresh-wrap{display:flex;gap:.35rem;align-items:center;font-size:.75rem}
-  .bthresh-wrap input[type="checkbox"]{width:auto}
-  .bthresh-wrap input.bthresh{width:3rem}
   .conj{color:var(--dim);font-size:.72rem;margin:.1rem 0;display:block}
   .conj-or{text-align:center;color:var(--acc);font-size:.75rem;margin:.15rem 0}
 </style>
@@ -119,12 +116,13 @@
         <button class="ex" data-q="A>=2 | B>=2">A2 or B2</button>
         <button class="ex" data-q="A=1">exactly 1 A</button>
         <button class="ex" data-q="A>=1 &amp; !B>=1">A but no B</button>
-        <button class="ex" data-q="any 2 of (A>=1, B>=1)">any 2 of</button>
+        <button class="ex" data-q="(A>=1 &amp; B>=2) | A>=3">two combos</button>
       </div>
       <p class="hint">
         <code>&gt;=</code> <code>&lt;=</code> <code>=</code> <code>&gt;</code> <code>&lt;</code>,
         combined with <code>&amp;</code> <code>|</code> <code>!</code> and parentheses.
-        A bare name means &ge;1. <code>any k of (…)</code> works. Quote multi-word names.
+        A bare name means &ge;1. No "any k of" shorthand — write the OR of combos you mean
+        instead (the builder above does this for you). Quote multi-word names.
         Also <code>true</code> / <code>false</code>.
       </p>
       <p class="hint">

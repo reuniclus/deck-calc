@@ -74,9 +74,6 @@
   .bclause-rows{display:flex;flex-direction:column;gap:.2rem}
   .bclause-actions{display:flex;gap:.6rem;margin-top:.4rem;flex-wrap:wrap;align-items:center}
   .bclause-actions button{font-size:.72rem;color:var(--dim);padding:.15rem .4rem}
-  .bthresh-wrap{display:flex;gap:.35rem;align-items:center;font-size:.75rem}
-  .bthresh-wrap input[type="checkbox"]{width:auto}
-  .bthresh-wrap input.bthresh{width:3rem}
   .conj{color:var(--dim);font-size:.72rem;margin:.1rem 0;display:block}
   .conj-or{text-align:center;color:var(--acc);font-size:.75rem;margin:.15rem 0}
 </style>
@@ -119,12 +116,13 @@
         <button class="ex" data-q="A>=2 | B>=2">A2 or B2</button>
         <button class="ex" data-q="A=1">exactly 1 A</button>
         <button class="ex" data-q="A>=1 &amp; !B>=1">A but no B</button>
-        <button class="ex" data-q="any 2 of (A>=1, B>=1)">any 2 of</button>
+        <button class="ex" data-q="(A>=1 &amp; B>=2) | A>=3">two combos</button>
       </div>
       <p class="hint">
         <code>&gt;=</code> <code>&lt;=</code> <code>=</code> <code>&gt;</code> <code>&lt;</code>,
         combined with <code>&amp;</code> <code>|</code> <code>!</code> and parentheses.
-        A bare name means &ge;1. <code>any k of (…)</code> works. Quote multi-word names.
+        A bare name means &ge;1. No "any k of" shorthand — write the OR of combos you mean
+        instead (the builder above does this for you). Quote multi-word names.
         Also <code>true</code> / <code>false</code>.
       </p>
       <p class="hint">
@@ -337,7 +335,6 @@
       if (!t) throw new ParseError("unexpected end of query", src.length);
       if (t.k === "id") {
         const word = t.v.toLowerCase();
-        if (!t.quoted && (word === "any" || word === "atleast")) return parseAtLeastK();
         if (!t.quoted && word === "true") {
           p++;
           return { t: "and", kids: [] };
@@ -370,64 +367,10 @@
       }
       throw new ParseError('expected a group name or "("', t.i);
     }
-    function parseAtLeastK() {
-      p++;
-      const n = expect("num");
-      const of = peek();
-      if (of?.k === "id" && of.v.toLowerCase() === "of") p++;
-      expect("(");
-      const kids = [parseOr()];
-      while (at(",")) {
-        p++;
-        kids.push(parseOr());
-      }
-      expect(")");
-      return { t: "atLeastK", k: n.v, kids };
-    }
     if (toks.length === 0) throw new ParseError("empty query", 0);
     const e = parseOr();
     if (p < toks.length) throw new ParseError("unexpected trailing input", pos());
     return e;
-  }
-
-  // src/math/print.ts
-  var KEYWORDS = /* @__PURE__ */ new Set(["and", "or", "not", "any", "atleast", "of", "true", "false"]);
-  var BARE = /^[A-Za-z_][A-Za-z0-9_\-]*$/;
-  function quoteName(name) {
-    if (BARE.test(name) && !KEYWORDS.has(name.toLowerCase())) return name;
-    return name.includes('"') ? `'${name.replace(/'/g, "")}'` : `"${name}"`;
-  }
-  var OR = 1;
-  var AND = 2;
-  var UNARY = 3;
-  function printExpr(e, nameOf2) {
-    return go(e, OR);
-    function go(x, parent) {
-      switch (x.t) {
-        case "atom": {
-          const n = quoteName(nameOf2(x.g));
-          if (x.hi === null) return `${n}>=${x.lo}`;
-          if (x.lo === x.hi) return `${n}=${x.lo}`;
-          if (x.lo === 0) return `${n}<=${x.hi}`;
-          return wrap(`${n}>=${x.lo} & ${n}<=${x.hi}`, AND, parent);
-        }
-        case "not":
-          return `!${go(x.kid, UNARY)}`;
-        case "and":
-          if (x.kids.length === 0) return "true";
-          if (x.kids.length === 1) return go(x.kids[0], parent);
-          return wrap(x.kids.map((k) => go(k, AND)).join(" & "), AND, parent);
-        case "or":
-          if (x.kids.length === 0) return "false";
-          if (x.kids.length === 1) return go(x.kids[0], parent);
-          return wrap(x.kids.map((k) => go(k, OR)).join(" | "), OR, parent);
-        case "atLeastK":
-          return `any ${x.k} of (${x.kids.map((k) => go(k, OR)).join(", ")})`;
-      }
-    }
-  }
-  function wrap(s, own, parent) {
-    return parent > own ? `(${s})` : s;
   }
 
   // src/math/lnfact.ts
@@ -661,6 +604,46 @@
   }
   function isUpSet(b, sizes) {
     return Object.keys(b).every((g) => b[g].hi === (sizes[g] ?? 0));
+  }
+
+  // src/math/print.ts
+  var KEYWORDS = /* @__PURE__ */ new Set(["and", "or", "not", "any", "atleast", "of", "true", "false"]);
+  var BARE = /^[A-Za-z_][A-Za-z0-9_\-]*$/;
+  function quoteName(name) {
+    if (BARE.test(name) && !KEYWORDS.has(name.toLowerCase())) return name;
+    return name.includes('"') ? `'${name.replace(/'/g, "")}'` : `"${name}"`;
+  }
+  var OR = 1;
+  var AND = 2;
+  var UNARY = 3;
+  function printExpr(e, nameOf2) {
+    return go(e, OR);
+    function go(x, parent) {
+      switch (x.t) {
+        case "atom": {
+          const n = quoteName(nameOf2(x.g));
+          if (x.hi === null) return `${n}>=${x.lo}`;
+          if (x.lo === x.hi) return `${n}=${x.lo}`;
+          if (x.lo === 0) return `${n}<=${x.hi}`;
+          return wrap(`${n}>=${x.lo} & ${n}<=${x.hi}`, AND, parent);
+        }
+        case "not":
+          return `!${go(x.kid, UNARY)}`;
+        case "and":
+          if (x.kids.length === 0) return "true";
+          if (x.kids.length === 1) return go(x.kids[0], parent);
+          return wrap(x.kids.map((k) => go(k, AND)).join(" & "), AND, parent);
+        case "or":
+          if (x.kids.length === 0) return "false";
+          if (x.kids.length === 1) return go(x.kids[0], parent);
+          return wrap(x.kids.map((k) => go(k, OR)).join(" | "), OR, parent);
+        case "atLeastK":
+          return go(expandAtLeastK(x), parent);
+      }
+    }
+  }
+  function wrap(s, own, parent) {
+    return parent > own ? `(${s})` : s;
   }
 
   // src/math/boxdp.ts
@@ -964,8 +947,7 @@
   }
   function clauseExpr(c) {
     if (c.rows.length === 1) return rowExpr(c.rows[0]);
-    if (c.k >= c.rows.length) return { t: "and", kids: c.rows.map(rowExpr) };
-    return { t: "atLeastK", k: c.k, kids: c.rows.map(rowExpr) };
+    return { t: "and", kids: c.rows.map(rowExpr) };
   }
   function compileFlat(fq) {
     const nonEmpty = fq.clauses.filter((c) => c.rows.length > 0);
@@ -976,20 +958,6 @@
     if (e.t === "atom") return { g: e.g, neg: false, lo: e.lo, hi: e.hi };
     if (e.t === "not" && e.kid.t === "atom") {
       return { g: e.kid.g, neg: true, lo: e.kid.lo, hi: e.kid.hi };
-    }
-    return null;
-  }
-  function rowFromCondition(e) {
-    const direct = tryAtomOrNeg(e);
-    if (direct) return direct;
-    if (e.t === "and" && e.kids.length === 2) {
-      const [x, y] = e.kids;
-      if (x.t === "atom" && y.t === "atom" && x.g === y.g) {
-        const his = [x.hi, y.hi].filter((h) => h !== null);
-        if (his.length > 0) {
-          return { g: x.g, neg: false, lo: Math.max(x.lo, y.lo), hi: Math.min(...his) };
-        }
-      }
     }
     return null;
   }
@@ -1012,7 +980,7 @@
         rows.push({ g: e.g, neg: false, lo: e.lo, hi: e.hi });
         continue;
       }
-      const row = rowFromCondition(e);
+      const row = tryAtomOrNeg(e);
       if (!row) return null;
       rows.push(row);
     }
@@ -1020,15 +988,10 @@
   }
   function clauseFromExpr(e) {
     const single = tryAtomOrNeg(e);
-    if (single) return { rows: [single], k: 1 };
+    if (single) return { rows: [single] };
     if (e.t === "and") {
       const rows = rowsFromAndKids(e.kids);
-      return rows ? { rows, k: rows.length } : null;
-    }
-    if (e.t === "atLeastK") {
-      const rows = e.kids.map(rowFromCondition);
-      if (rows.some((r) => r === null)) return null;
-      return { rows, k: e.k };
+      return rows ? { rows } : null;
     }
     return null;
   }
@@ -1232,40 +1195,6 @@
       };
     });
   }
-  function thresholdControlsHtml(c, ci) {
-    const isAll = c.k >= c.rows.length;
-    const max = Math.max(1, c.rows.length);
-    return `<span class="bthresh-wrap">
-    <label class="hint"><input type="checkbox" class="ballreq" data-ci="${ci}" ${isAll ? "checked" : ""}> require all</label>
-    <span class="hint">or at least</span>
-    <input type="number" class="bthresh" data-ci="${ci}" min="1" max="${max}" value="${Math.min(c.k, max)}" ${isAll ? "disabled" : ""}>
-    <span class="hint">of ${c.rows.length} condition${c.rows.length === 1 ? "" : "s"}</span>
-  </span>`;
-  }
-  function wireThresholdControls(box) {
-    box.querySelectorAll(".ballreq").forEach((el) => {
-      el.onchange = () => {
-        const ci = Number(el.dataset.ci);
-        const c = state.builder.clauses[ci];
-        if (!c) return;
-        c.k = el.checked ? c.rows.length : Math.max(1, c.rows.length - 1);
-        renderBuilder();
-        applyBuilder();
-      };
-    });
-    box.querySelectorAll(".bthresh").forEach((el) => {
-      el.oninput = () => {
-        const ci = Number(el.dataset.ci);
-        const c = state.builder.clauses[ci];
-        if (!c) return;
-        const v = parseInt(el.value, 10);
-        if (Number.isFinite(v) && v >= 1) {
-          c.k = Math.min(v, c.rows.length);
-          applyBuilder();
-        }
-      };
-    });
-  }
   function renderBuilder() {
     const box = $("builder");
     if (state.groups.length === 0) {
@@ -1274,9 +1203,10 @@
     }
     if (state.builderUnavailable) {
       box.innerHTML = `<p class="hint flag">Current query has real nesting this picker can't represent
-       yet (e.g. an AND inside an OR that isn't shaped as combos, or a NOT of more than a single
-       condition) \u2014 too complex for this picker. Text still works below.
-       Your last builder state is kept in case you switch back.</p>`;
+       yet (e.g. an AND inside an OR that isn't shaped as combos, a NOT of more than a single
+       condition, or an "at least N of" threshold \u2014 write those as explicit combos instead) \u2014
+       too complex for this picker. Text still works below. Your last builder state is kept
+       in case you switch back.</p>`;
       return;
     }
     if (!state.builder) {
@@ -1289,7 +1219,6 @@
       return `<div class="bclause">
       <div class="bclause-rows">${rowsHtml || '<span class="hint">empty \u2014 add a condition</span>'}</div>
       <div class="bclause-actions">
-        ${c.rows.length > 1 ? thresholdControlsHtml(c, ci) : ""}
         <button class="baddCond" data-ci="${ci}">+ condition</button>
         <button class="bdelClause" data-ci="${ci}">\u2715 remove combo</button>
       </div>
@@ -1299,15 +1228,12 @@
     ${clausesHtml || '<p class="hint">No combos yet \u2014 add one.</p>'}
     <button id="baddClause">+ combo</button>`;
     wireRowControls(box);
-    wireThresholdControls(box);
     box.querySelectorAll(".baddCond").forEach((el) => {
       el.onclick = () => {
         const ci = Number(el.dataset.ci);
         const c = state.builder.clauses[ci];
         if (!c) return;
-        const wasAll = c.k >= c.rows.length;
         c.rows.push({ g: state.groups[0].id, neg: false, lo: 1, hi: null });
-        if (wasAll) c.k = c.rows.length;
         renderBuilder();
         applyBuilder();
       };
@@ -1325,21 +1251,14 @@
         const ci = Number(el.dataset.ci), ri = Number(el.dataset.ri);
         const clause = state.builder.clauses[ci];
         if (!clause) return;
-        const wasAll = clause.k >= clause.rows.length;
         clause.rows.splice(ri, 1);
-        if (clause.rows.length === 0) {
-          state.builder.clauses.splice(ci, 1);
-        } else if (wasAll) {
-          clause.k = clause.rows.length;
-        } else {
-          clause.k = Math.min(clause.k, clause.rows.length);
-        }
+        if (clause.rows.length === 0) state.builder.clauses.splice(ci, 1);
         renderBuilder();
         applyBuilder();
       };
     });
     $("baddClause").addEventListener("click", () => {
-      state.builder.clauses.push({ rows: [{ g: state.groups[0].id, neg: false, lo: 1, hi: null }], k: 1 });
+      state.builder.clauses.push({ rows: [{ g: state.groups[0].id, neg: false, lo: 1, hi: null }] });
       renderBuilder();
       applyBuilder();
     });

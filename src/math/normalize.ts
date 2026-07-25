@@ -17,7 +17,7 @@ export function normalize(expr: Expr, sizes: Sizes): Dnf {
 }
 
 /** "any k of these" -> OR over k-subsets. Costs C(c,k) clauses, so it is capped. */
-function expandAtLeastK(e: Expr): Expr {
+export function expandAtLeastK(e: Expr): Expr {
   switch (e.t) {
     case 'atom': return e;
     case 'not': return { t: 'not', kid: expandAtLeastK(e.kid) };

@@ -11,7 +11,7 @@ import { analyze } from '../math/analyze';
 import { turnForCardsSeen, DEFAULT_TURN_CONFIG, type TurnConfig } from '../model/turns';
 import { minimalVectors } from '../math/frontier';
 import { allocate, minSlotsForTarget } from '../math/allocate';
-import { compileFlat, decompileFlat, type Row, type Clause, type FlatQuery } from '../math/builder';
+import { compileFlat, decompileFlat, type Row, type FlatQuery } from '../math/builder';
 import {
   QueryTooLargeError, UnknownGroupError, collectGroups, pruneGroups, type Expr, type Sizes,
 } from '../math/expr';
@@ -207,36 +207,6 @@ function wireRowControls(box: HTMLElement): void {
 }
 
 /** "require all" checkbox + a threshold number, disabled while checked. k===rows.length IS "all" — no separate flag. */
-function thresholdControlsHtml(c: Clause, ci: number): string {
-  const isAll = c.k >= c.rows.length;
-  const max = Math.max(1, c.rows.length);
-  return `<span class="bthresh-wrap">
-    <label class="hint"><input type="checkbox" class="ballreq" data-ci="${ci}" ${isAll ? 'checked' : ''}> require all</label>
-    <span class="hint">or at least</span>
-    <input type="number" class="bthresh" data-ci="${ci}" min="1" max="${max}" value="${Math.min(c.k, max)}" ${isAll ? 'disabled' : ''}>
-    <span class="hint">of ${c.rows.length} condition${c.rows.length === 1 ? '' : 's'}</span>
-  </span>`;
-}
-
-function wireThresholdControls(box: HTMLElement): void {
-  box.querySelectorAll<HTMLInputElement>('.ballreq').forEach((el) => {
-    el.onchange = () => {
-      const ci = Number(el.dataset.ci);
-      const c = state.builder!.clauses[ci]; if (!c) return;
-      c.k = el.checked ? c.rows.length : Math.max(1, c.rows.length - 1);
-      renderBuilder(); applyBuilder();
-    };
-  });
-  box.querySelectorAll<HTMLInputElement>('.bthresh').forEach((el) => {
-    el.oninput = () => {
-      const ci = Number(el.dataset.ci);
-      const c = state.builder!.clauses[ci]; if (!c) return;
-      const v = parseInt(el.value, 10);
-      if (Number.isFinite(v) && v >= 1) { c.k = Math.min(v, c.rows.length); applyBuilder(); }
-    };
-  });
-}
-
 function renderBuilder(): void {
   const box = $('builder');
   if (state.groups.length === 0) {
@@ -245,9 +215,10 @@ function renderBuilder(): void {
   }
   if (state.builderUnavailable) {
     box.innerHTML = `<p class="hint flag">Current query has real nesting this picker can't represent
-       yet (e.g. an AND inside an OR that isn't shaped as combos, or a NOT of more than a single
-       condition) — too complex for this picker. Text still works below.
-       Your last builder state is kept in case you switch back.</p>`;
+       yet (e.g. an AND inside an OR that isn't shaped as combos, a NOT of more than a single
+       condition, or an "at least N of" threshold — write those as explicit combos instead) —
+       too complex for this picker. Text still works below. Your last builder state is kept
+       in case you switch back.</p>`;
     return;
   }
   if (!state.builder) {
@@ -263,7 +234,6 @@ function renderBuilder(): void {
     return `<div class="bclause">
       <div class="bclause-rows">${rowsHtml || '<span class="hint">empty — add a condition</span>'}</div>
       <div class="bclause-actions">
-        ${c.rows.length > 1 ? thresholdControlsHtml(c, ci) : ''}
         <button class="baddCond" data-ci="${ci}">+ condition</button>
         <button class="bdelClause" data-ci="${ci}">✕ remove combo</button>
       </div>
@@ -275,14 +245,11 @@ function renderBuilder(): void {
     <button id="baddClause">+ combo</button>`;
 
   wireRowControls(box);
-  wireThresholdControls(box);
   box.querySelectorAll<HTMLButtonElement>('.baddCond').forEach((el) => {
     el.onclick = () => {
       const ci = Number(el.dataset.ci);
       const c = state.builder!.clauses[ci]; if (!c) return;
-      const wasAll = c.k >= c.rows.length;
       c.rows.push({ g: state.groups[0]!.id, neg: false, lo: 1, hi: null });
-      if (wasAll) c.k = c.rows.length; // stay "all" as the combo grows
       renderBuilder(); applyBuilder();
     };
   });
@@ -298,19 +265,17 @@ function renderBuilder(): void {
       const ci = Number(el.dataset.ci), ri = Number(el.dataset.ri);
       const clause = state.builder!.clauses[ci];
       if (!clause) return;
-      const wasAll = clause.k >= clause.rows.length;
       clause.rows.splice(ri, 1);
-      if (clause.rows.length === 0) { state.builder!.clauses.splice(ci, 1); }
-      else if (wasAll) { clause.k = clause.rows.length; } // stay "all" as the combo shrinks
-      else { clause.k = Math.min(clause.k, clause.rows.length); }
+      if (clause.rows.length === 0) state.builder!.clauses.splice(ci, 1); // drop the now-empty combo
       renderBuilder(); applyBuilder();
     };
   });
   $('baddClause').addEventListener('click', () => {
-    state.builder!.clauses.push({ rows: [{ g: state.groups[0]!.id, neg: false, lo: 1, hi: null }], k: 1 });
+    state.builder!.clauses.push({ rows: [{ g: state.groups[0]!.id, neg: false, lo: 1, hi: null }] });
     renderBuilder(); applyBuilder();
   });
 }
+
 
 
 
