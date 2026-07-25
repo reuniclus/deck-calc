@@ -41,10 +41,12 @@
   .scroll thead th{position:sticky;top:0;background:var(--panel)}
   tr.hit td{background:rgba(104,211,145,.08)}
   tr.hit td:nth-child(2){color:var(--ok)}
-  svg .line{fill:none;stroke:var(--acc);stroke-width:2}
-  svg .phantom{fill:none;stroke:var(--acc);stroke-width:1.5}
-  svg .phantom.mag1{opacity:.45}
-  svg .phantom.mag2{opacity:.18}
+  svg .line{fill:none;stroke:var(--acc);stroke-width:2.5}
+  svg .phantom{fill:none;stroke-width:1.5;cursor:pointer}
+  svg .line{cursor:pointer}
+  .swatch{display:inline-flex;align-items:center;gap:.3rem;margin-right:.6rem;font-size:.75rem;color:var(--dim)}
+  .swatch i{display:inline-block;width:.6rem;height:.6rem;border-radius:50%}
+  #curveTip{font-style:italic}
   svg .ax{stroke:var(--line)}
   svg .tgt{stroke:var(--ok);stroke-dasharray:4 3;opacity:.7}
   svg .hit{fill:var(--ok)}
@@ -62,6 +64,12 @@
   .bneg.on{color:var(--bad);border-color:var(--bad)}
   .bdel{color:var(--dim);padding:.15rem .4rem}
   #builder select, #builder input{padding:.25rem .4rem}
+  .bclause{border:1px dashed var(--line);border-radius:6px;padding:.5rem;margin-bottom:.4rem}
+  .bclause-rows{display:flex;flex-direction:column;gap:.2rem}
+  .bclause-actions{display:flex;gap:.5rem;margin-top:.4rem}
+  .bclause-actions button{font-size:.72rem;color:var(--dim);padding:.15rem .4rem}
+  .conj{color:var(--dim);font-size:.72rem;margin:.1rem 0;display:block}
+  .conj-or{text-align:center;color:var(--acc);font-size:.75rem;margin:.15rem 0}
 </style>
 </head>
 <body>
@@ -932,44 +940,93 @@
   }
 
   // src/math/builder.ts
-  function compileFlat(fq) {
-    const kids = fq.rows.map((r) => {
-      const atom = { t: "atom", g: r.g, lo: r.lo, hi: r.hi };
-      return r.neg ? { t: "not", kid: atom } : atom;
-    });
-    if (fq.mode === "and") return { t: "and", kids };
-    if (fq.mode === "or") return { t: "or", kids };
-    return { t: "atLeastK", k: fq.k, kids };
+  function rowExpr(r) {
+    const atom = { t: "atom", g: r.g, lo: r.lo, hi: r.hi };
+    return r.neg ? { t: "not", kid: atom } : atom;
   }
-  function asRow(e) {
+  function clauseExpr(c) {
+    if (c.rows.length === 1) return rowExpr(c.rows[0]);
+    return { t: "and", kids: c.rows.map(rowExpr) };
+  }
+  function compileFlat(fq) {
+    if (fq.mode === "and") return { t: "and", kids: fq.rows.map(rowExpr) };
+    if (fq.mode === "atLeastK") return { t: "atLeastK", k: fq.k, kids: fq.rows.map(rowExpr) };
+    const nonEmpty = fq.clauses.filter((c) => c.rows.length > 0);
+    return { t: "or", kids: nonEmpty.map(clauseExpr) };
+  }
+  function tryAtomOrNeg(e) {
     if (e.t === "atom") return { g: e.g, neg: false, lo: e.lo, hi: e.hi };
     if (e.t === "not" && e.kid.t === "atom") {
       return { g: e.kid.g, neg: true, lo: e.kid.lo, hi: e.kid.hi };
     }
+    return null;
+  }
+  function rowFromCondition(e) {
+    const direct = tryAtomOrNeg(e);
+    if (direct) return direct;
     if (e.t === "and" && e.kids.length === 2) {
       const [x, y] = e.kids;
       if (x.t === "atom" && y.t === "atom" && x.g === y.g) {
-        const lo = Math.max(x.lo, y.lo);
-        const hiCandidates = [x.hi, y.hi].filter((h) => h !== null);
-        if (hiCandidates.length > 0) {
-          return { g: x.g, neg: false, lo, hi: Math.min(...hiCandidates) };
+        const his = [x.hi, y.hi].filter((h) => h !== null);
+        if (his.length > 0) {
+          return { g: x.g, neg: false, lo: Math.max(x.lo, y.lo), hi: Math.min(...his) };
         }
       }
     }
     return null;
   }
+  function rowsFromAndKids(kids) {
+    const remaining = kids.slice();
+    const rows = [];
+    while (remaining.length > 0) {
+      const e = remaining.shift();
+      if (e.t === "atom") {
+        const partnerIdx = remaining.findIndex((o) => o.t === "atom" && o.g === e.g);
+        if (partnerIdx !== -1) {
+          const partner = remaining[partnerIdx];
+          const his = [e.hi, partner.hi].filter((h) => h !== null);
+          if (his.length > 0) {
+            remaining.splice(partnerIdx, 1);
+            rows.push({ g: e.g, neg: false, lo: Math.max(e.lo, partner.lo), hi: Math.min(...his) });
+            continue;
+          }
+        }
+        rows.push({ g: e.g, neg: false, lo: e.lo, hi: e.hi });
+        continue;
+      }
+      const row = rowFromCondition(e);
+      if (!row) return null;
+      rows.push(row);
+    }
+    return rows;
+  }
   function decompileFlat(e) {
-    const single = asRow(e);
-    if (single) return { mode: "and", k: 1, rows: [single] };
-    if (e.t === "and" || e.t === "or") {
-      const rows = e.kids.map(asRow);
-      if (rows.some((r) => r === null)) return null;
-      return { mode: e.t, k: rows.length, rows };
+    const empty = { rows: [], clauses: [], k: 1 };
+    const single = tryAtomOrNeg(e);
+    if (single) return { mode: "and", ...empty, rows: [single] };
+    if (e.t === "and") {
+      const rows = rowsFromAndKids(e.kids);
+      return rows ? { mode: "and", ...empty, rows } : null;
     }
     if (e.t === "atLeastK") {
-      const rows = e.kids.map(asRow);
+      const rows = e.kids.map(rowFromCondition);
       if (rows.some((r) => r === null)) return null;
-      return { mode: "atLeastK", k: e.k, rows };
+      return { mode: "atLeastK", ...empty, rows, k: e.k };
+    }
+    if (e.t === "or") {
+      const clauses = [];
+      for (const kid of e.kids) {
+        if (kid.t === "and") {
+          const rows = rowsFromAndKids(kid.kids);
+          if (!rows) return null;
+          clauses.push({ rows });
+        } else {
+          const row = rowFromCondition(kid);
+          if (!row) return null;
+          clauses.push({ rows: [row] });
+        }
+      }
+      return { mode: "or", ...empty, clauses };
     }
     return null;
   }
@@ -1067,6 +1124,103 @@
     if (row.lo === row.hi) return "eq";
     return "range";
   }
+  function groupOptsHtml(selected) {
+    return state.groups.map((g) => `<option value="${g.id}" ${g.id === selected ? "selected" : ""}>${escapeHtml(g.name)}</option>`).join("");
+  }
+  function rowControlsHtml(r, attrs) {
+    const cmp = cmpOf(r);
+    return `<span class="brow" ${attrs}>
+    <button class="bneg ${r.neg ? "on" : ""}" ${attrs} title="negate">${r.neg ? "NOT" : "not"}</button>
+    <select class="bgroup" ${attrs}>${groupOptsHtml(r.g)}</select>
+    <select class="bcmp" ${attrs}>
+      <option value="gte" ${cmp === "gte" ? "selected" : ""}>&ge;</option>
+      <option value="lte" ${cmp === "lte" ? "selected" : ""}>&le;</option>
+      <option value="eq" ${cmp === "eq" ? "selected" : ""}>=</option>
+      <option value="range" ${cmp === "range" ? "selected" : ""}>range</option>
+    </select>
+    <input class="bnum1" ${attrs} type="number" min="0" value="${cmp === "lte" ? r.hi : r.lo}" style="width:3.5rem">
+    ${cmp === "range" ? `<span class="hint">to</span><input class="bnum2" ${attrs} type="number" min="0" value="${r.hi}" style="width:3.5rem">` : ""}
+    <button class="bdel" ${attrs}>\u2715</button>
+  </span>`;
+  }
+  function locateRow(el) {
+    const b = state.builder;
+    if (!b) return void 0;
+    if (el.dataset.ci !== void 0) {
+      return b.clauses[Number(el.dataset.ci)]?.rows[Number(el.dataset.ri)];
+    }
+    return b.rows[Number(el.dataset.i)];
+  }
+  function wireRowControls(box) {
+    box.querySelectorAll(".bneg").forEach((el) => {
+      el.onclick = () => {
+        const r = locateRow(el);
+        if (!r) return;
+        r.neg = !r.neg;
+        renderBuilder();
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bgroup").forEach((el) => {
+      el.onchange = () => {
+        const r = locateRow(el);
+        if (!r) return;
+        r.g = el.value;
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bcmp").forEach((el) => {
+      el.onchange = () => {
+        const r = locateRow(el);
+        if (!r) return;
+        const v = el.value;
+        const g = state.groups.find((x) => x.id === r.g);
+        const K = g?.count ?? 1;
+        if (v === "gte") {
+          r.lo = Math.max(1, r.lo || 1);
+          r.hi = null;
+        } else if (v === "lte") {
+          r.hi = r.hi ?? K;
+          r.lo = 0;
+        } else if (v === "eq") {
+          const n = r.lo || 1;
+          r.lo = n;
+          r.hi = n;
+        } else {
+          r.hi = r.hi ?? K;
+          r.lo = Math.min(r.lo || 0, r.hi);
+        }
+        renderBuilder();
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bnum1").forEach((el) => {
+      el.oninput = () => {
+        const r = locateRow(el);
+        if (!r) return;
+        const v = parseInt(el.value, 10);
+        if (!Number.isFinite(v) || v < 0) return;
+        const cmp = cmpOf(r);
+        if (cmp === "lte") r.hi = v;
+        else if (cmp === "eq") {
+          r.lo = v;
+          r.hi = v;
+        } else r.lo = v;
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bnum2").forEach((el) => {
+      el.oninput = () => {
+        const r = locateRow(el);
+        if (!r) return;
+        const v = parseInt(el.value, 10);
+        if (Number.isFinite(v) && v >= 0) {
+          r.hi = v;
+          applyBuilder();
+        }
+      };
+    });
+  }
   function renderBuilder() {
     const box = $("builder");
     if (state.groups.length === 0) {
@@ -1074,8 +1228,9 @@
       return;
     }
     if (state.builderUnavailable) {
-      box.innerHTML = `<p class="hint flag">Current query has real nesting (mixed AND/OR, or NOT of more than
-       a single condition) \u2014 too complex for this picker. Text still works below.
+      box.innerHTML = `<p class="hint flag">Current query has real nesting this picker can't represent
+       yet (e.g. an AND inside an OR that isn't shaped as "combos", or a NOT of more than a single
+       condition) \u2014 too complex for this picker. Text still works below.
        Your last builder state is kept in case you switch back.</p>`;
       return;
     }
@@ -1084,119 +1239,68 @@
       return;
     }
     const b = state.builder;
-    const groupOpts = (selected) => state.groups.map((g) => `<option value="${g.id}" ${g.id === selected ? "selected" : ""}>${escapeHtml(g.name)}</option>`).join("");
-    const rowsHtml = b.rows.map((r, i) => {
-      const cmp = cmpOf(r);
-      return `<div class="brow" data-i="${i}">
-      <button class="bneg ${r.neg ? "on" : ""}" data-i="${i}" title="negate">${r.neg ? "NOT" : "not"}</button>
-      <select class="bgroup" data-i="${i}">${groupOpts(r.g)}</select>
-      <select class="bcmp" data-i="${i}">
-        <option value="gte" ${cmp === "gte" ? "selected" : ""}>&ge;</option>
-        <option value="lte" ${cmp === "lte" ? "selected" : ""}>&le;</option>
-        <option value="eq" ${cmp === "eq" ? "selected" : ""}>=</option>
-        <option value="range" ${cmp === "range" ? "selected" : ""}>range</option>
-      </select>
-      <input class="bnum1" data-i="${i}" type="number" min="0" value="${cmp === "lte" ? r.hi : r.lo}" style="width:3.5rem">
-      ${cmp === "range" ? `<span class="hint">to</span><input class="bnum2" data-i="${i}" type="number" min="0" value="${r.hi}" style="width:3.5rem">` : ""}
-      <button class="bdel" data-i="${i}">\u2715</button>
-    </div>`;
-    }).join("");
+    const modeSelectHtml = `
+    <select id="bmode">
+      <option value="and" ${b.mode === "and" ? "selected" : ""}>all of these (AND)</option>
+      <option value="or" ${b.mode === "or" ? "selected" : ""}>any of these combos (OR)</option>
+      <option value="atLeastK" ${b.mode === "atLeastK" ? "selected" : ""}>at least N of these</option>
+    </select>
+    ${b.mode === "atLeastK" ? `<input id="bk" type="number" min="1" max="${Math.max(1, b.rows.length)}" value="${b.k}" style="width:3.5rem">` : ""}`;
+    if (b.mode === "or") {
+      const clausesHtml = b.clauses.map((c, ci) => {
+        const rowsHtml2 = c.rows.map((r, ri) => rowControlsHtml(r, `data-ci="${ci}" data-ri="${ri}"`)).join('<span class="hint conj">and</span>');
+        return `<div class="bclause">
+        <div class="bclause-rows">${rowsHtml2 || '<span class="hint">empty \u2014 add a condition</span>'}</div>
+        <div class="bclause-actions">
+          <button class="baddCond" data-ci="${ci}">+ and condition</button>
+          <button class="bdelClause" data-ci="${ci}">\u2715 remove this combo</button>
+        </div>
+      </div>`;
+      }).join('<div class="hint conj-or">\u2014 or \u2014</div>');
+      box.innerHTML = `
+      <div class="row" style="margin-bottom:.5rem">${modeSelectHtml}<button id="baddClause">+ combo</button></div>
+      ${clausesHtml || '<p class="hint">No combos yet \u2014 add one.</p>'}`;
+      wireModeControls();
+      wireRowControls(box);
+      box.querySelectorAll(".baddCond").forEach((el) => {
+        el.onclick = () => {
+          const ci = Number(el.dataset.ci);
+          state.builder.clauses[ci].rows.push({ g: state.groups[0].id, neg: false, lo: 1, hi: null });
+          renderBuilder();
+          applyBuilder();
+        };
+      });
+      box.querySelectorAll(".bdelClause").forEach((el) => {
+        el.onclick = () => {
+          const ci = Number(el.dataset.ci);
+          state.builder.clauses.splice(ci, 1);
+          renderBuilder();
+          applyBuilder();
+        };
+      });
+      box.querySelectorAll(".bdel").forEach((el) => {
+        el.onclick = () => {
+          const ci = Number(el.dataset.ci), ri = Number(el.dataset.ri);
+          const clause = state.builder.clauses[ci];
+          if (!clause) return;
+          clause.rows.splice(ri, 1);
+          if (clause.rows.length === 0) state.builder.clauses.splice(ci, 1);
+          renderBuilder();
+          applyBuilder();
+        };
+      });
+      return;
+    }
+    const rowsHtml = b.rows.map((r, i) => rowControlsHtml(r, `data-i="${i}"`)).join("");
     box.innerHTML = `
-    <div class="row" style="margin-bottom:.5rem">
-      <select id="bmode">
-        <option value="and" ${b.mode === "and" ? "selected" : ""}>all of these (AND)</option>
-        <option value="or" ${b.mode === "or" ? "selected" : ""}>any of these (OR)</option>
-        <option value="atLeastK" ${b.mode === "atLeastK" ? "selected" : ""}>at least N of these</option>
-      </select>
-      ${b.mode === "atLeastK" ? `<input id="bk" type="number" min="1" max="${b.rows.length}" value="${b.k}" style="width:3.5rem">` : ""}
-      <button id="baddRow">+ condition</button>
-    </div>
+    <div class="row" style="margin-bottom:.5rem">${modeSelectHtml}<button id="baddRow">+ condition</button></div>
     ${rowsHtml || '<p class="hint">No conditions yet \u2014 add one.</p>'}`;
-    $("bmode").onchange = (e) => {
-      state.builder.mode = e.target.value;
-      if (state.builder.mode === "atLeastK") {
-        state.builder.k = Math.min(state.builder.k || 1, state.builder.rows.length || 1);
-      }
-      renderBuilder();
-      applyBuilder();
-    };
-    const bk = document.getElementById("bk");
-    if (bk) bk.oninput = () => {
-      const v = parseInt(bk.value, 10);
-      if (Number.isFinite(v) && v >= 1) {
-        state.builder.k = v;
-        applyBuilder();
-      }
-    };
+    wireModeControls();
+    wireRowControls(box);
     $("baddRow").addEventListener("click", () => {
       state.builder.rows.push({ g: state.groups[0].id, neg: false, lo: 1, hi: null });
       renderBuilder();
       applyBuilder();
-    });
-    box.querySelectorAll(".bneg").forEach((el) => {
-      el.onclick = () => {
-        const i = Number(el.dataset.i);
-        state.builder.rows[i].neg = !state.builder.rows[i].neg;
-        renderBuilder();
-        applyBuilder();
-      };
-    });
-    box.querySelectorAll(".bgroup").forEach((el) => {
-      el.onchange = () => {
-        const i = Number(el.dataset.i);
-        state.builder.rows[i].g = el.value;
-        applyBuilder();
-      };
-    });
-    box.querySelectorAll(".bcmp").forEach((el) => {
-      el.onchange = () => {
-        const i = Number(el.dataset.i);
-        const row = state.builder.rows[i];
-        const v = el.value;
-        const g = state.groups.find((x) => x.id === row.g);
-        const K = g?.count ?? 1;
-        if (v === "gte") {
-          row.lo = Math.max(1, row.lo || 1);
-          row.hi = null;
-        } else if (v === "lte") {
-          row.hi = row.hi ?? K;
-          row.lo = 0;
-        } else if (v === "eq") {
-          const n = row.lo || 1;
-          row.lo = n;
-          row.hi = n;
-        } else {
-          row.hi = row.hi ?? K;
-          row.lo = Math.min(row.lo || 0, row.hi);
-        }
-        renderBuilder();
-        applyBuilder();
-      };
-    });
-    box.querySelectorAll(".bnum1").forEach((el) => {
-      el.oninput = () => {
-        const i = Number(el.dataset.i);
-        const row = state.builder.rows[i];
-        const v = parseInt(el.value, 10);
-        if (!Number.isFinite(v) || v < 0) return;
-        const cmp = cmpOf(row);
-        if (cmp === "lte") row.hi = v;
-        else if (cmp === "eq") {
-          row.lo = v;
-          row.hi = v;
-        } else row.lo = v;
-        applyBuilder();
-      };
-    });
-    box.querySelectorAll(".bnum2").forEach((el) => {
-      el.oninput = () => {
-        const i = Number(el.dataset.i);
-        const v = parseInt(el.value, 10);
-        if (Number.isFinite(v) && v >= 0) {
-          state.builder.rows[i].hi = v;
-          applyBuilder();
-        }
-      };
     });
     box.querySelectorAll(".bdel").forEach((el) => {
       el.onclick = () => {
@@ -1209,6 +1313,33 @@
         applyBuilder();
       };
     });
+    function wireModeControls() {
+      $("bmode").onchange = (e) => {
+        switchBuilderMode(e.target.value);
+      };
+      const bk = document.getElementById("bk");
+      if (bk) bk.oninput = () => {
+        const v = parseInt(bk.value, 10);
+        if (Number.isFinite(v) && v >= 1) {
+          state.builder.k = v;
+          applyBuilder();
+        }
+      };
+    }
+  }
+  function switchBuilderMode(mode) {
+    const b = state.builder;
+    if (mode === "or" && b.mode !== "or") {
+      b.clauses = b.rows.map((r) => ({ rows: [r] }));
+      b.rows = [];
+    } else if (mode !== "or" && b.mode === "or") {
+      b.rows = b.clauses.flatMap((c) => c.rows);
+      b.clauses = [];
+    }
+    b.mode = mode;
+    if (mode === "atLeastK") b.k = Math.min(b.k || 1, Math.max(1, b.rows.length));
+    renderBuilder();
+    applyBuilder();
   }
   function renderDeck() {
     const rows = state.groups.map((g) => `
@@ -1322,23 +1453,44 @@
     const a = analyze(res.curve, state.target, res.monotone);
     renderStatus(res, a);
     renderSummary(a);
-    renderCurve(a, computePhantomCurves(state.ast));
+    renderCurve(a, computeCurveSeries(state.ast, res.curve));
     renderTable(a);
     renderGrid();
     renderFrontier(dnf, a, sizes);
   }
-  function computePhantomCurves(ast) {
-    const g = state.groups.find((x) => x.id === state.gridGroup);
-    if (!g) return [];
-    const out = [];
-    for (const offset of [-2, -1, 1, 2]) {
-      const count = g.count + offset;
-      if (count < 0) continue;
-      const groups = state.groups.map((x) => x.id === g.id ? { ...x, count } : x);
-      try {
-        const s = sizesOf(groups);
-        out.push({ offset, curve: evaluate(state.deckSize, s, normalize(ast, s)).curve });
-      } catch {
+  var GROUP_HUES = /* @__PURE__ */ new Map();
+  function hueFor(groupId) {
+    if (!GROUP_HUES.has(groupId)) {
+      GROUP_HUES.set(groupId, Math.round(GROUP_HUES.size * 137.508 % 360));
+    }
+    return GROUP_HUES.get(groupId);
+  }
+  function computeCurveSeries(ast, realCurve) {
+    const compositionOf = (groups) => groups.map((x) => `${x.name}=${x.count}`).join(", ");
+    const out = [{
+      curve: realCurve,
+      offset: null,
+      groupId: null,
+      color: "var(--acc)",
+      composition: compositionOf(state.groups)
+    }];
+    for (const g of state.groups) {
+      const color = `hsl(${hueFor(g.id)}deg 65% 58%)`;
+      for (const offset of [-2, -1, 1, 2]) {
+        const count = g.count + offset;
+        if (count < 0) continue;
+        const groups = state.groups.map((x) => x.id === g.id ? { ...x, count } : x);
+        try {
+          const s = sizesOf(groups);
+          out.push({
+            curve: evaluate(state.deckSize, s, normalize(ast, s)).curve,
+            offset,
+            groupId: g.id,
+            color,
+            composition: compositionOf(groups)
+          });
+        } catch {
+        }
       }
     }
     return out;
@@ -1446,25 +1598,41 @@
     const after = a.monotone ? "Past that, every extra card buys less than the one before." : `P turns over at n=${a.argmaxP}; past there extra cards actively hurt.`;
     $("summary").innerHTML = `<p>${line}</p><p class="hint">Steepest gain: card ${a.knee + 1} is worth ${signed(knee)}. ${after}</p>`;
   }
-  function renderCurve(a, phantoms = []) {
+  function renderCurve(a, series) {
     const N = a.curve.length - 1;
     const W = 640, H = 200, PAD = 28;
     const x = (n) => PAD + n / N * (W - PAD - 8);
     const y = (p) => H - PAD - p * (H - PAD - 10);
     const pointsOf = (curve) => Array.from(curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
-    const pts = pointsOf(a.curve);
     const gridLines = [0.25, 0.5, 0.75, 1].map((p) => `<line x1="${PAD}" x2="${W - 8}" y1="${y(p)}" y2="${y(p)}" class="ax"/>
      <text x="2" y="${y(p) + 4}" class="lbl">${p * 100}%</text>`).join("");
     const ticks = tickValues(N).map((n) => `<text x="${x(n)}" y="${H - 8}" class="lbl mid">${n}</text>`).join("");
     const targetLine = `<line x1="${PAD}" x2="${W - 8}" y1="${y(a.target)}" y2="${y(a.target)}" class="tgt"/>`;
     const marks = a.drawsNeeded !== null ? `<circle cx="${x(a.drawsNeeded)}" cy="${y(a.curve[a.drawsNeeded])}" r="4" class="hit"/>` : "";
-    const phantomLines = phantoms.slice().sort((p, q) => Math.abs(q.offset) - Math.abs(p.offset)).map((p) => `<polyline points="${pointsOf(p.curve)}" class="phantom mag${Math.abs(p.offset)}"/>`).join("");
-    const g = state.groups.find((x2) => x2.id === state.gridGroup);
-    const legend = phantoms.length > 0 && g ? `<p class="hint">Faint lines: <b>${escapeHtml(g.name)}</b> at ${phantoms.slice().sort((p, q) => p.offset - q.offset).map((p) => p.offset > 0 ? `+${p.offset}` : p.offset).join(", ")} compared to its current ${g.count} copies \u2014 closer counts are more solid.</p>` : "";
+    const phantoms = series.filter((s) => s.offset !== null).sort((p, q) => Math.abs(q.offset) - Math.abs(p.offset));
+    const real = series.find((s) => s.offset === null);
+    const phantomLines = phantoms.map((s) => {
+      const opacity = Math.abs(s.offset) === 1 ? 0.45 : 0.18;
+      return `<polyline points="${pointsOf(s.curve)}" class="phantom" data-tip="${escapeAttr(s.composition)}"
+      style="stroke:${s.color};opacity:${opacity}"/>`;
+    }).join("");
+    const realLine = `<polyline points="${pointsOf(real.curve)}" class="line" data-tip="${escapeAttr(real.composition)}"/>`;
+    const legend = state.groups.map(
+      (g) => `<span class="swatch"><i style="background:hsl(${hueFor(g.id)}deg 65% 58%)"></i>${escapeHtml(g.name)}</span>`
+    ).join(" ");
     $("curve").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}
-      ${phantomLines}
-      <polyline points="${pts}" class="line"/>${marks}${ticks}
-      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>${legend}`;
+      ${phantomLines}${realLine}${marks}${ticks}
+      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>
+     <p class="hint">Faint lines: +-1/+-2 copies of each group, holding the rest fixed.
+       ${legend}</p>
+     <p class="hint" id="curveTip">Hover or tap a line to see the composition that produced it.</p>`;
+    $("curve").querySelectorAll("polyline[data-tip]").forEach((el) => {
+      const show = () => {
+        $("curveTip").textContent = el.dataset.tip ?? "";
+      };
+      el.addEventListener("mouseenter", show);
+      el.addEventListener("click", show);
+    });
   }
   function tickValues(N) {
     const step = N <= 20 ? 5 : N <= 60 ? 10 : 25;

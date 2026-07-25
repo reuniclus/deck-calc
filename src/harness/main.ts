@@ -11,7 +11,7 @@ import { analyze } from '../math/analyze';
 import { turnForCardsSeen, DEFAULT_TURN_CONFIG, type TurnConfig } from '../model/turns';
 import { minimalVectors } from '../math/frontier';
 import { allocate, minSlotsForTarget } from '../math/allocate';
-import { compileFlat, decompileFlat, type Row, type Mode } from '../math/builder';
+import { compileFlat, decompileFlat, type Row, type Mode, type FlatQuery } from '../math/builder';
 import {
   QueryTooLargeError, UnknownGroupError, collectGroups, pruneGroups, type Expr, type Sizes,
 } from '../math/expr';
@@ -39,7 +39,7 @@ const state = {
    * the AUTHORING side: editing a row calls applyBuilder(), which compiles ->
    * prints -> setQueryText, so text stays the single source of truth throughout.
    */
-  builder: null as { mode: Mode; k: number; rows: Row[] } | null,
+  builder: null as FlatQuery | null,
   builderUnavailable: false,
   target: 0.9,
   turnCfg: { ...DEFAULT_TURN_CONFIG } as TurnConfig,
@@ -122,6 +122,90 @@ function cmpOf(row: Row): 'gte' | 'lte' | 'eq' | 'range' {
   return 'range';
 }
 
+function groupOptsHtml(selected: string): string {
+  return state.groups
+    .map((g) => `<option value="${g.id}" ${g.id === selected ? 'selected' : ''}>${escapeHtml(g.name)}</option>`)
+    .join('');
+}
+
+/** One condition's controls. `attrs` locates it later — either `data-i` (flat) or `data-ci`+`data-ri` (inside a combo). */
+function rowControlsHtml(r: Row, attrs: string): string {
+  const cmp = cmpOf(r);
+  return `<span class="brow" ${attrs}>
+    <button class="bneg ${r.neg ? 'on' : ''}" ${attrs} title="negate">${r.neg ? 'NOT' : 'not'}</button>
+    <select class="bgroup" ${attrs}>${groupOptsHtml(r.g)}</select>
+    <select class="bcmp" ${attrs}>
+      <option value="gte" ${cmp === 'gte' ? 'selected' : ''}>&ge;</option>
+      <option value="lte" ${cmp === 'lte' ? 'selected' : ''}>&le;</option>
+      <option value="eq" ${cmp === 'eq' ? 'selected' : ''}>=</option>
+      <option value="range" ${cmp === 'range' ? 'selected' : ''}>range</option>
+    </select>
+    <input class="bnum1" ${attrs} type="number" min="0" value="${cmp === 'lte' ? r.hi : r.lo}" style="width:3.5rem">
+    ${cmp === 'range' ? `<span class="hint">to</span><input class="bnum2" ${attrs} type="number" min="0" value="${r.hi}" style="width:3.5rem">` : ''}
+    <button class="bdel" ${attrs}>✕</button>
+  </span>`;
+}
+
+/** Reads a row's location (flat index, or clause+row index) off an element's dataset. */
+function locateRow(el: HTMLElement): Row | undefined {
+  const b = state.builder;
+  if (!b) return undefined;
+  if (el.dataset.ci !== undefined) {
+    return b.clauses[Number(el.dataset.ci)]?.rows[Number(el.dataset.ri)];
+  }
+  return b.rows[Number(el.dataset.i)];
+}
+
+/** Shared wiring for value-only edits (negate/group/comparator/numbers) — works for both flat rows and clause rows. */
+function wireRowControls(box: HTMLElement): void {
+  box.querySelectorAll<HTMLButtonElement>('.bneg').forEach((el) => {
+    el.onclick = () => {
+      const r = locateRow(el); if (!r) return;
+      r.neg = !r.neg;
+      renderBuilder(); applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLSelectElement>('.bgroup').forEach((el) => {
+    el.onchange = () => {
+      const r = locateRow(el); if (!r) return;
+      r.g = el.value;
+      applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLSelectElement>('.bcmp').forEach((el) => {
+    el.onchange = () => {
+      const r = locateRow(el); if (!r) return;
+      const v = el.value as 'gte' | 'lte' | 'eq' | 'range';
+      const g = state.groups.find((x) => x.id === r.g);
+      const K = g?.count ?? 1;
+      if (v === 'gte') { r.lo = Math.max(1, r.lo || 1); r.hi = null; }
+      else if (v === 'lte') { r.hi = r.hi ?? K; r.lo = 0; }
+      else if (v === 'eq') { const n = r.lo || 1; r.lo = n; r.hi = n; }
+      else { r.hi = r.hi ?? K; r.lo = Math.min(r.lo || 0, r.hi); }
+      renderBuilder(); applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLInputElement>('.bnum1').forEach((el) => {
+    el.oninput = () => {
+      const r = locateRow(el); if (!r) return;
+      const v = parseInt(el.value, 10);
+      if (!Number.isFinite(v) || v < 0) return;
+      const cmp = cmpOf(r);
+      if (cmp === 'lte') r.hi = v;
+      else if (cmp === 'eq') { r.lo = v; r.hi = v; }
+      else r.lo = v; // gte or range's lo
+      applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLInputElement>('.bnum2').forEach((el) => {
+    el.oninput = () => {
+      const r = locateRow(el); if (!r) return;
+      const v = parseInt(el.value, 10);
+      if (Number.isFinite(v) && v >= 0) { r.hi = v; applyBuilder(); }
+    };
+  });
+}
+
 function renderBuilder(): void {
   const box = $('builder');
   if (state.groups.length === 0) {
@@ -129,8 +213,9 @@ function renderBuilder(): void {
     return;
   }
   if (state.builderUnavailable) {
-    box.innerHTML = `<p class="hint flag">Current query has real nesting (mixed AND/OR, or NOT of more than
-       a single condition) — too complex for this picker. Text still works below.
+    box.innerHTML = `<p class="hint flag">Current query has real nesting this picker can't represent
+       yet (e.g. an AND inside an OR that isn't shaped as "combos", or a NOT of more than a single
+       condition) — too complex for this picker. Text still works below.
        Your last builder state is kept in case you switch back.</p>`;
     return;
   }
@@ -140,104 +225,74 @@ function renderBuilder(): void {
   }
 
   const b = state.builder;
-  const groupOpts = (selected: string) => state.groups
-    .map((g) => `<option value="${g.id}" ${g.id === selected ? 'selected' : ''}>${escapeHtml(g.name)}</option>`)
-    .join('');
+  const modeSelectHtml = `
+    <select id="bmode">
+      <option value="and" ${b.mode === 'and' ? 'selected' : ''}>all of these (AND)</option>
+      <option value="or" ${b.mode === 'or' ? 'selected' : ''}>any of these combos (OR)</option>
+      <option value="atLeastK" ${b.mode === 'atLeastK' ? 'selected' : ''}>at least N of these</option>
+    </select>
+    ${b.mode === 'atLeastK'
+      ? `<input id="bk" type="number" min="1" max="${Math.max(1, b.rows.length)}" value="${b.k}" style="width:3.5rem">`
+      : ''}`;
 
-  const rowsHtml = b.rows.map((r, i) => {
-    const cmp = cmpOf(r);
-    return `<div class="brow" data-i="${i}">
-      <button class="bneg ${r.neg ? 'on' : ''}" data-i="${i}" title="negate">${r.neg ? 'NOT' : 'not'}</button>
-      <select class="bgroup" data-i="${i}">${groupOpts(r.g)}</select>
-      <select class="bcmp" data-i="${i}">
-        <option value="gte" ${cmp === 'gte' ? 'selected' : ''}>&ge;</option>
-        <option value="lte" ${cmp === 'lte' ? 'selected' : ''}>&le;</option>
-        <option value="eq" ${cmp === 'eq' ? 'selected' : ''}>=</option>
-        <option value="range" ${cmp === 'range' ? 'selected' : ''}>range</option>
-      </select>
-      <input class="bnum1" data-i="${i}" type="number" min="0" value="${cmp === 'lte' ? r.hi : r.lo}" style="width:3.5rem">
-      ${cmp === 'range' ? `<span class="hint">to</span><input class="bnum2" data-i="${i}" type="number" min="0" value="${r.hi}" style="width:3.5rem">` : ''}
-      <button class="bdel" data-i="${i}">✕</button>
-    </div>`;
-  }).join('');
+  if (b.mode === 'or') {
+    const clausesHtml = b.clauses.map((c, ci) => {
+      const rowsHtml = c.rows
+        .map((r, ri) => rowControlsHtml(r, `data-ci="${ci}" data-ri="${ri}"`))
+        .join('<span class="hint conj">and</span>');
+      return `<div class="bclause">
+        <div class="bclause-rows">${rowsHtml || '<span class="hint">empty — add a condition</span>'}</div>
+        <div class="bclause-actions">
+          <button class="baddCond" data-ci="${ci}">+ and condition</button>
+          <button class="bdelClause" data-ci="${ci}">✕ remove this combo</button>
+        </div>
+      </div>`;
+    }).join('<div class="hint conj-or">— or —</div>');
 
+    box.innerHTML = `
+      <div class="row" style="margin-bottom:.5rem">${modeSelectHtml}<button id="baddClause">+ combo</button></div>
+      ${clausesHtml || '<p class="hint">No combos yet — add one.</p>'}`;
+
+    wireModeControls();
+    wireRowControls(box);
+    box.querySelectorAll<HTMLButtonElement>('.baddCond').forEach((el) => {
+      el.onclick = () => {
+        const ci = Number(el.dataset.ci);
+        state.builder!.clauses[ci]!.rows.push({ g: state.groups[0]!.id, neg: false, lo: 1, hi: null });
+        renderBuilder(); applyBuilder();
+      };
+    });
+    box.querySelectorAll<HTMLButtonElement>('.bdelClause').forEach((el) => {
+      el.onclick = () => {
+        const ci = Number(el.dataset.ci);
+        state.builder!.clauses.splice(ci, 1);
+        renderBuilder(); applyBuilder();
+      };
+    });
+    box.querySelectorAll<HTMLButtonElement>('.bdel').forEach((el) => {
+      el.onclick = () => {
+        const ci = Number(el.dataset.ci), ri = Number(el.dataset.ri);
+        const clause = state.builder!.clauses[ci];
+        if (!clause) return;
+        clause.rows.splice(ri, 1);
+        if (clause.rows.length === 0) state.builder!.clauses.splice(ci, 1); // drop the now-empty combo
+        renderBuilder(); applyBuilder();
+      };
+    });
+    return;
+  }
+
+  // 'and' / 'atLeastK': one flat list of rows, unchanged shape from before.
+  const rowsHtml = b.rows.map((r, i) => rowControlsHtml(r, `data-i="${i}"`)).join('');
   box.innerHTML = `
-    <div class="row" style="margin-bottom:.5rem">
-      <select id="bmode">
-        <option value="and" ${b.mode === 'and' ? 'selected' : ''}>all of these (AND)</option>
-        <option value="or" ${b.mode === 'or' ? 'selected' : ''}>any of these (OR)</option>
-        <option value="atLeastK" ${b.mode === 'atLeastK' ? 'selected' : ''}>at least N of these</option>
-      </select>
-      ${b.mode === 'atLeastK'
-        ? `<input id="bk" type="number" min="1" max="${b.rows.length}" value="${b.k}" style="width:3.5rem">`
-        : ''}
-      <button id="baddRow">+ condition</button>
-    </div>
+    <div class="row" style="margin-bottom:.5rem">${modeSelectHtml}<button id="baddRow">+ condition</button></div>
     ${rowsHtml || '<p class="hint">No conditions yet — add one.</p>'}`;
 
-  ($('bmode') as HTMLSelectElement).onchange = (e) => {
-    state.builder!.mode = (e.target as HTMLSelectElement).value as Mode;
-    if (state.builder!.mode === 'atLeastK') {
-      state.builder!.k = Math.min(state.builder!.k || 1, state.builder!.rows.length || 1);
-    }
-    renderBuilder(); applyBuilder();
-  };
-  const bk = document.getElementById('bk') as HTMLInputElement | null;
-  if (bk) bk.oninput = () => {
-    const v = parseInt(bk.value, 10);
-    if (Number.isFinite(v) && v >= 1) { state.builder!.k = v; applyBuilder(); }
-  };
+  wireModeControls();
+  wireRowControls(box);
   $('baddRow').addEventListener('click', () => {
     state.builder!.rows.push({ g: state.groups[0]!.id, neg: false, lo: 1, hi: null });
     renderBuilder(); applyBuilder();
-  });
-  box.querySelectorAll<HTMLButtonElement>('.bneg').forEach((el) => {
-    el.onclick = () => {
-      const i = Number(el.dataset.i);
-      state.builder!.rows[i]!.neg = !state.builder!.rows[i]!.neg;
-      renderBuilder(); applyBuilder();
-    };
-  });
-  box.querySelectorAll<HTMLSelectElement>('.bgroup').forEach((el) => {
-    el.onchange = () => {
-      const i = Number(el.dataset.i);
-      state.builder!.rows[i]!.g = el.value;
-      applyBuilder();
-    };
-  });
-  box.querySelectorAll<HTMLSelectElement>('.bcmp').forEach((el) => {
-    el.onchange = () => {
-      const i = Number(el.dataset.i);
-      const row = state.builder!.rows[i]!;
-      const v = el.value as 'gte' | 'lte' | 'eq' | 'range';
-      const g = state.groups.find((x) => x.id === row.g);
-      const K = g?.count ?? 1;
-      if (v === 'gte') { row.lo = Math.max(1, row.lo || 1); row.hi = null; }
-      else if (v === 'lte') { row.hi = row.hi ?? K; row.lo = 0; }
-      else if (v === 'eq') { const n = row.lo || 1; row.lo = n; row.hi = n; }
-      else { row.hi = row.hi ?? K; row.lo = Math.min(row.lo || 0, row.hi); }
-      renderBuilder(); applyBuilder();
-    };
-  });
-  box.querySelectorAll<HTMLInputElement>('.bnum1').forEach((el) => {
-    el.oninput = () => {
-      const i = Number(el.dataset.i);
-      const row = state.builder!.rows[i]!;
-      const v = parseInt(el.value, 10);
-      if (!Number.isFinite(v) || v < 0) return;
-      const cmp = cmpOf(row);
-      if (cmp === 'lte') row.hi = v;
-      else if (cmp === 'eq') { row.lo = v; row.hi = v; }
-      else row.lo = v; // gte or range's lo
-      applyBuilder();
-    };
-  });
-  box.querySelectorAll<HTMLInputElement>('.bnum2').forEach((el) => {
-    el.oninput = () => {
-      const i = Number(el.dataset.i);
-      const v = parseInt(el.value, 10);
-      if (Number.isFinite(v) && v >= 0) { state.builder!.rows[i]!.hi = v; applyBuilder(); }
-    };
   });
   box.querySelectorAll<HTMLButtonElement>('.bdel').forEach((el) => {
     el.onclick = () => {
@@ -249,7 +304,37 @@ function renderBuilder(): void {
       renderBuilder(); applyBuilder();
     };
   });
+
+  function wireModeControls(): void {
+    ($('bmode') as HTMLSelectElement).onchange = (e) => {
+      switchBuilderMode((e.target as HTMLSelectElement).value as Mode);
+    };
+    const bk = document.getElementById('bk') as HTMLInputElement | null;
+    if (bk) bk.oninput = () => {
+      const v = parseInt(bk.value, 10);
+      if (Number.isFinite(v) && v >= 1) { state.builder!.k = v; applyBuilder(); }
+    };
+  }
 }
+
+/** Converts the CURRENT rows/clauses into the new mode's shape rather than discarding them. */
+function switchBuilderMode(mode: Mode): void {
+  const b = state.builder!;
+  if (mode === 'or' && b.mode !== 'or') {
+    // each existing flat row becomes its own single-condition combo
+    b.clauses = b.rows.map((r) => ({ rows: [r] }));
+    b.rows = [];
+  } else if (mode !== 'or' && b.mode === 'or') {
+    // flatten every combo's rows back into one list (lossy if there were 2+ combos with 2+ rows each,
+    // but that's an inherent shape change, not a bug — AND/atLeastK have no notion of separate combos)
+    b.rows = b.clauses.flatMap((c) => c.rows);
+    b.clauses = [];
+  }
+  b.mode = mode;
+  if (mode === 'atLeastK') b.k = Math.min(b.k || 1, Math.max(1, b.rows.length));
+  renderBuilder(); applyBuilder();
+}
+
 
 // ── deck editor ──────────────────────────────────────────────────────────────
 function renderDeck(): void {
@@ -384,32 +469,60 @@ function recompute(): void {
   const a = analyze(res.curve, state.target, res.monotone);
   renderStatus(res, a);
   renderSummary(a);
-  renderCurve(a, computePhantomCurves(state.ast));
+  renderCurve(a, computeCurveSeries(state.ast!, res.curve));
   renderTable(a);
   renderGrid();
   renderFrontier(dnf, a, sizes);
 }
 
+/** Deterministic, well-separated hue per group, independent of how many groups exist. */
+const GROUP_HUES = new Map<string, number>();
+function hueFor(groupId: string): number {
+  if (!GROUP_HUES.has(groupId)) {
+    GROUP_HUES.set(groupId, Math.round((GROUP_HUES.size * 137.508) % 360)); // golden angle
+  }
+  return GROUP_HUES.get(groupId)!;
+}
+
+interface CurveSeries {
+  curve: Float64Array;
+  /** null for the real, current-deck curve. */
+  offset: number | null;
+  groupId: string | null;
+  color: string;
+  /** Full group-by-group card counts that produced this curve, for the tooltip. */
+  composition: string;
+}
+
 /**
- * P(n) for the swept group ("vary copies of", shared with the grid) at
- * +-1/+-2 copies, holding every other group fixed. Purely illustrative context
- * for the main curve — "what if I ran one more/fewer" — not a separate query.
+ * One phantom fan per group (+-1/+-2 copies, holding every other group fixed),
+ * color-coded by group so several groups' sensitivity can be read at once —
+ * plus the real curve as its own series so both share one draw/tooltip path.
  */
-function computePhantomCurves(
-  ast: Expr,
-): Array<{ offset: number; curve: Float64Array }> {
-  const g = state.groups.find((x) => x.id === state.gridGroup);
-  if (!g) return [];
-  const out: Array<{ offset: number; curve: Float64Array }> = [];
-  for (const offset of [-2, -1, 1, 2]) {
-    const count = g.count + offset;
-    if (count < 0) continue;
-    const groups = state.groups.map((x) => (x.id === g.id ? { ...x, count } : x));
-    try {
-      const s = sizesOf(groups);
-      out.push({ offset, curve: evaluate(state.deckSize, s, normalize(ast, s)).curve });
-    } catch {
-      // deck too small to hold this many copies, or some other constraint violation — skip it
+function computeCurveSeries(ast: Expr, realCurve: Float64Array): CurveSeries[] {
+  const compositionOf = (groups: Group[]): string =>
+    groups.map((x) => `${x.name}=${x.count}`).join(', ');
+
+  const out: CurveSeries[] = [{
+    curve: realCurve, offset: null, groupId: null,
+    color: 'var(--acc)', composition: compositionOf(state.groups),
+  }];
+
+  for (const g of state.groups) {
+    const color = `hsl(${hueFor(g.id)}deg 65% 58%)`;
+    for (const offset of [-2, -1, 1, 2]) {
+      const count = g.count + offset;
+      if (count < 0) continue;
+      const groups = state.groups.map((x) => (x.id === g.id ? { ...x, count } : x));
+      try {
+        const s = sizesOf(groups);
+        out.push({
+          curve: evaluate(state.deckSize, s, normalize(ast, s)).curve,
+          offset, groupId: g.id, color, composition: compositionOf(groups),
+        });
+      } catch {
+        // deck too small to hold this many copies, or some other constraint violation — skip it
+      }
     }
   }
   return out;
@@ -558,17 +671,13 @@ function renderSummary(a: ReturnType<typeof analyze>): void {
 }
 
 // ── curve ────────────────────────────────────────────────────────────────────
-function renderCurve(
-  a: ReturnType<typeof analyze>,
-  phantoms: Array<{ offset: number; curve: Float64Array }> = [],
-): void {
+function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void {
   const N = a.curve.length - 1;
   const W = 640, H = 200, PAD = 28;
   const x = (n: number) => PAD + (n / N) * (W - PAD - 8);
   const y = (p: number) => H - PAD - p * (H - PAD - 10);
   const pointsOf = (curve: Float64Array) =>
     Array.from(curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
-  const pts = pointsOf(a.curve);
   const gridLines = [0.25, 0.5, 0.75, 1].map((p) =>
     `<line x1="${PAD}" x2="${W - 8}" y1="${y(p)}" y2="${y(p)}" class="ax"/>
      <text x="2" y="${y(p) + 4}" class="lbl">${p * 100}%</text>`).join('');
@@ -578,25 +687,37 @@ function renderCurve(
   const marks = a.drawsNeeded !== null
     ? `<circle cx="${x(a.drawsNeeded)}" cy="${y(a.curve[a.drawsNeeded]!)}" r="4" class="hit"/>`
     : '';
-  // Closer offsets (+-1) more opaque than farther ones (+-2); drawn UNDER the
-  // real curve so the actual deck's line always reads as the primary one.
-  const phantomLines = phantoms
-    .slice()
-    .sort((p, q) => Math.abs(q.offset) - Math.abs(p.offset)) // draw +-2 first, +-1 on top of it
-    .map((p) => `<polyline points="${pointsOf(p.curve)}" class="phantom mag${Math.abs(p.offset)}"/>`)
-    .join('');
-  const g = state.groups.find((x) => x.id === state.gridGroup);
-  const legend = phantoms.length > 0 && g
-    ? `<p class="hint">Faint lines: <b>${escapeHtml(g.name)}</b> at ${
-        phantoms.slice().sort((p, q) => p.offset - q.offset)
-          .map((p) => (p.offset > 0 ? `+${p.offset}` : p.offset)).join(', ')
-      } compared to its current ${g.count} copies — closer counts are more solid.</p>`
-    : '';
+
+  // Phantoms first (so the real curve always draws on top), farthest offset
+  // first so +-1 layers over +-2 within the same group's color.
+  const phantoms = series.filter((s) => s.offset !== null)
+    .sort((p, q) => Math.abs(q.offset!) - Math.abs(p.offset!));
+  const real = series.find((s) => s.offset === null)!;
+
+  const phantomLines = phantoms.map((s) => {
+    const opacity = Math.abs(s.offset!) === 1 ? 0.45 : 0.18;
+    return `<polyline points="${pointsOf(s.curve)}" class="phantom" data-tip="${escapeAttr(s.composition)}"
+      style="stroke:${s.color};opacity:${opacity}"/>`;
+  }).join('');
+  const realLine = `<polyline points="${pointsOf(real.curve)}" class="line" data-tip="${escapeAttr(real.composition)}"/>`;
+
+  const legend = state.groups.map((g) =>
+    `<span class="swatch"><i style="background:hsl(${hueFor(g.id)}deg 65% 58%)"></i>${escapeHtml(g.name)}</span>`
+  ).join(' ');
+
   $('curve').innerHTML =
     `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}
-      ${phantomLines}
-      <polyline points="${pts}" class="line"/>${marks}${ticks}
-      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>${legend}`;
+      ${phantomLines}${realLine}${marks}${ticks}
+      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>
+     <p class="hint">Faint lines: +-1/+-2 copies of each group, holding the rest fixed.
+       ${legend}</p>
+     <p class="hint" id="curveTip">Hover or tap a line to see the composition that produced it.</p>`;
+
+  $('curve').querySelectorAll<SVGPolylineElement>('polyline[data-tip]').forEach((el) => {
+    const show = () => { $('curveTip').textContent = el.dataset.tip ?? ''; };
+    el.addEventListener('mouseenter', show);
+    el.addEventListener('click', show);
+  });
 }
 
 function tickValues(N: number): number[] {
