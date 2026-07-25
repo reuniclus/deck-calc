@@ -66,3 +66,29 @@ console.log('keyword name :', qbox.value, '->', txt('status').slice(0, 30));
 setName(0, 'A');
 d.querySelector('#groups button.del').click();
 console.log('after delete :', txt('status'));
+
+// ── frontier + allocation panel ──────────────────────────────────────────────
+// Earlier tests deleted a group, so rebuild a clean two-group deck first.
+[...d.querySelectorAll('#groups button.del')].forEach((b) => b.click());
+d.getElementById('addGroup').click();
+d.getElementById('addGroup').click();
+d.querySelector('button.dpreset[data-n="40"]').click();
+setName(0, 'A'); setName(1, 'B');
+setCount(0, 4); setCount(1, 3);
+qbox.value = 'A>=1 & B>=1'; qbox.dispatchEvent(new dom.window.Event('input'));
+console.log('\n-- frontier, monotone AND, 2 groups --');
+console.log(txt('frontier').slice(0, 300));
+
+qbox.value = 'A=1'; qbox.dispatchEvent(new dom.window.Event('input'));
+console.log('\n-- frontier, non-monotone (should refuse) --');
+console.log(txt('frontier').slice(0, 200));
+
+qbox.value = 'A>=1 | B>=1'; qbox.dispatchEvent(new dom.window.Event('input'));
+console.log('\n-- frontier, OR query (should refuse: multi-clause) --');
+console.log(txt('frontier').slice(0, 200));
+
+qbox.value = 'A>=1 & B>=1'; qbox.dispatchEvent(new dom.window.Event('input'));
+const tgt = d.getElementById('target');
+tgt.value = '99'; tgt.dispatchEvent(new dom.window.Event('input'));
+console.log('\n-- frontier at a near-impossible 99% target --');
+console.log(txt('frontier').slice(0, 300));

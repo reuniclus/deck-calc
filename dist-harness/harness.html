@@ -153,6 +153,11 @@
     </div>
     <div class="heatwrap"><div id="grid"></div></div>
   </div>
+
+  <h2>Tradeoffs &amp; allocation</h2>
+  <div class="panel">
+    <div id="frontier"></div>
+  </div>
 </div>
 <script>
 (() => {
@@ -732,6 +737,152 @@
     return draws + (cfg.onThePlay ? 1 : 0);
   }
 
+  // src/math/frontier.ts
+  function minimalVectors(clause, n, N, target) {
+    const groups = Object.keys(clause).sort();
+    if (groups.length === 0) return { vectors: [], bestP: 1 };
+    const maxPerGroup = {};
+    for (const g of groups) {
+      const restMin = groups.filter((h) => h !== g).reduce((s, h) => s + clause[h].lo, 0);
+      const deckLimited = Math.max(clause[g].lo, N - restMin);
+      maxPerGroup[g] = Math.min(clause[g].hi, deckLimited);
+    }
+    const memo = /* @__PURE__ */ new Map();
+    const key = (v) => groups.map((g) => v[g]).join(",");
+    function reaches(v) {
+      const k = key(v);
+      const cached = memo.get(k);
+      if (cached !== void 0) return cached;
+      const kSum = groups.reduce((s, g) => s + v[g], 0);
+      const ok = kSum <= N && boxCurve(N, groups.map((g) => ({ K: v[g], lo: clause[g].lo, hi: v[g] })))[n] >= target - 1e-12;
+      memo.set(k, ok);
+      return ok;
+    }
+    function pOf2(v) {
+      const kSum = groups.reduce((s, g) => s + v[g], 0);
+      if (kSum > N) return 0;
+      return boxCurve(N, groups.map((g) => ({ K: v[g], lo: clause[g].lo, hi: v[g] })))[n];
+    }
+    const top = {};
+    for (const g of groups) top[g] = maxPerGroup[g];
+    const bestP = pOf2(top);
+    if (!reaches(top)) return { vectors: [], bestP };
+    const found = [];
+    const seenMinimal = /* @__PURE__ */ new Set();
+    const visited = /* @__PURE__ */ new Set();
+    const MAX_VISITED = 2e5;
+    function descend(v) {
+      const k = key(v);
+      if (visited.has(k)) return;
+      visited.add(k);
+      if (visited.size > MAX_VISITED) {
+        throw new RangeError(`minimalVectors: explored ${MAX_VISITED} states without terminating`);
+      }
+      let anyChild = false;
+      for (const g of groups) {
+        if (v[g] <= clause[g].lo) continue;
+        const child = { ...v, [g]: v[g] - 1 };
+        if (reaches(child)) {
+          anyChild = true;
+          descend(child);
+        }
+      }
+      if (!anyChild && !seenMinimal.has(k)) {
+        seenMinimal.add(k);
+        found.push(v);
+      }
+    }
+    descend(top);
+    return { vectors: dedupeMinimal(found, groups), bestP };
+  }
+  function dedupeMinimal(found, groups) {
+    return found.filter((a, i) => !found.some((b, j) => j !== i && groups.every((g) => b[g] <= a[g]) && groups.some((g) => b[g] < a[g])));
+  }
+
+  // src/math/allocate.ts
+  var EXACT_GROUP_LIMIT = 3;
+  function pOf(clause, counts, groups, N, n) {
+    const kSum = groups.reduce((s, g) => s + counts[g], 0);
+    if (kSum > N) return 0;
+    return boxCurve(N, groups.map((g) => ({ K: counts[g], lo: clause[g].lo, hi: counts[g] })))[n];
+  }
+  function* compositions(groups, budget, caps) {
+    function* rec(i, remaining, acc) {
+      if (i === groups.length - 1) {
+        const g2 = groups[i];
+        if (remaining <= caps[g2]) yield { ...acc, [g2]: remaining };
+        return;
+      }
+      const g = groups[i];
+      const cap = Math.min(caps[g], remaining);
+      for (let c = 0; c <= cap; c++) yield* rec(i + 1, remaining - c, { ...acc, [g]: c });
+    }
+    yield* rec(0, budget, {});
+  }
+  function allocate(clause, n, N, budget) {
+    const groups = Object.keys(clause).sort();
+    if (groups.length === 0) return { best: {}, bestP: 1, exact: true };
+    const caps = {};
+    for (const g of groups) caps[g] = Math.min(N, clause[g].hi);
+    if (groups.length <= EXACT_GROUP_LIMIT) {
+      let best = null;
+      let bestP = -1;
+      for (const v of compositions(groups, budget, caps)) {
+        if (groups.some((g) => v[g] < clause[g].lo)) continue;
+        const p = pOf(clause, v, groups, N, n);
+        if (p > bestP) {
+          bestP = p;
+          best = v;
+        }
+      }
+      if (!best) return { best: fallback(groups, clause, budget), bestP: 0, exact: true };
+      return { best, bestP, exact: true };
+    }
+    return greedyAllocate(clause, groups, n, N, budget, caps);
+  }
+  function fallback(groups, clause, budget) {
+    const v = {};
+    let remaining = budget;
+    for (const g of groups) {
+      v[g] = Math.min(remaining, clause[g].lo);
+      remaining -= v[g];
+    }
+    return v;
+  }
+  function greedyAllocate(clause, groups, n, N, budget, caps) {
+    const v = {};
+    for (const g of groups) v[g] = Math.min(clause[g].lo, caps[g]);
+    let spent = groups.reduce((s, g) => s + v[g], 0);
+    while (spent < budget) {
+      let bestGain = -Infinity, bestG = null, baseP = pOf(clause, v, groups, N, n);
+      for (const g of groups) {
+        if (v[g] >= caps[g]) continue;
+        const trial = { ...v, [g]: v[g] + 1 };
+        const gain = pOf(clause, trial, groups, N, n) - baseP;
+        if (gain > bestGain) {
+          bestGain = gain;
+          bestG = g;
+        }
+      }
+      if (!bestG) break;
+      v[bestG] = v[bestG] + 1;
+      spent++;
+    }
+    return { best: v, bestP: pOf(clause, v, groups, N, n), exact: false };
+  }
+  function minSlotsForTarget(clause, n, N, target) {
+    const groups = Object.keys(clause);
+    if (groups.length === 0) return { extraSlots: 0, best: {}, bestP: 1 };
+    const baseline = groups.reduce((s, g) => s + clause[g].lo, 0);
+    const capTotal = groups.reduce((s, g) => s + Math.min(N, clause[g].hi), 0);
+    for (let budget = baseline; budget <= capTotal; budget++) {
+      const r = allocate(clause, n, N, budget);
+      if (r.bestP >= target - 1e-12) return { extraSlots: budget - baseline, best: r.best, bestP: r.bestP };
+    }
+    const top = allocate(clause, n, N, capTotal);
+    return { extraSlots: null, best: top.best, bestP: top.bestP };
+  }
+
   // src/harness/main.ts
   var state = {
     deckSize: 40,
@@ -853,12 +1004,14 @@
     if (o < 0) {
       warn.textContent = `Groups total ${N - o} cards but the deck is ${N}. Reduce a group or raise the deck size.`;
       warn.className = "warn bad";
+      clearViews();
       return;
     }
     const dupes = state.groups.filter((g, i) => state.groups.findIndex((h) => h.name.trim().toLowerCase() === g.name.trim().toLowerCase()) !== i);
     if (dupes.length) {
       warn.textContent = `Duplicate group name: "${dupes[0].name}". Names must be unique \u2014 groups are disjoint.`;
       warn.className = "warn bad";
+      clearViews();
       return;
     }
     warn.textContent = "";
@@ -871,8 +1024,10 @@
     if (!state.ast) return failQuery("No query.");
     const sizes = sizesOf(state.groups);
     let res;
+    let dnf;
     try {
-      res = evaluate(N, sizes, normalize(state.ast, sizes));
+      dnf = normalize(state.ast, sizes);
+      res = evaluate(N, sizes, dnf);
     } catch (e) {
       return failQuery(describeError(e));
     }
@@ -882,13 +1037,77 @@
     renderCurve(a);
     renderTable(a);
     renderGrid();
+    renderFrontier(dnf, a, sizes);
   }
-  function failQuery(msg) {
-    $("status").innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
+  function renderFrontier(dnf, a, sizes) {
+    const box = $("frontier");
+    if (!dnf.monotone) {
+      box.innerHTML = `<p class="hint flag">Only available for monotone queries (every group used as
+      &ge;, no NOT). This query has an upper bound somewhere, so "fewest slots" isn't well posed \u2014
+      P can fall as well as rise.</p>`;
+      return;
+    }
+    if (dnf.clauses.length !== 1) {
+      box.innerHTML = `<p class="hint">Only available for a single AND-clause (no OR) right now \u2014
+      allocation across the branches of an OR is a separate question.</p>`;
+      return;
+    }
+    const clause = dnf.clauses[0];
+    const groups = Object.keys(clause);
+    if (groups.length === 0) {
+      box.innerHTML = `<p class="hint">No group is constrained \u2014 nothing to allocate.</p>`;
+      return;
+    }
+    if (groups.length > 4) {
+      box.innerHTML = `<p class="hint">${groups.length} groups in one clause \u2014 allocation search is
+      capped at 4 for now.</p>`;
+      return;
+    }
+    const N = state.deckSize;
+    const n = a.drawsNeeded ?? a.argmaxP;
+    let vectors = [];
+    let bestP = 0;
+    try {
+      ({ vectors, bestP } = minimalVectors(clause, n, N, state.target));
+    } catch (e) {
+      box.innerHTML = `<p class="hint bad">${escapeHtml(e instanceof Error ? e.message : String(e))}</p>`;
+      return;
+    }
+    const rowsHtml = vectors.sort((x, y) => groups.reduce((s, g) => s + x[g] - y[g], 0)).map((v) => `<tr>${groups.map((g) => `<td>${v[g]}</td>`).join("")}</tr>`).join("");
+    const vecPart = vectors.length === 0 ? `<p class="hint flag">Not reachable at ${n} cards drawn within the searched range
+       (best ${pct(bestP)}). Try a lower target or more draws.</p>` : `<table class="num"><thead><tr>${groups.map((g) => `<th>${escapeHtml(nameOf(g))}</th>`).join("")}</tr></thead>
+       <tbody>${rowsHtml}</tbody></table>
+       <p class="hint">Each row is a minimal combination \u2014 none can be trimmed further without
+       dropping below ${pct(state.target)}. All are genuine tradeoffs, not ranked.</p>`;
+    const allocPart = renderAllocation(clause, groups, n, N, sizes);
+    box.innerHTML = `<p class="hint">at n=${n} cards drawn${turnSuffix(n)}, target ${pct(state.target)}</p>
+    ${vecPart}<div style="margin-top:1rem">${allocPart}</div>`;
+  }
+  function renderAllocation(clause, groups, n, N, sizes) {
+    const currentSpend = groups.reduce((s, g) => s + (sizes[g] ?? 0), 0);
+    if (groups.length < 2) return "";
+    const alloc = allocate(clause, n, N, currentSpend);
+    const dual = minSlotsForTarget(clause, n, N, state.target);
+    const baseline = groups.reduce((s, g) => s + clause[g].lo, 0);
+    const bestRow = groups.map((g) => `${escapeHtml(nameOf(g))}: ${alloc.best[g]}`).join(", ");
+    const dualRow = dual.extraSlots === null ? `never reaches ${pct(state.target)} within the searched caps (best ${pct(dual.bestP)})` : `${dual.best ? groups.map((g) => `${escapeHtml(nameOf(g))}: ${dual.best[g]}`).join(", ") : ""}
+       \u2014 ${dual.extraSlots} slot${dual.extraSlots === 1 ? "" : "s"} beyond the ${baseline}-card minimum`;
+    return `
+    <p class="hint"><b>Best split of your current ${currentSpend} slots</b> (${groups.map((g) => escapeHtml(nameOf(g))).join(" + ")}):
+    ${bestRow} \u2192 ${pct(alloc.bestP)}${alloc.exact ? "" : ' <span class="hint">(heuristic, not exhaustive)</span>'}</p>
+    <p class="hint"><b>Fewest slots for ${pct(state.target)}:</b> ${dualRow}</p>`;
+  }
+  function clearViews() {
+    $("status").innerHTML = "";
     $("summary").innerHTML = "";
     $("curve").innerHTML = "";
     $("table").innerHTML = "";
     $("grid").innerHTML = "";
+    $("frontier").innerHTML = "";
+  }
+  function failQuery(msg) {
+    clearViews();
+    $("status").innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
   }
   function describeError(e) {
     if (e instanceof ParseError) return `Parse error at ${e.pos}: ${e.message}`;

@@ -9,6 +9,8 @@ import { normalize } from '../math/normalize';
 import { evaluate } from '../math/evaluate';
 import { analyze } from '../math/analyze';
 import { turnForCardsSeen, DEFAULT_TURN_CONFIG, type TurnConfig } from '../model/turns';
+import { minimalVectors } from '../math/frontier';
+import { allocate, minSlotsForTarget } from '../math/allocate';
 import {
   QueryTooLargeError, UnknownGroupError, collectGroups, type Expr, type Sizes,
 } from '../math/expr';
@@ -162,6 +164,7 @@ function recompute(): void {
   if (o < 0) {
     warn.textContent = `Groups total ${N - o} cards but the deck is ${N}. Reduce a group or raise the deck size.`;
     warn.className = 'warn bad';
+    clearViews();
     return;
   }
   const dupes = state.groups.filter((g, i) =>
@@ -169,6 +172,7 @@ function recompute(): void {
   if (dupes.length) {
     warn.textContent = `Duplicate group name: "${dupes[0]!.name}". Names must be unique — groups are disjoint.`;
     warn.className = 'warn bad';
+    clearViews();
     return;
   }
   warn.textContent = '';
@@ -184,8 +188,10 @@ function recompute(): void {
 
   const sizes = sizesOf(state.groups);
   let res: ReturnType<typeof evaluate>;
+  let dnf: ReturnType<typeof normalize>;
   try {
-    res = evaluate(N, sizes, normalize(state.ast, sizes));
+    dnf = normalize(state.ast, sizes);
+    res = evaluate(N, sizes, dnf);
   } catch (e) {
     return failQuery(describeError(e));
   }
@@ -196,14 +202,107 @@ function recompute(): void {
   renderCurve(a);
   renderTable(a);
   renderGrid();
+  renderFrontier(dnf, a, sizes);
 }
 
-function failQuery(msg: string): void {
-  $('status').innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
+function renderFrontier(
+  dnf: ReturnType<typeof normalize>,
+  a: ReturnType<typeof analyze>,
+  sizes: Sizes,
+): void {
+  const box = $('frontier');
+  if (!dnf.monotone) {
+    box.innerHTML = `<p class="hint flag">Only available for monotone queries (every group used as
+      &ge;, no NOT). This query has an upper bound somewhere, so "fewest slots" isn't well posed —
+      P can fall as well as rise.</p>`;
+    return;
+  }
+  if (dnf.clauses.length !== 1) {
+    box.innerHTML = `<p class="hint">Only available for a single AND-clause (no OR) right now —
+      allocation across the branches of an OR is a separate question.</p>`;
+    return;
+  }
+  const clause = dnf.clauses[0]!;
+  const groups = Object.keys(clause);
+  if (groups.length === 0) {
+    box.innerHTML = `<p class="hint">No group is constrained — nothing to allocate.</p>`;
+    return;
+  }
+  if (groups.length > 4) {
+    box.innerHTML = `<p class="hint">${groups.length} groups in one clause — allocation search is
+      capped at 4 for now.</p>`;
+    return;
+  }
+
+  const N = state.deckSize;
+  const n = a.drawsNeeded ?? a.argmaxP;
+
+  let vectors: ReturnType<typeof minimalVectors>['vectors'] = [];
+  let bestP = 0;
+  try {
+    ({ vectors, bestP } = minimalVectors(clause, n, N, state.target));
+  } catch (e) {
+    box.innerHTML = `<p class="hint bad">${escapeHtml(e instanceof Error ? e.message : String(e))}</p>`;
+    return;
+  }
+
+  const rowsHtml = vectors
+    .sort((x, y) => groups.reduce((s, g) => s + x[g]! - y[g]!, 0))
+    .map((v) => `<tr>${groups.map((g) => `<td>${v[g]}</td>`).join('')}</tr>`)
+    .join('');
+
+  const vecPart = vectors.length === 0
+    ? `<p class="hint flag">Not reachable at ${n} cards drawn within the searched range
+       (best ${pct(bestP)}). Try a lower target or more draws.</p>`
+    : `<table class="num"><thead><tr>${groups.map((g) => `<th>${escapeHtml(nameOf(g))}</th>`).join('')}</tr></thead>
+       <tbody>${rowsHtml}</tbody></table>
+       <p class="hint">Each row is a minimal combination — none can be trimmed further without
+       dropping below ${pct(state.target)}. All are genuine tradeoffs, not ranked.</p>`;
+
+  const allocPart = renderAllocation(clause, groups, n, N, sizes);
+
+  box.innerHTML = `<p class="hint">at n=${n} cards drawn${turnSuffix(n)}, target ${pct(state.target)}</p>
+    ${vecPart}<div style="margin-top:1rem">${allocPart}</div>`;
+}
+
+function renderAllocation(
+  clause: ReturnType<typeof normalize>['clauses'][number],
+  groups: string[],
+  n: number,
+  N: number,
+  sizes: Sizes,
+): string {
+  const currentSpend = groups.reduce((s, g) => s + (sizes[g] ?? 0), 0);
+  if (groups.length < 2) return '';
+
+  const alloc = allocate(clause, n, N, currentSpend);
+  const dual = minSlotsForTarget(clause, n, N, state.target);
+  const baseline = groups.reduce((s, g) => s + clause[g]!.lo, 0);
+
+  const bestRow = groups.map((g) => `${escapeHtml(nameOf(g))}: ${alloc.best[g]}`).join(', ');
+  const dualRow = dual.extraSlots === null
+    ? `never reaches ${pct(state.target)} within the searched caps (best ${pct(dual.bestP)})`
+    : `${dual.best ? groups.map((g) => `${escapeHtml(nameOf(g))}: ${dual.best![g]}`).join(', ') : ''}
+       — ${dual.extraSlots} slot${dual.extraSlots === 1 ? '' : 's'} beyond the ${baseline}-card minimum`;
+
+  return `
+    <p class="hint"><b>Best split of your current ${currentSpend} slots</b> (${groups.map((g) => escapeHtml(nameOf(g))).join(' + ')}):
+    ${bestRow} → ${pct(alloc.bestP)}${alloc.exact ? '' : ' <span class="hint">(heuristic, not exhaustive)</span>'}</p>
+    <p class="hint"><b>Fewest slots for ${pct(state.target)}:</b> ${dualRow}</p>`;
+}
+
+function clearViews(): void {
+  $('status').innerHTML = '';
   $('summary').innerHTML = '';
   $('curve').innerHTML = '';
   $('table').innerHTML = '';
   $('grid').innerHTML = '';
+  $('frontier').innerHTML = '';
+}
+
+function failQuery(msg: string): void {
+  clearViews();
+  $('status').innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
 }
 
 function describeError(e: unknown): string {
