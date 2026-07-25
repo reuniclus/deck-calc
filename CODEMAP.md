@@ -9,6 +9,17 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/math/lnfact.ts` | lazily-grown log-factorial table; `lnC`, `binom` |
 | `src/math/hyper.ts` | univariate hypergeometric: `support`, `pmf`, `cdf`, `sfAtLeast`, `between` |
 | `src/math/exact.ts` | **test-only** BigInt exact oracle |
+| `src/math/brute.ts` | **test-only** full draw enumeration; independent of every DP path |
+| `src/math/boxdp.ts` | multivariate interval DP → full `P(n)` curve in one pass |
+| `src/math/expr.ts` | query AST, `Box`/`Dnf` types, box intersection + subsumption |
+| `src/math/normalize.ts` | `atLeastK` expansion, NOT elimination, DNF distribution, pruning, up-set detection |
+| `src/math/evaluate.ts` | DNF → inclusion–exclusion → curve, Kahan-summed, box-curve memo |
+| `src/math/analyze.ts` | ΔP, knee, peak, feasible windows, draws-needed |
+| `src/math/parse.ts` | text query language (`A>=2 & !B`, `any 2 of (…)`) |
+| `src/harness/main.ts` | plain-DOM dev harness — deck editor, curve, per-draw table, 2D grid |
+| `src/harness/harness.html` | harness template; `<!--BUNDLE-->` is replaced at build time |
+| `scripts/build-harness.mjs` | esbuild → one self-contained `dist-harness/harness.html` |
+| `scripts/smoke-harness.mjs` | boots the built harness in jsdom and asserts every view renders |
 | `src/math/hyper.test.ts` | oracle comparison, pmf normalization, monotonicity, degenerate inputs |
 | `src/ui/App.tsx` | M0 smoke view — a single `P(X≥1)` table. Replaced at M2 |
 | `src/main.tsx` | React entry |
@@ -19,11 +30,6 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 
 | path | purpose |
 |---|---|
-| `src/math/boxdp.ts` | multivariate interval-constrained DP → full `P(n)` curve in one pass |
-| `src/math/expr.ts` | query AST (atom / and / or / not / atLeastK) |
-| `src/math/normalize.ts` | AST → DNF of boxes; NOT elimination; pruning; monotonicity flag |
-| `src/math/evaluate.ts` | DNF → inclusion–exclusion → curve |
-| `src/math/analyze.ts` | ΔP, knee, argmax, feasible window |
 | `src/math/frontier.ts` | monotone-only: staircase + minimal sufficient vectors |
 | `src/math/allocate.ts` | deck-slot budget optimizer (exact for small m, greedy above) |
 | `src/model/` | deck, query list, turn↔draw-count mapping |

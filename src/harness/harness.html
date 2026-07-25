@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>deck-calc — math harness</title>
+<style>
+  :root{color-scheme:dark;--bg:#0e1013;--panel:#161a20;--line:#242a33;--fg:#e6e6e6;--dim:#8b9199;--acc:#7aa2f7;--ok:#68d391;--bad:#f87171;--flag:#fbbf24}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-sans-serif,system-ui,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:1.5rem 1rem 4rem}
+  h1{font-size:1.25rem;margin:0}
+  h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:1.75rem 0 .5rem;font-weight:600}
+  .sub{color:var(--dim);margin:.25rem 0 1.5rem}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:1rem}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:760px){.cols{grid-template-columns:1fr}}
+  label{display:block;color:var(--dim);font-size:.8rem;margin-bottom:.25rem}
+  input,textarea,select,button{font:inherit;background:#0b0d11;color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:.35rem .5rem}
+  input:disabled{color:var(--dim);background:#0e1116}
+  textarea{width:100%;min-height:3.5rem;resize:vertical;font-family:ui-monospace,monospace}
+  button{cursor:pointer}button:hover{border-color:var(--acc)}
+  .row{display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap}
+  .chips{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.5rem}
+  .chips button{font-size:.75rem;padding:.2rem .45rem;color:var(--dim)}
+  table{border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:.2rem .5rem;border-bottom:1px solid var(--line);text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--dim);font-weight:500;font-size:.78rem}
+  table.deck input{width:100%}
+  table.deck td:first-child{width:60%}
+  .others input{font-weight:600}
+  .others.bad input{color:var(--bad);border-color:var(--bad)}
+  .hint{color:var(--dim);font-size:.8rem}
+  .warn{min-height:1.2rem;font-size:.85rem;margin:.5rem 0}
+  .bad{color:var(--bad)}.ok{color:var(--ok)}.flag{color:var(--flag)}.dim{color:var(--dim)}
+  #status{font-size:.85rem;color:var(--dim);margin:.25rem 0 .75rem}
+  #status b{color:var(--fg)}
+  .scroll{max-height:22rem;overflow:auto;border:1px solid var(--line);border-radius:6px}
+  .scroll thead th{position:sticky;top:0;background:var(--panel)}
+  tr.hit td{background:rgba(104,211,145,.08)}
+  tr.hit td:nth-child(2){color:var(--ok)}
+  svg .line{fill:none;stroke:var(--acc);stroke-width:2}
+  svg .ax{stroke:var(--line)}
+  svg .tgt{stroke:var(--ok);stroke-dasharray:4 3;opacity:.7}
+  svg .hit{fill:var(--ok)}
+  svg .lbl{fill:var(--dim);font-size:10px}
+  svg .mid{text-anchor:middle}
+  table.heat{font-size:.7rem;margin-top:.5rem}
+  table.heat th{color:var(--dim);font-weight:500;border:none;padding:.15rem .3rem}
+  table.heat td{padding:.2rem .32rem;border:1px solid #0e1013;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.7);text-align:center;min-width:1.7rem}
+  table.heat td.na{background:#14171d;color:var(--dim)}
+  th.corner{font-size:.65rem;white-space:nowrap}
+  .heatwrap{overflow-x:auto}
+  code{color:var(--acc);font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>deck-calc <span class="dim" style="font-weight:400">math harness</span></h1>
+  <p class="sub">Direct view onto <code>src/math/</code>. No React yet — this is the wiring the real UI will replace.</p>
+
+  <div class="cols">
+    <div class="panel">
+      <h2 style="margin-top:0">Deck</h2>
+      <div class="row" style="margin-bottom:.75rem">
+        <div><label for="deckSize">deck size (locked)</label><input id="deckSize" type="number" min="1" max="1024" style="width:6rem"></div>
+        <button id="addGroup">+ group</button>
+      </div>
+      <div id="groups"></div>
+      <p class="hint" style="margin-bottom:0">
+        <code>others</code> is derived, never stored — it absorbs every edit so the deck always totals exactly.
+        Groups must be disjoint: a card belongs to exactly one.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin-top:0">Query</h2>
+      <textarea id="query" spellcheck="false"></textarea>
+      <div class="chips">
+        <button class="ex" data-q="A>=1">A&ge;1</button>
+        <button class="ex" data-q="A>=1 &amp; B>=1">A &amp; B</button>
+        <button class="ex" data-q="A>=2 | B>=2">A2 or B2</button>
+        <button class="ex" data-q="A=1">exactly 1 A</button>
+        <button class="ex" data-q="A>=1 &amp; !B>=1">A but no B</button>
+        <button class="ex" data-q="any 2 of (A>=1, B>=1)">any 2 of</button>
+      </div>
+      <p class="hint">
+        <code>&gt;=</code> <code>&lt;=</code> <code>=</code> <code>&gt;</code> <code>&lt;</code>,
+        combined with <code>&amp;</code> <code>|</code> <code>!</code> and parentheses.
+        A bare name means &ge;1. <code>any k of (…)</code> works. Quote multi-word names.
+      </p>
+      <div class="row" style="margin-top:.5rem">
+        <div><label for="target">target %</label><input id="target" type="number" min="1" max="100" step="1" style="width:5rem"></div>
+        <div class="chips" style="margin:0">
+          <button class="preset" data-p="0.5">50</button>
+          <button class="preset" data-p="0.75">75</button>
+          <button class="preset" data-p="0.9">90</button>
+          <button class="preset" data-p="0.95">95</button>
+          <button class="preset" data-p="0.99">99</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="warn" class="warn"></div>
+
+  <h2>Result</h2>
+  <div class="panel">
+    <div id="status"></div>
+    <div id="summary"></div>
+    <div id="curve"></div>
+  </div>
+
+  <h2>Per-draw table</h2>
+  <div class="scroll"><div id="table"></div></div>
+
+  <h2>Two-variable grid</h2>
+  <div class="panel">
+    <div class="row">
+      <div><label for="gridGroup">vary copies of</label><select id="gridGroup"></select></div>
+      <div><label for="maxDraws">max cards drawn</label><input id="maxDraws" type="number" min="1" max="60" style="width:5rem"></div>
+    </div>
+    <div class="heatwrap"><div id="grid"></div></div>
+  </div>
+</div>
+<!--BUNDLE-->
+</body>
+</html>

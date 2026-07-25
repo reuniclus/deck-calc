@@ -12,6 +12,8 @@ Working agreements for this repo. Read this and `CODEMAP.md` before touching cod
 | tests (once) | `npm test` |
 | tests (watch) | `npm run test:watch` |
 | typecheck | `npm run typecheck` |
+| build the single-file math harness | `npm run harness` → `dist-harness/harness.html` |
+| build + verify the harness in jsdom | `npm run harness:smoke` |
 
 `npm run build` runs `tsc -b` first, so a type error fails the build.
 
@@ -30,7 +32,8 @@ React 19 · TypeScript 7 · Vite 8 · Vitest 4 · Node 22
 5. **Never clamp numeric inputs while the user is typing.** Hold input as a string in local state, commit on valid parse. Invalid deck states are allowed and shown, not silently corrected.
 6. **Queries reference groups by stable `id`, not array index.** Deleting or reordering a group must cascade into saved queries.
 7. **`vite.config.ts` `base` must match the repo name** (`/deck-calc/`) or the Pages build serves a blank page.
-8. Every new math function gets a test against either the BigInt oracle or brute-force enumeration before it gets a UI.
+8. **The harness is generated, never hand-edited.** `src/harness/` is the source; the single-file HTML is a build artifact. It imports the real `src/math` modules so it cannot drift from tested code.
+9. Every new math function gets a test against either the BigInt oracle or brute-force enumeration before it gets a UI.
 
 ## Style
 

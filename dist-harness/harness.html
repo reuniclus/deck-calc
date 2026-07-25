@@ -1,0 +1,928 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>deck-calc — math harness</title>
+<style>
+  :root{color-scheme:dark;--bg:#0e1013;--panel:#161a20;--line:#242a33;--fg:#e6e6e6;--dim:#8b9199;--acc:#7aa2f7;--ok:#68d391;--bad:#f87171;--flag:#fbbf24}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-sans-serif,system-ui,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:1.5rem 1rem 4rem}
+  h1{font-size:1.25rem;margin:0}
+  h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:1.75rem 0 .5rem;font-weight:600}
+  .sub{color:var(--dim);margin:.25rem 0 1.5rem}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:1rem}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:760px){.cols{grid-template-columns:1fr}}
+  label{display:block;color:var(--dim);font-size:.8rem;margin-bottom:.25rem}
+  input,textarea,select,button{font:inherit;background:#0b0d11;color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:.35rem .5rem}
+  input:disabled{color:var(--dim);background:#0e1116}
+  textarea{width:100%;min-height:3.5rem;resize:vertical;font-family:ui-monospace,monospace}
+  button{cursor:pointer}button:hover{border-color:var(--acc)}
+  .row{display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap}
+  .chips{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.5rem}
+  .chips button{font-size:.75rem;padding:.2rem .45rem;color:var(--dim)}
+  table{border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:.2rem .5rem;border-bottom:1px solid var(--line);text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--dim);font-weight:500;font-size:.78rem}
+  table.deck input{width:100%}
+  table.deck td:first-child{width:60%}
+  .others input{font-weight:600}
+  .others.bad input{color:var(--bad);border-color:var(--bad)}
+  .hint{color:var(--dim);font-size:.8rem}
+  .warn{min-height:1.2rem;font-size:.85rem;margin:.5rem 0}
+  .bad{color:var(--bad)}.ok{color:var(--ok)}.flag{color:var(--flag)}.dim{color:var(--dim)}
+  #status{font-size:.85rem;color:var(--dim);margin:.25rem 0 .75rem}
+  #status b{color:var(--fg)}
+  .scroll{max-height:22rem;overflow:auto;border:1px solid var(--line);border-radius:6px}
+  .scroll thead th{position:sticky;top:0;background:var(--panel)}
+  tr.hit td{background:rgba(104,211,145,.08)}
+  tr.hit td:nth-child(2){color:var(--ok)}
+  svg .line{fill:none;stroke:var(--acc);stroke-width:2}
+  svg .ax{stroke:var(--line)}
+  svg .tgt{stroke:var(--ok);stroke-dasharray:4 3;opacity:.7}
+  svg .hit{fill:var(--ok)}
+  svg .lbl{fill:var(--dim);font-size:10px}
+  svg .mid{text-anchor:middle}
+  table.heat{font-size:.7rem;margin-top:.5rem}
+  table.heat th{color:var(--dim);font-weight:500;border:none;padding:.15rem .3rem}
+  table.heat td{padding:.2rem .32rem;border:1px solid #0e1013;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.7);text-align:center;min-width:1.7rem}
+  table.heat td.na{background:#14171d;color:var(--dim)}
+  th.corner{font-size:.65rem;white-space:nowrap}
+  .heatwrap{overflow-x:auto}
+  code{color:var(--acc);font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>deck-calc <span class="dim" style="font-weight:400">math harness</span></h1>
+  <p class="sub">Direct view onto <code>src/math/</code>. No React yet — this is the wiring the real UI will replace.</p>
+
+  <div class="cols">
+    <div class="panel">
+      <h2 style="margin-top:0">Deck</h2>
+      <div class="row" style="margin-bottom:.75rem">
+        <div><label for="deckSize">deck size (locked)</label><input id="deckSize" type="number" min="1" max="1024" style="width:6rem"></div>
+        <button id="addGroup">+ group</button>
+      </div>
+      <div id="groups"></div>
+      <p class="hint" style="margin-bottom:0">
+        <code>others</code> is derived, never stored — it absorbs every edit so the deck always totals exactly.
+        Groups must be disjoint: a card belongs to exactly one.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin-top:0">Query</h2>
+      <textarea id="query" spellcheck="false"></textarea>
+      <div class="chips">
+        <button class="ex" data-q="A>=1">A&ge;1</button>
+        <button class="ex" data-q="A>=1 &amp; B>=1">A &amp; B</button>
+        <button class="ex" data-q="A>=2 | B>=2">A2 or B2</button>
+        <button class="ex" data-q="A=1">exactly 1 A</button>
+        <button class="ex" data-q="A>=1 &amp; !B>=1">A but no B</button>
+        <button class="ex" data-q="any 2 of (A>=1, B>=1)">any 2 of</button>
+      </div>
+      <p class="hint">
+        <code>&gt;=</code> <code>&lt;=</code> <code>=</code> <code>&gt;</code> <code>&lt;</code>,
+        combined with <code>&amp;</code> <code>|</code> <code>!</code> and parentheses.
+        A bare name means &ge;1. <code>any k of (…)</code> works. Quote multi-word names.
+      </p>
+      <div class="row" style="margin-top:.5rem">
+        <div><label for="target">target %</label><input id="target" type="number" min="1" max="100" step="1" style="width:5rem"></div>
+        <div class="chips" style="margin:0">
+          <button class="preset" data-p="0.5">50</button>
+          <button class="preset" data-p="0.75">75</button>
+          <button class="preset" data-p="0.9">90</button>
+          <button class="preset" data-p="0.95">95</button>
+          <button class="preset" data-p="0.99">99</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="warn" class="warn"></div>
+
+  <h2>Result</h2>
+  <div class="panel">
+    <div id="status"></div>
+    <div id="summary"></div>
+    <div id="curve"></div>
+  </div>
+
+  <h2>Per-draw table</h2>
+  <div class="scroll"><div id="table"></div></div>
+
+  <h2>Two-variable grid</h2>
+  <div class="panel">
+    <div class="row">
+      <div><label for="gridGroup">vary copies of</label><select id="gridGroup"></select></div>
+      <div><label for="maxDraws">max cards drawn</label><input id="maxDraws" type="number" min="1" max="60" style="width:5rem"></div>
+    </div>
+    <div class="heatwrap"><div id="grid"></div></div>
+  </div>
+</div>
+<script>
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // src/math/parse.ts
+  var ParseError = class extends Error {
+    constructor(message, pos) {
+      super(message);
+      __publicField(this, "pos", pos);
+    }
+  };
+  var WORD_OPS = { and: "&", or: "|" };
+  function lex(src) {
+    const out = [];
+    let i = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (/\s/.test(c)) {
+        i++;
+        continue;
+      }
+      if (c === "(" || c === ")" || c === ",") {
+        out.push({ k: c, i });
+        i++;
+        continue;
+      }
+      if (c === "&" || c === "|") {
+        out.push({ k: c, i });
+        i += src[i + 1] === c ? 2 : 1;
+        continue;
+      }
+      if (c === "!" || c === "~") {
+        out.push({ k: "!", i });
+        i++;
+        continue;
+      }
+      if (c === ">" || c === "<") {
+        const two = src[i + 1] === "=";
+        out.push({ k: "op", v: two ? c === ">" ? ">=" : "<=" : c, i });
+        i += two ? 2 : 1;
+        continue;
+      }
+      if (c === "=") {
+        out.push({ k: "op", v: "=", i });
+        i += src[i + 1] === "=" ? 2 : 1;
+        continue;
+      }
+      if (/[0-9]/.test(c)) {
+        let j = i;
+        while (j < src.length && /[0-9]/.test(src[j])) j++;
+        out.push({ k: "num", v: Number(src.slice(i, j)), i });
+        i = j;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        const j = src.indexOf(c, i + 1);
+        if (j < 0) throw new ParseError("unterminated quoted name", i);
+        out.push({ k: "id", v: src.slice(i + 1, j), i, quoted: true });
+        i = j + 1;
+        continue;
+      }
+      if (/[A-Za-z_]/.test(c)) {
+        let j = i;
+        while (j < src.length && /[A-Za-z0-9_\-]/.test(src[j])) j++;
+        const raw = src.slice(i, j);
+        const lower = raw.toLowerCase();
+        const wordOp = WORD_OPS[lower];
+        if (wordOp) {
+          out.push({ k: wordOp, i });
+          i += raw.length;
+          continue;
+        }
+        if (lower === "not") {
+          out.push({ k: "!", i });
+          i += raw.length;
+          continue;
+        }
+        out.push({ k: "id", v: raw, i });
+        i += raw.length;
+        continue;
+      }
+      throw new ParseError(`unexpected character "${c}"`, i);
+    }
+    return out;
+  }
+  function parseQuery(src, resolve) {
+    const toks = lex(src);
+    let p = 0;
+    const peek = () => toks[p];
+    const at = (k) => toks[p]?.k === k;
+    const pos = () => toks[p]?.i ?? src.length;
+    function expect(k) {
+      const t = toks[p];
+      if (!t || t.k !== k) throw new ParseError(`expected ${k}`, pos());
+      p++;
+      return t;
+    }
+    function parseOr() {
+      const kids = [parseAnd()];
+      while (at("|")) {
+        p++;
+        kids.push(parseAnd());
+      }
+      return kids.length === 1 ? kids[0] : { t: "or", kids };
+    }
+    function parseAnd() {
+      const kids = [parseUnary()];
+      while (at("&")) {
+        p++;
+        kids.push(parseUnary());
+      }
+      return kids.length === 1 ? kids[0] : { t: "and", kids };
+    }
+    function parseUnary() {
+      if (at("!")) {
+        p++;
+        return { t: "not", kid: parseUnary() };
+      }
+      return parsePrimary();
+    }
+    function parsePrimary() {
+      if (at("(")) {
+        p++;
+        const e2 = parseOr();
+        expect(")");
+        return e2;
+      }
+      const t = peek();
+      if (!t) throw new ParseError("unexpected end of query", src.length);
+      if (t.k === "id") {
+        const word = t.v.toLowerCase();
+        if (!t.quoted && (word === "any" || word === "atleast")) return parseAtLeastK();
+        p++;
+        const gid = resolve(t.v);
+        if (!gid) throw new ParseError(`unknown group "${t.v}"`, t.i);
+        if (at("op")) {
+          const op = toks[p].v;
+          p++;
+          const n = expect("num");
+          switch (op) {
+            case ">=":
+              return { t: "atom", g: gid, lo: n.v, hi: null };
+            case ">":
+              return { t: "atom", g: gid, lo: n.v + 1, hi: null };
+            case "<=":
+              return { t: "atom", g: gid, lo: 0, hi: n.v };
+            case "<":
+              return { t: "atom", g: gid, lo: 0, hi: n.v - 1 };
+            case "=":
+              return { t: "atom", g: gid, lo: n.v, hi: n.v };
+          }
+        }
+        return { t: "atom", g: gid, lo: 1, hi: null };
+      }
+      throw new ParseError('expected a group name or "("', t.i);
+    }
+    function parseAtLeastK() {
+      p++;
+      const n = expect("num");
+      const of = peek();
+      if (of?.k === "id" && of.v.toLowerCase() === "of") p++;
+      expect("(");
+      const kids = [parseOr()];
+      while (at(",")) {
+        p++;
+        kids.push(parseOr());
+      }
+      expect(")");
+      return { t: "atLeastK", k: n.v, kids };
+    }
+    if (toks.length === 0) throw new ParseError("empty query", 0);
+    const e = parseOr();
+    if (p < toks.length) throw new ParseError("unexpected trailing input", pos());
+    return e;
+  }
+
+  // src/math/lnfact.ts
+  var table = [0, 0];
+  function lnFact(n) {
+    if (!Number.isInteger(n) || n < 0) throw new RangeError(`lnFact: bad n=${n}`);
+    let acc = table[table.length - 1];
+    for (let i = table.length; i <= n; i++) {
+      acc += Math.log(i);
+      table[i] = acc;
+    }
+    return table[n];
+  }
+  function lnC(n, k) {
+    if (k < 0 || k > n || n < 0) return -Number.POSITIVE_INFINITY;
+    return lnFact(n) - lnFact(k) - lnFact(n - k);
+  }
+  function binom(n, k) {
+    if (k < 0 || k > n || n < 0) return 0;
+    return Math.exp(lnC(n, k));
+  }
+
+  // src/math/expr.ts
+  var QueryTooLargeError = class extends Error {
+  };
+  var UnknownGroupError = class extends Error {
+  };
+  function boxKey(b) {
+    return Object.keys(b).sort().map((g) => `${g}:${b[g].lo}-${b[g].hi}`).join(",");
+  }
+  function intersect(a, b) {
+    const out = { ...a };
+    for (const g of Object.keys(b)) {
+      const bi = b[g];
+      const ai = out[g];
+      const lo = ai ? Math.max(ai.lo, bi.lo) : bi.lo;
+      const hi = ai ? Math.min(ai.hi, bi.hi) : bi.hi;
+      if (lo > hi) return null;
+      out[g] = { lo, hi };
+    }
+    return out;
+  }
+  function subsumes(b, a, sizes) {
+    for (const g of Object.keys(b)) {
+      const bi = b[g];
+      const ai = a[g] ?? { lo: 0, hi: sizes[g] ?? 0 };
+      if (ai.lo < bi.lo || ai.hi > bi.hi) return false;
+    }
+    return true;
+  }
+
+  // src/math/normalize.ts
+  var MAX_CLAUSES = 512;
+  var MAX_COMBINATIONS = 4096;
+  function normalize(expr, sizes) {
+    const expanded = expandAtLeastK(expr);
+    const positive = pushNots(expanded, false, sizes);
+    const raw = toDnf(positive);
+    const clauses = prune(raw, sizes);
+    return { clauses, monotone: clauses.every((b) => isUpSet(b, sizes)) };
+  }
+  function expandAtLeastK(e) {
+    switch (e.t) {
+      case "atom":
+        return e;
+      case "not":
+        return { t: "not", kid: expandAtLeastK(e.kid) };
+      case "and":
+      case "or":
+        return { t: e.t, kids: e.kids.map(expandAtLeastK) };
+      case "atLeastK": {
+        const kids = e.kids.map(expandAtLeastK);
+        const c = kids.length;
+        if (e.k <= 0) return { t: "and", kids: [] };
+        if (e.k > c) return { t: "or", kids: [] };
+        if (e.k === 1) return { t: "or", kids };
+        if (e.k === c) return { t: "and", kids };
+        const count = binom(c, e.k);
+        if (count > MAX_COMBINATIONS) {
+          throw new QueryTooLargeError(
+            `"any ${e.k} of ${c}" expands to ${count.toExponential(2)} terms; cap is ${MAX_COMBINATIONS}`
+          );
+        }
+        const combos = choose(c, e.k);
+        return { t: "or", kids: combos.map((idx) => ({ t: "and", kids: idx.map((i) => kids[i]) })) };
+      }
+    }
+  }
+  function choose(n, k) {
+    const out = [];
+    const cur = [];
+    (function rec(start) {
+      if (cur.length === k) {
+        out.push([...cur]);
+        return;
+      }
+      for (let i = start; i < n; i++) {
+        cur.push(i);
+        rec(i + 1);
+        cur.pop();
+      }
+    })(0);
+    return out;
+  }
+  function pushNots(e, neg, sizes) {
+    switch (e.t) {
+      case "not":
+        return pushNots(e.kid, !neg, sizes);
+      case "and":
+        return { t: neg ? "or" : "and", kids: e.kids.map((k) => pushNots(k, neg, sizes)) };
+      case "or":
+        return { t: neg ? "and" : "or", kids: e.kids.map((k) => pushNots(k, neg, sizes)) };
+      case "atLeastK":
+        throw new Error("pushNots: atLeastK must be expanded first");
+      case "atom": {
+        const K = sizes[e.g];
+        if (K === void 0) throw new UnknownGroupError(`unknown group "${e.g}"`);
+        const lo = Math.max(0, e.lo);
+        const hi = Math.min(e.hi ?? K, K);
+        if (!neg) {
+          if (lo > hi) return { t: "or", kids: [] };
+          if (lo === 0 && hi === K) return { t: "and", kids: [] };
+          return { t: "atom", g: e.g, lo, hi };
+        }
+        const parts = [];
+        if (lo > hi) return { t: "and", kids: [] };
+        if (lo > 0) parts.push({ t: "atom", g: e.g, lo: 0, hi: lo - 1 });
+        if (hi < K) parts.push({ t: "atom", g: e.g, lo: hi + 1, hi: K });
+        return { t: "or", kids: parts };
+      }
+    }
+  }
+  function toDnf(e) {
+    switch (e.t) {
+      case "atom": {
+        if (e.hi === null) throw new Error("toDnf: unresolved upper bound");
+        return [{ [e.g]: { lo: e.lo, hi: e.hi } }];
+      }
+      case "or":
+        return e.kids.flatMap(toDnf);
+      case "and": {
+        let acc = [{}];
+        for (const kid of e.kids) {
+          const next = [];
+          for (const a of acc) {
+            for (const b of toDnf(kid)) {
+              const m = intersect(a, b);
+              if (m) next.push(m);
+            }
+          }
+          if (next.length > MAX_CLAUSES) {
+            throw new QueryTooLargeError(`query expands past ${MAX_CLAUSES} clauses`);
+          }
+          acc = next;
+          if (acc.length === 0) return [];
+        }
+        return acc;
+      }
+      default:
+        throw new Error(`toDnf: unexpected node ${e.t}`);
+    }
+  }
+  function prune(clauses, sizes) {
+    const byKey = /* @__PURE__ */ new Map();
+    for (const b of clauses) {
+      const tightened = tighten(b, sizes);
+      if (tightened === null) continue;
+      if (Object.keys(tightened).length === 0) return [{}];
+      byKey.set(boxKey(tightened), tightened);
+    }
+    const uniq = [...byKey.values()];
+    return uniq.filter((a, i) => !uniq.some((b, j) => j !== i && subsumes(b, a, sizes)));
+  }
+  function tighten(b, sizes) {
+    const out = {};
+    for (const g of Object.keys(b)) {
+      const K = sizes[g];
+      if (K === void 0) throw new UnknownGroupError(`unknown group "${g}"`);
+      const lo = Math.max(0, b[g].lo);
+      const hi = Math.min(b[g].hi, K);
+      if (lo > hi) return null;
+      if (lo === 0 && hi === K) continue;
+      out[g] = { lo, hi };
+    }
+    return out;
+  }
+  function isUpSet(b, sizes) {
+    return Object.keys(b).every((g) => b[g].hi === (sizes[g] ?? 0));
+  }
+
+  // src/math/boxdp.ts
+  var MAX_DECK = 1024;
+  function boxCurve(N, constraints) {
+    if (!Number.isInteger(N) || N < 0 || N > MAX_DECK) throw new RangeError(`N=${N}`);
+    const out = new Float64Array(N + 1);
+    let kSum = 0;
+    for (const c of constraints) {
+      if (!Number.isInteger(c.K) || c.K < 0) throw new RangeError(`K=${c.K}`);
+      kSum += c.K;
+    }
+    const R = N - kSum;
+    if (R < 0) throw new RangeError(`constrained groups (${kSum}) exceed deck (${N})`);
+    let ways = new Float64Array(1);
+    ways[0] = 1;
+    let sMax = 0;
+    for (const c of constraints) {
+      const lo = Math.max(0, c.lo);
+      const hi = Math.min(c.hi, c.K);
+      if (lo > hi) return out;
+      const next = new Float64Array(sMax + hi + 1);
+      for (let s = 0; s <= sMax; s++) {
+        const w = ways[s];
+        if (w === 0) continue;
+        for (let x = lo; x <= hi; x++) next[s + x] += w * binom(c.K, x);
+      }
+      ways = next;
+      sMax += hi;
+    }
+    for (let n = 0; n <= N; n++) {
+      const denom = binom(N, n);
+      let acc = 0;
+      const from = Math.max(0, n - R);
+      const to = Math.min(sMax, n);
+      for (let s = from; s <= to; s++) {
+        const w = ways[s];
+        if (w !== 0) acc += w * binom(R, n - s);
+      }
+      const p = acc / denom;
+      if (!Number.isFinite(p)) throw new Error(`boxCurve overflow at N=${N}, n=${n}`);
+      out[n] = p < 0 ? 0 : p > 1 ? 1 : p;
+    }
+    return out;
+  }
+
+  // src/math/evaluate.ts
+  var MAX_IE_CLAUSES = 12;
+  function evaluate(N, sizes, dnf) {
+    const { clauses, monotone } = dnf;
+    const base = { clauses: clauses.length, monotone };
+    if (clauses.length === 0) return { ...base, curve: new Float64Array(N + 1), terms: 0 };
+    if (clauses.some((b) => Object.keys(b).length === 0)) {
+      return { ...base, curve: new Float64Array(N + 1).fill(1), terms: 0 };
+    }
+    if (clauses.length > MAX_IE_CLAUSES) {
+      throw new QueryTooLargeError(
+        `${clauses.length} clauses needs 2^${clauses.length} terms; cap is ${MAX_IE_CLAUSES}`
+      );
+    }
+    const acc = new Float64Array(N + 1);
+    const comp = new Float64Array(N + 1);
+    const cache = /* @__PURE__ */ new Map();
+    let terms = 0;
+    for (let mask = 1; mask < 1 << clauses.length; mask++) {
+      let merged = {};
+      let bits = 0;
+      for (let i = 0; i < clauses.length && merged; i++) {
+        if (mask >> i & 1) {
+          bits++;
+          merged = intersect(merged, clauses[i]);
+        }
+      }
+      if (!merged) continue;
+      terms++;
+      const key = boxKey(merged);
+      let curve = cache.get(key);
+      if (!curve) {
+        curve = boxCurve(N, toConstraints(merged, sizes));
+        cache.set(key, curve);
+      }
+      const sign = bits % 2 === 1 ? 1 : -1;
+      for (let n = 0; n <= N; n++) {
+        const y = sign * curve[n] - comp[n];
+        const t = acc[n] + y;
+        comp[n] = t - acc[n] - y;
+        acc[n] = t;
+      }
+    }
+    for (let n = 0; n <= N; n++) {
+      const p = acc[n];
+      if (p < -1e-9 || p > 1 + 1e-9) throw new Error(`evaluate: P=${p} out of range at n=${n}`);
+      acc[n] = p < 0 ? 0 : p > 1 ? 1 : p;
+    }
+    return { ...base, curve: acc, terms };
+  }
+  function toConstraints(box, sizes) {
+    return Object.keys(box).map((g) => {
+      const K = sizes[g];
+      if (K === void 0) throw new Error(`unknown group "${g}"`);
+      return { K, lo: box[g].lo, hi: box[g].hi };
+    });
+  }
+
+  // src/math/analyze.ts
+  function analyze(curve, target, monotone) {
+    const N = curve.length - 1;
+    const deltas = new Float64Array(Math.max(0, N));
+    for (let n = 0; n < N; n++) deltas[n] = curve[n + 1] - curve[n];
+    let knee = 0;
+    for (let n = 1; n < deltas.length; n++) if (deltas[n] > deltas[knee]) knee = n;
+    let argmaxP = 0;
+    for (let n = 1; n <= N; n++) if (curve[n] > curve[argmaxP]) argmaxP = n;
+    const windows = [];
+    let start = null;
+    for (let n = 0; n <= N; n++) {
+      const ok = curve[n] >= target - 1e-12;
+      if (ok && start === null) start = n;
+      if (!ok && start !== null) {
+        windows.push([start, n - 1]);
+        start = null;
+      }
+    }
+    if (start !== null) windows.push([start, N]);
+    return {
+      curve,
+      deltas,
+      knee,
+      argmaxP,
+      maxP: curve[argmaxP],
+      monotone,
+      target,
+      drawsNeeded: windows.length > 0 ? windows[0][0] : null,
+      windows
+    };
+  }
+
+  // src/harness/main.ts
+  var state = {
+    deckSize: 40,
+    groups: [
+      { id: "g0", name: "A", count: 4 },
+      { id: "g1", name: "B", count: 3 }
+    ],
+    query: "A>=1 & B>=1",
+    target: 0.9,
+    gridGroup: "g0",
+    gridMaxDraws: 20
+  };
+  var seq = 2;
+  var $ = (id) => document.getElementById(id);
+  var pct = (p) => (p * 100).toFixed(2) + "%";
+  var signed = (p) => (p >= 0 ? "+" : "\u2212") + (Math.abs(p) * 100).toFixed(2) + "%";
+  var others = () => state.deckSize - state.groups.reduce((a, g) => a + g.count, 0);
+  function sizesOf(groups) {
+    const s = {};
+    for (const g of groups) s[g.id] = g.count;
+    return s;
+  }
+  function resolverFor(groups) {
+    return (name) => groups.find((g) => g.name.toLowerCase() === name.trim().toLowerCase())?.id ?? null;
+  }
+  function renderDeck() {
+    const rows = state.groups.map((g) => `
+    <tr>
+      <td><input class="name" data-id="${g.id}" value="${escapeAttr(g.name)}" size="12"></td>
+      <td><input class="count" data-id="${g.id}" type="number" min="0" value="${g.count}" size="4"></td>
+      <td><button class="del" data-id="${g.id}">\u2715</button></td>
+    </tr>`).join("");
+    const o = others();
+    $("groups").innerHTML = `
+    <table class="deck">
+      <thead><tr><th>group</th><th>copies</th><th></th></tr></thead>
+      <tbody>${rows}
+        <tr class="others ${o < 0 ? "bad" : ""}">
+          <td>others <span class="hint">(derived)</span></td>
+          <td><input value="${o}" disabled></td><td></td>
+        </tr>
+      </tbody>
+    </table>`;
+    $("groups").querySelectorAll("input.name").forEach((el) => {
+      el.oninput = () => {
+        setGroup(el.dataset.id, { name: el.value });
+        recompute();
+      };
+    });
+    $("groups").querySelectorAll("input.count").forEach((el) => {
+      el.oninput = () => {
+        const v = parseInt(el.value, 10);
+        if (Number.isFinite(v) && v >= 0) {
+          setGroup(el.dataset.id, { count: v });
+          recompute();
+        }
+      };
+    });
+    $("groups").querySelectorAll("button.del").forEach((el) => {
+      el.onclick = () => {
+        state.groups = state.groups.filter((g) => g.id !== el.dataset.id);
+        if (state.gridGroup === el.dataset.id) state.gridGroup = state.groups[0]?.id ?? "";
+        renderDeck();
+        renderGridPicker();
+        recompute();
+      };
+    });
+  }
+  function setGroup(id, patch) {
+    state.groups = state.groups.map((g) => g.id === id ? { ...g, ...patch } : g);
+  }
+  function renderGridPicker() {
+    const sel = $("gridGroup");
+    sel.innerHTML = state.groups.map((g) => `<option value="${g.id}" ${g.id === state.gridGroup ? "selected" : ""}>${escapeHtml(g.name)}</option>`).join("");
+  }
+  function recompute() {
+    const N = state.deckSize;
+    const o = others();
+    const warn = $("warn");
+    if (o < 0) {
+      warn.textContent = `Groups total ${N - o} cards but the deck is ${N}. Reduce a group or raise the deck size.`;
+      warn.className = "warn bad";
+      return;
+    }
+    const dupes = state.groups.filter((g, i) => state.groups.findIndex((h) => h.name.trim().toLowerCase() === g.name.trim().toLowerCase()) !== i);
+    if (dupes.length) {
+      warn.textContent = `Duplicate group name: "${dupes[0].name}". Names must be unique \u2014 groups are disjoint.`;
+      warn.className = "warn bad";
+      return;
+    }
+    warn.textContent = "";
+    warn.className = "warn";
+    const sizes = sizesOf(state.groups);
+    let res;
+    try {
+      const dnf = normalize(parseQuery(state.query, resolverFor(state.groups)), sizes);
+      res = evaluate(N, sizes, dnf);
+    } catch (e) {
+      $("status").innerHTML = `<span class="bad">${escapeHtml(describeError(e))}</span>`;
+      $("summary").innerHTML = "";
+      $("curve").innerHTML = "";
+      $("table").innerHTML = "";
+      $("grid").innerHTML = "";
+      return;
+    }
+    const a = analyze(res.curve, state.target, res.monotone);
+    renderStatus(res, a);
+    renderSummary(a);
+    renderCurve(a);
+    renderTable(a);
+    renderGrid();
+  }
+  function describeError(e) {
+    if (e instanceof ParseError) return `Parse error at ${e.pos}: ${e.message}`;
+    if (e instanceof UnknownGroupError) return e.message;
+    if (e instanceof QueryTooLargeError) return `Query too large: ${e.message}`;
+    return e instanceof Error ? e.message : String(e);
+  }
+  function renderStatus(res, a) {
+    $("status").innerHTML = [
+      `<b>${res.clauses}</b> clause${res.clauses === 1 ? "" : "s"}`,
+      `<b>${res.terms}</b> inclusion\u2013exclusion term${res.terms === 1 ? "" : "s"}`,
+      res.monotone ? `<span class="ok">monotone</span> \u2014 more cards never hurt` : `<span class="flag">non-monotone</span> \u2014 has an upper bound, so P can fall`,
+      `peak <b>${pct(a.maxP)}</b> at n=<b>${a.argmaxP}</b>`
+    ].join(" \xB7 ");
+  }
+  function renderSummary(a) {
+    const t = pct(a.target);
+    let line;
+    if (a.windows.length === 0) {
+      line = `<span class="flag">Never reaches ${t}.</span> Best is ${pct(a.maxP)} at ${a.argmaxP} cards.`;
+    } else if (a.monotone) {
+      line = `Reaches ${t} at <b>${a.drawsNeeded}</b> cards drawn, and stays there.`;
+    } else {
+      const w = a.windows.map(([s, e]) => s === e ? `${s}` : `${s}\u2013${e}`).join(", ");
+      line = `P \u2265 ${t} only for n \u2208 {${w}} \u2014 a bounded window, because the query is capped above.`;
+    }
+    const knee = a.deltas[a.knee] ?? 0;
+    const after = a.monotone ? "Past that, every extra card buys less than the one before." : `P turns over at n=${a.argmaxP}; past there extra cards actively hurt.`;
+    $("summary").innerHTML = `<p>${line}</p><p class="hint">Steepest gain: card ${a.knee + 1} is worth ${signed(knee)}. ${after}</p>`;
+  }
+  function renderCurve(a) {
+    const N = a.curve.length - 1;
+    const W = 640, H = 200, PAD = 28;
+    const x = (n) => PAD + n / N * (W - PAD - 8);
+    const y = (p) => H - PAD - p * (H - PAD - 10);
+    const pts = Array.from(a.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
+    const gridLines = [0.25, 0.5, 0.75, 1].map((p) => `<line x1="${PAD}" x2="${W - 8}" y1="${y(p)}" y2="${y(p)}" class="ax"/>
+     <text x="2" y="${y(p) + 4}" class="lbl">${p * 100}%</text>`).join("");
+    const ticks = tickValues(N).map((n) => `<text x="${x(n)}" y="${H - 8}" class="lbl mid">${n}</text>`).join("");
+    const targetLine = `<line x1="${PAD}" x2="${W - 8}" y1="${y(a.target)}" y2="${y(a.target)}" class="tgt"/>`;
+    const marks = a.drawsNeeded !== null ? `<circle cx="${x(a.drawsNeeded)}" cy="${y(a.curve[a.drawsNeeded])}" r="4" class="hit"/>` : "";
+    $("curve").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}
+      <polyline points="${pts}" class="line"/>${marks}${ticks}
+      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>`;
+  }
+  function tickValues(N) {
+    const step = N <= 20 ? 5 : N <= 60 ? 10 : 25;
+    const out = [];
+    for (let n = 0; n <= N; n += step) out.push(n);
+    return out;
+  }
+  function renderTable(a) {
+    const N = a.curve.length - 1;
+    const rows = [];
+    for (let n = 0; n <= N; n++) {
+      const hit = a.curve[n] >= a.target - 1e-12;
+      const isKnee = n === a.knee + 1;
+      rows.push(`<tr class="${hit ? "hit" : ""}">
+      <td>${n}</td>
+      <td>${pct(a.curve[n])}</td>
+      <td class="dim">${n === 0 ? "" : signed(a.deltas[n - 1])}${isKnee ? " \u25C2 steepest" : ""}</td>
+    </tr>`);
+    }
+    $("table").innerHTML = `<table class="num"><thead><tr><th>drawn</th><th>P</th><th>\u0394P per card</th></tr></thead>
+     <tbody>${rows.join("")}</tbody></table>`;
+  }
+  function renderGrid() {
+    const g = state.groups.find((x) => x.id === state.gridGroup);
+    if (!g) {
+      $("grid").innerHTML = '<p class="hint">No group selected.</p>';
+      return;
+    }
+    const fixed = state.groups.filter((x) => x.id !== g.id).reduce((s, x) => s + x.count, 0);
+    const kMax = Math.min(state.deckSize - fixed, 12);
+    const nMax = Math.min(state.deckSize, state.gridMaxDraws);
+    const resolve = resolverFor(state.groups);
+    const header = `<tr><th class="corner">copies \u2193 / drawn \u2192</th>${range(0, nMax).map((n) => `<th>${n}</th>`).join("")}</tr>`;
+    const rows = [];
+    for (let k = 0; k <= kMax; k++) {
+      const groups = state.groups.map((x) => x.id === g.id ? { ...x, count: k } : x);
+      let curve = null;
+      try {
+        const sizes = sizesOf(groups);
+        curve = evaluate(
+          state.deckSize,
+          sizes,
+          normalize(parseQuery(state.query, resolve), sizes)
+        ).curve;
+      } catch {
+        curve = null;
+      }
+      const cells = range(0, nMax).map((n) => {
+        if (!curve) return `<td class="na">\u2014</td>`;
+        const p = curve[n];
+        return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn">${(p * 100).toFixed(0)}</td>`;
+      }).join("");
+      rows.push(`<tr><th>${k}${k === g.count ? " \u25C2" : ""}</th>${cells}</tr>`);
+    }
+    $("grid").innerHTML = `<p class="hint">P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary.
+     The row marked \u25C2 is your current deck. Everything else holds the rest of the deck fixed,
+     trading cards against <i>others</i>.</p>
+     <table class="heat">${header}${rows.join("")}</table>`;
+  }
+  function range(a, b) {
+    const out = [];
+    for (let i = a; i <= b; i++) out.push(i);
+    return out;
+  }
+  function heat(p) {
+    const stops = [
+      [12, 14, 24],
+      [38, 52, 108],
+      [30, 110, 130],
+      [56, 168, 110],
+      [180, 210, 70],
+      [250, 240, 160]
+    ];
+    const t = Math.max(0, Math.min(1, p)) * (stops.length - 1);
+    const i = Math.min(stops.length - 2, Math.floor(t));
+    const f = t - i;
+    const [a, b] = [stops[i], stops[i + 1]];
+    const c = a.map((v, j) => Math.round(v + (b[j] - v) * f));
+    return `rgb(${c[0]},${c[1]},${c[2]})`;
+  }
+  var escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  var escapeAttr = (s) => escapeHtml(s).replace(/"/g, "&quot;");
+  function init() {
+    $("deckSize").value = String(state.deckSize);
+    $("query").value = state.query;
+    $("target").value = String(Math.round(state.target * 100));
+    $("maxDraws").value = String(state.gridMaxDraws);
+    $("deckSize").oninput = (e) => {
+      const v = parseInt(e.target.value, 10);
+      if (Number.isFinite(v) && v > 0 && v <= 1024) {
+        state.deckSize = v;
+        renderDeck();
+        recompute();
+      }
+    };
+    $("query").oninput = (e) => {
+      state.query = e.target.value;
+      recompute();
+    };
+    $("target").oninput = (e) => {
+      const v = parseFloat(e.target.value);
+      if (Number.isFinite(v) && v > 0 && v <= 100) {
+        state.target = v / 100;
+        recompute();
+      }
+    };
+    $("maxDraws").oninput = (e) => {
+      const v = parseInt(e.target.value, 10);
+      if (Number.isFinite(v) && v > 0) {
+        state.gridMaxDraws = v;
+        renderGrid();
+      }
+    };
+    $("gridGroup").onchange = (e) => {
+      state.gridGroup = e.target.value;
+      renderGrid();
+    };
+    $("addGroup").onclick = () => {
+      state.groups.push({ id: `g${seq++}`, name: `G${seq}`, count: 1 });
+      renderDeck();
+      renderGridPicker();
+      recompute();
+    };
+    document.querySelectorAll("button.preset").forEach((b) => {
+      b.onclick = () => {
+        state.target = Number(b.dataset.p);
+        $("target").value = String(Math.round(state.target * 100));
+        recompute();
+      };
+    });
+    document.querySelectorAll("button.ex").forEach((b) => {
+      b.onclick = () => {
+        state.query = b.dataset.q;
+        $("query").value = state.query;
+        recompute();
+      };
+    });
+    renderDeck();
+    renderGridPicker();
+    recompute();
+  }
+  init();
+})();
+</script>
+</body>
+</html>
