@@ -23,6 +23,7 @@
   .row{display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap}
   .chips{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.5rem}
   .chips button{font-size:.75rem;padding:.2rem .45rem;color:var(--dim)}
+  .chips button.gmode.active{color:var(--fg);border-color:var(--acc);background:#132030}
   table{border-collapse:collapse;font-variant-numeric:tabular-nums}
   th,td{padding:.2rem .5rem;border-bottom:1px solid var(--line);text-align:right}
   th:first-child,td:first-child{text-align:left}
@@ -161,12 +162,12 @@
       <div><label for="gridGroup">vary copies of</label><select id="gridGroup"></select></div>
       <div><label for="maxDraws">max cards drawn</label><input id="maxDraws" type="number" min="1" max="60" style="width:5rem"></div>
       <div>
-        <label for="gridMode">show</label>
-        <select id="gridMode">
-          <option value="value">values (P%)</option>
-          <option value="dCopy">Δ per extra copy</option>
-          <option value="dDraw">Δ per extra card drawn</option>
-        </select>
+        <label>show</label>
+        <div class="chips" style="margin:0">
+          <button class="gmode" data-mode="value">values</button>
+          <button class="gmode" data-mode="dCopy">Δ per copy</button>
+          <button class="gmode" data-mode="dDraw">Δ per draw</button>
+        </div>
       </div>
     </div>
     <div class="heatwrap"><div id="grid"></div></div>

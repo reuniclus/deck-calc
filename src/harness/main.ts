@@ -628,6 +628,12 @@ function renderTable(a: ReturnType<typeof analyze>): void {
 }
 
 // ── 2D grid: cards drawn × copies of one group ───────────────────────────────
+function syncGridModeButtons(): void {
+  document.querySelectorAll<HTMLButtonElement>('button.gmode').forEach((el) => {
+    el.classList.toggle('active', el.dataset.mode === state.gridMode);
+  });
+}
+
 function renderGrid(): void {
   const g = state.groups.find((x) => x.id === state.gridGroup);
   if (!g) { $('grid').innerHTML = '<p class="hint">No group selected.</p>'; return; }
@@ -804,11 +810,14 @@ function init(): void {
   ($('gridGroup') as HTMLSelectElement).onchange = (e) => {
     state.gridGroup = (e.target as HTMLSelectElement).value; renderGrid();
   };
-  ($('gridMode') as HTMLSelectElement).value = state.gridMode;
-  ($('gridMode') as HTMLSelectElement).onchange = (e) => {
-    state.gridMode = (e.target as HTMLSelectElement).value as typeof state.gridMode;
-    renderGrid();
-  };
+  document.querySelectorAll<HTMLButtonElement>('button.gmode').forEach((el) => {
+    el.onclick = () => {
+      state.gridMode = el.dataset.mode as typeof state.gridMode;
+      syncGridModeButtons();
+      renderGrid();
+    };
+  });
+  syncGridModeButtons();
   $('addGroup').onclick = () => {
     state.groups.push({ id: `g${seq++}`, name: `G${seq}`, count: 1 });
     renderDeck(); renderGridPicker(); recompute();
