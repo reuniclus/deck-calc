@@ -17,7 +17,7 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/math/analyze.ts` | ΔP, knee, peak, feasible windows, draws-needed |
 | `src/math/parse.ts` | text query language (`A>=2 & !B`, `any 2 of (…)`, `true`/`false`) |
 | `src/math/print.ts` | inverse of `parse` — renders an id-based AST with current group names |
-| `src/model/turns.ts` | draw-count <-> turn mapping (opening hand, on-the-play, draws/turn) |
+| `src/model/turns.ts` | draw-count <-> turn mapping (opening hand, on-the-play, draws/turn, approximated mulligans) |
 | `src/math/frontier.ts` | monotone-only: minimal sufficient vectors (greedy descent from the max corner) |
 | `src/math/allocate.ts` | slot-budget optimizer: maximize P for a budget (primal), fewest slots for a target (dual) |
 | `src/math/expr.ts` (`pruneGroups`) | explicit, user-triggered removal of atoms mentioning a deleted group |

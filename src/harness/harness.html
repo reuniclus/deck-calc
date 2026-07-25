@@ -147,6 +147,7 @@
     <h2 style="margin-top:0">Turns</h2>
     <div class="row">
       <div><label for="openingHand">starting hand size</label><input id="openingHand" type="number" min="0" max="60" style="width:5rem"></div>
+      <div><label for="mulligans">mulligans</label><input id="mulligans" type="number" min="0" max="60" style="width:4rem"></div>
       <div style="align-self:center;padding-bottom:.35rem">
         <label style="display:inline-flex;align-items:center;gap:.4rem;margin:0">
           <input id="onThePlay" type="checkbox" style="width:auto">
@@ -155,7 +156,13 @@
       </div>
     </div>
     <p class="hint" style="margin-bottom:0">
-      Cards drawn below the starting hand size have no turn yet — they're still part of the opener.
+      Cards drawn below the effective starting hand have no turn yet — they're still part of the opener.
+    </p>
+    <p class="hint" style="margin-bottom:0">
+      <b>Mulligans are approximated</b> as a smaller starting hand (hand size − mulligans), not the
+      real London rule of drawing 7 and keeping your best cards. A real mulligan lets you keep more
+      of what you need than this model assumes — treat these numbers as a conservative floor, not
+      an exact one, when mulligans &gt; 0.
     </p>
   </div>
 

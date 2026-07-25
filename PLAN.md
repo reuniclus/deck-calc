@@ -263,6 +263,42 @@ special case — a fresh single combo simply has k = rows.length. UI: a "require
 checkbox per combo (checked ⟺ k===rows.length) with a threshold number revealed
 underneath when unchecked, shown only for combos with 2+ conditions.
 
+### 3b. [Fixed] Steepest-gain marker could appear before the starting hand
+
+`analyze.ts`'s knee (steepest single-card ΔP) is computed over the WHOLE curve, by
+design — it's turn-agnostic pure math with no concept of an opening hand, and that's
+correct: coupling it to turn config would make it unusable in a context without one.
+But nothing at the display layer was restricting where that marker gets DRAWN, so a
+curve whose biggest single-card jump happens to fall before the opening hand (common
+— the very first card is often the steepest, since P is 0 before it) would mark
+"steepest" at a draw count that isn't a real turn yet. Fixed at the harness level:
+`visibleKnee()` in `main.ts` re-scans `a.deltas` restricted to `n >= effectiveOpeningHand`,
+and the table, graph marker, and summary line all use it instead of the raw `a.knee`.
+Confirmed with a real (not manufactured) case: the existing non-monotone smoke-test
+query's true global knee sits at card 1, which the fix correctly moved to card 8 once
+restricted to the visible range.
+
+### 3c. Mulligans (approximated)
+
+Modeled as a straight reduction of the effective opening hand
+(`effectiveOpeningHand = max(0, openingHand - mulligans)`) in `model/turns.ts`, used
+everywhere a draw count needs to know "when does the game actually start" — table/grid
+trimming, the graph's starting-hand line, and (via §3b) where the steepest-gain marker
+is allowed to appear. Placed in the existing Turns panel next to starting hand size,
+defaulting to 0 (exactly today's behavior, verified byte-for-byte against the
+pre-mulligan curve in `turns.test.ts`).
+
+This is a deliberate, documented approximation, not the real London mulligan rule. The
+actual rule — draw a fresh 7, then keep whichever (7-mulligans) cards you choose,
+bottoming the rest — is a "best subset" order-statistic problem: a real mulligan hand
+is never worse than this model assumes, only better, because you get to pick which
+cards to keep. For a single tracked group that's a closed-form transform of the
+univariate hypergeometric (keep min(draws, hand size) successes); for a general
+multi-group boolean query, "best subset" isn't even well-defined without knowing which
+combination you're optimizing for. Flagged as a genuine future math project, not
+implemented now — the flat reduction is the conservative/honest placeholder, and the
+UI states this caveat plainly rather than implying more precision than it has.
+
 ### 4c. Removed: "any k of" / per-combo threshold
 
 The per-combo "require at least k of these" threshold (added in §4b) turned out to

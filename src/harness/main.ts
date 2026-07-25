@@ -8,7 +8,9 @@ import { printExpr } from '../math/print';
 import { normalize } from '../math/normalize';
 import { evaluate } from '../math/evaluate';
 import { analyze } from '../math/analyze';
-import { turnForCardsSeen, DEFAULT_TURN_CONFIG, type TurnConfig } from '../model/turns';
+import {
+  turnForCardsSeen, effectiveOpeningHand, DEFAULT_TURN_CONFIG, type TurnConfig,
+} from '../model/turns';
 import { minimalVectors } from '../math/frontier';
 import { allocate, minSlotsForTarget } from '../math/allocate';
 import { compileFlat, decompileFlat, type Row, type FlatQuery } from '../math/builder';
@@ -594,6 +596,25 @@ function turnSuffix(n: number): string {
   return turn === null ? '' : ` (turn ${turn})`;
 }
 
+/**
+ * Steepest single-card gain, restricted to n >= the effective starting hand.
+ * analyze.ts is deliberately turn-agnostic (it has no concept of an opening
+ * hand), so a.knee can legitimately point BELOW the hand size — the biggest
+ * jump in a curve is often the very first card. That's mathematically correct
+ * but not a card you can act on separately from the opener, so no marker
+ * (table, graph, or summary) should ever show it there. Restricting the
+ * search here, at display time, keeps analyze() reusable without a turn
+ * config while fixing what the person actually sees.
+ */
+function visibleKnee(a: ReturnType<typeof analyze>): number {
+  const start = effectiveOpeningHand(state.turnCfg);
+  const deltas = a.deltas;
+  if (start >= deltas.length) return Math.max(0, deltas.length - 1); // nothing visible to compare; clamp
+  let knee = start;
+  for (let n = start + 1; n < deltas.length; n++) if (deltas[n]! > deltas[knee]!) knee = n;
+  return knee;
+}
+
 function renderSummary(a: ReturnType<typeof analyze>): void {
   const t = pct(a.target);
   let line: string;
@@ -605,12 +626,13 @@ function renderSummary(a: ReturnType<typeof analyze>): void {
     const w = a.windows.map(([s, e]) => (s === e ? `${s}` : `${s}–${e}`)).join(', ');
     line = `P ≥ ${t} only for n ∈ {${w}} — a bounded window, because the query is capped above.`;
   }
-  const knee = a.deltas[a.knee] ?? 0;
+  const knee = visibleKnee(a);
+  const gain = a.deltas[knee] ?? 0;
   const after = a.monotone
     ? 'Past that, every extra card buys less than the one before.'
     : `P turns over at n=${a.argmaxP}; past there extra cards actively hurt.`;
   $('summary').innerHTML =
-    `<p>${line}</p><p class="hint">Steepest gain: card ${a.knee + 1} is worth ${signed(knee)}. ${after}</p>`;
+    `<p>${line}</p><p class="hint">Steepest gain: card ${knee + 1} is worth ${signed(gain)}. ${after}</p>`;
 }
 
 // ── curve ────────────────────────────────────────────────────────────────────
@@ -634,15 +656,15 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
     ? `<circle cx="${x(a.drawsNeeded)}" cy="${y(a.curve[a.drawsNeeded]!)}" r="4" class="hit"/>`
     : '';
 
-  // Starting hand: vertical reference line, same n=openingHand cutoff the tables use.
-  const hand = state.turnCfg.openingHand;
+  // Starting hand: vertical reference line, same effective-hand cutoff the tables use.
+  const hand = effectiveOpeningHand(state.turnCfg);
   const handLine = hand >= 0 && hand <= N
     ? `<line x1="${x(hand)}" x2="${x(hand)}" y1="8" y2="${H - PAD}" class="hand"/>
        <text x="${x(hand)}" y="10" class="lbl mid hand-lbl">hand</text>`
     : '';
 
   // Steepest gain — same point the per-draw table marks with "◂ steepest".
-  const steepestN = a.knee + 1;
+  const steepestN = visibleKnee(a) + 1;
   const knee = steepestN >= 0 && steepestN <= N
     ? `<circle cx="${x(steepestN)}" cy="${y(a.curve[steepestN]!)}" r="4" class="knee"/>
        <text x="${x(steepestN)}" y="${y(a.curve[steepestN]!) - 8}" class="lbl mid knee-lbl">steepest</text>`
@@ -722,11 +744,12 @@ function tickValues(N: number): number[] {
 // ── per-draw table ───────────────────────────────────────────────────────────
 function renderTable(a: ReturnType<typeof analyze>): void {
   const N = a.curve.length - 1;
-  const start = Math.min(state.turnCfg.openingHand, N);
+  const start = Math.min(effectiveOpeningHand(state.turnCfg), N);
+  const kneeN = visibleKnee(a) + 1;
   const rows: string[] = [];
   for (let n = start; n <= N; n++) {
     const hit = a.curve[n]! >= a.target - 1e-12;
-    const isKnee = n === a.knee + 1;
+    const isKnee = n === kneeN;
     const turn = turnForCardsSeen(n, state.turnCfg);
     rows.push(`<tr class="${hit ? 'hit' : ''}">
       <td>${n}</td>
@@ -765,12 +788,12 @@ function renderGrid(): void {
   const nMax = Math.min(state.deckSize, state.gridMaxDraws);
   const ast = state.ast;
   if (!ast) { $('grid').innerHTML = ''; return; }
-  if (state.turnCfg.openingHand > nMax) {
-    $('grid').innerHTML = `<p class="hint flag">Starting hand size (${state.turnCfg.openingHand}) is
+  if (effectiveOpeningHand(state.turnCfg) > nMax) {
+    $('grid').innerHTML = `<p class="hint flag">Starting hand size (${effectiveOpeningHand(state.turnCfg)}) is
       past "max cards drawn" (${nMax}) — raise max draws to see any columns.</p>`;
     return;
   }
-  const nStart = state.turnCfg.openingHand;
+  const nStart = effectiveOpeningHand(state.turnCfg);
 
   // Compute every row's curve ONCE. dDraw reads adjacent entries of the same
   // curve for free; dCopy reads the same column from the row above — neither
@@ -838,7 +861,9 @@ function renderGrid(): void {
 
   $('grid').innerHTML =
     `<p class="hint">${modeNote}
-     (columns start at your ${state.turnCfg.openingHand}-card starting hand).
+     (columns start at your ${effectiveOpeningHand(state.turnCfg)}-card starting hand${
+       state.turnCfg.mulligans > 0 ? `, after ${state.turnCfg.mulligans} mulligan${state.turnCfg.mulligans === 1 ? '' : 's'}` : ''
+     }).
      The row marked ◂ is your current deck.</p>
      <table class="heat">${header}${rows.join('')}</table>`;
 }
@@ -923,6 +948,7 @@ function init(): void {
   ($('target') as HTMLInputElement).value = String(Math.round(state.target * 100));
   ($('maxDraws') as HTMLInputElement).value = String(state.gridMaxDraws);
   ($('openingHand') as HTMLInputElement).value = String(state.turnCfg.openingHand);
+  ($('mulligans') as HTMLInputElement).value = String(state.turnCfg.mulligans);
   ($('onThePlay') as HTMLInputElement).checked = state.turnCfg.onThePlay;
 
   ($('deckSize') as HTMLInputElement).oninput = (e) => {
@@ -944,6 +970,13 @@ function init(): void {
     const v = parseInt((e.target as HTMLInputElement).value, 10);
     if (Number.isFinite(v) && v >= 0) {
       state.turnCfg = { ...state.turnCfg, openingHand: v };
+      recompute();
+    }
+  };
+  ($('mulligans') as HTMLInputElement).oninput = (e) => {
+    const v = parseInt((e.target as HTMLInputElement).value, 10);
+    if (Number.isFinite(v) && v >= 0) {
+      state.turnCfg = { ...state.turnCfg, mulligans: v };
       recompute();
     }
   };
