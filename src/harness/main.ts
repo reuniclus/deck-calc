@@ -12,7 +12,7 @@ import { turnForCardsSeen, DEFAULT_TURN_CONFIG, type TurnConfig } from '../model
 import { minimalVectors } from '../math/frontier';
 import { allocate, minSlotsForTarget } from '../math/allocate';
 import {
-  QueryTooLargeError, UnknownGroupError, collectGroups, type Expr, type Sizes,
+  QueryTooLargeError, UnknownGroupError, collectGroups, pruneGroups, type Expr, type Sizes,
 } from '../math/expr';
 
 interface Group { id: string; name: string; count: number }
@@ -31,6 +31,8 @@ const state = {
    */
   ast: null as Expr | null,
   queryError: null as string | null,
+  /** Last-known display name for a group after it's been deleted, so error messages can name it. */
+  ghostNames: {} as Record<string, string>,
   target: 0.9,
   turnCfg: { ...DEFAULT_TURN_CONFIG } as TurnConfig,
   gridGroup: 'g0',
@@ -124,6 +126,8 @@ function renderDeck(): void {
   });
   $('groups').querySelectorAll<HTMLButtonElement>('button.del').forEach((el) => {
     el.onclick = () => {
+      const dead = state.groups.find((g) => g.id === el.dataset.id);
+      if (dead) state.ghostNames[dead.id] = dead.name;
       state.groups = state.groups.filter((g) => g.id !== el.dataset.id);
       if (state.gridGroup === el.dataset.id) state.gridGroup = state.groups[0]?.id ?? '';
       renderDeck(); renderGridPicker(); recompute();
@@ -180,8 +184,19 @@ function recompute(): void {
 
   const dangling = danglingIds();
   if (dangling.length > 0) {
-    return failQuery(`Query references ${dangling.length} deleted group`
-      + `${dangling.length === 1 ? '' : 's'}. Edit the query to remove it.`);
+    const names = dangling.map((id) => state.ghostNames[id] ?? id);
+    clearViews();
+    $('status').innerHTML =
+      `<span class="bad">Query still references ${names.length === 1 ? 'a deleted group' : 'deleted groups'}: `
+      + `${names.map(escapeHtml).join(', ')}.</span> `
+      + `<button id="pruneDangling">Remove from query</button>`;
+    const btn = document.getElementById('pruneDangling');
+    if (btn) btn.onclick = () => {
+      state.ast = pruneGroups(state.ast!, new Set(dangling));
+      reprintQuery();
+      recompute();
+    };
+    return;
   }
   if (state.queryError) return failQuery(state.queryError);
   if (!state.ast) return failQuery('No query.');

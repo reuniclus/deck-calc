@@ -81,3 +81,50 @@ export function collectGroups(e: Expr, into: Set<GroupId> = new Set()): Set<Grou
   }
   return into;
 }
+
+/**
+ * Remove every atom mentioning a dead group id, restructuring around it so the
+ * result is still a well-formed Expr. This is explicit, user-triggered surgery
+ * on a query — never done automatically, since silently changing which cards
+ * count is exactly the failure mode PLAN.md §8 warns about. Deleting a
+ * referenced group must surface an error; THIS function is what a "remove it
+ * from the query" action calls once the person has chosen to do that.
+ *
+ * Implementation uses a DEAD sentinel rather than eagerly picking TRUE or
+ * FALSE at the atom: the correct identity depends on the PARENT (AND wants
+ * TRUE, OR wants FALSE), so each combinator filters DEAD children with its
+ * own identity instead of the atom guessing. If the whole expression dies
+ * (every atom mentioned only the dead group(s)), the query is treated as
+ * unconstrained (TRUE) rather than unsatisfiable — removing every constraint
+ * should mean "nothing left to check," not "impossible."
+ */
+const DEAD = Symbol('dead');
+type Pruned = Expr | typeof DEAD;
+
+function pruneRec(e: Expr, dead: ReadonlySet<GroupId>): Pruned {
+  switch (e.t) {
+    case 'atom': return dead.has(e.g) ? DEAD : e;
+    case 'not': {
+      const kid = pruneRec(e.kid, dead);
+      return kid === DEAD ? DEAD : { t: 'not', kid };
+    }
+    case 'and': {
+      const kids = e.kids.map((k) => pruneRec(k, dead)).filter((k): k is Expr => k !== DEAD);
+      return kids.length === 0 ? DEAD : { t: 'and', kids };
+    }
+    case 'or': {
+      const kids = e.kids.map((k) => pruneRec(k, dead)).filter((k): k is Expr => k !== DEAD);
+      return kids.length === 0 ? DEAD : { t: 'or', kids };
+    }
+    case 'atLeastK': {
+      const kids = e.kids.map((k) => pruneRec(k, dead)).filter((k): k is Expr => k !== DEAD);
+      if (kids.length === 0) return DEAD;
+      return { t: 'atLeastK', k: Math.min(e.k, kids.length), kids };
+    }
+  }
+}
+
+export function pruneGroups(e: Expr, dead: ReadonlySet<GroupId>): Expr {
+  const r = pruneRec(e, dead);
+  return r === DEAD ? TRUE : r;
+}

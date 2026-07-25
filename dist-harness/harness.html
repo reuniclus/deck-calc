@@ -406,6 +406,7 @@
   }
 
   // src/math/expr.ts
+  var TRUE = { t: "and", kids: [] };
   var QueryTooLargeError = class extends Error {
   };
   var UnknownGroupError = class extends Error {
@@ -448,6 +449,34 @@
         break;
     }
     return into;
+  }
+  var DEAD = /* @__PURE__ */ Symbol("dead");
+  function pruneRec(e, dead) {
+    switch (e.t) {
+      case "atom":
+        return dead.has(e.g) ? DEAD : e;
+      case "not": {
+        const kid = pruneRec(e.kid, dead);
+        return kid === DEAD ? DEAD : { t: "not", kid };
+      }
+      case "and": {
+        const kids = e.kids.map((k) => pruneRec(k, dead)).filter((k) => k !== DEAD);
+        return kids.length === 0 ? DEAD : { t: "and", kids };
+      }
+      case "or": {
+        const kids = e.kids.map((k) => pruneRec(k, dead)).filter((k) => k !== DEAD);
+        return kids.length === 0 ? DEAD : { t: "or", kids };
+      }
+      case "atLeastK": {
+        const kids = e.kids.map((k) => pruneRec(k, dead)).filter((k) => k !== DEAD);
+        if (kids.length === 0) return DEAD;
+        return { t: "atLeastK", k: Math.min(e.k, kids.length), kids };
+      }
+    }
+  }
+  function pruneGroups(e, dead) {
+    const r = pruneRec(e, dead);
+    return r === DEAD ? TRUE : r;
   }
 
   // src/math/normalize.ts
@@ -898,6 +927,8 @@
      */
     ast: null,
     queryError: null,
+    /** Last-known display name for a group after it's been deleted, so error messages can name it. */
+    ghostNames: {},
     target: 0.9,
     turnCfg: { ...DEFAULT_TURN_CONFIG },
     gridGroup: "g0",
@@ -974,6 +1005,8 @@
     });
     $("groups").querySelectorAll("button.del").forEach((el) => {
       el.onclick = () => {
+        const dead = state.groups.find((g) => g.id === el.dataset.id);
+        if (dead) state.ghostNames[dead.id] = dead.name;
         state.groups = state.groups.filter((g) => g.id !== el.dataset.id);
         if (state.gridGroup === el.dataset.id) state.gridGroup = state.groups[0]?.id ?? "";
         renderDeck();
@@ -1018,7 +1051,16 @@
     warn.className = "warn";
     const dangling = danglingIds();
     if (dangling.length > 0) {
-      return failQuery(`Query references ${dangling.length} deleted group${dangling.length === 1 ? "" : "s"}. Edit the query to remove it.`);
+      const names = dangling.map((id) => state.ghostNames[id] ?? id);
+      clearViews();
+      $("status").innerHTML = `<span class="bad">Query still references ${names.length === 1 ? "a deleted group" : "deleted groups"}: ${names.map(escapeHtml).join(", ")}.</span> <button id="pruneDangling">Remove from query</button>`;
+      const btn = document.getElementById("pruneDangling");
+      if (btn) btn.onclick = () => {
+        state.ast = pruneGroups(state.ast, new Set(dangling));
+        reprintQuery();
+        recompute();
+      };
+      return;
     }
     if (state.queryError) return failQuery(state.queryError);
     if (!state.ast) return failQuery("No query.");

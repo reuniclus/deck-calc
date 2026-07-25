@@ -20,6 +20,7 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/model/turns.ts` | draw-count <-> turn mapping (opening hand, on-the-play, draws/turn) |
 | `src/math/frontier.ts` | monotone-only: minimal sufficient vectors (greedy descent from the max corner) |
 | `src/math/allocate.ts` | slot-budget optimizer: maximize P for a budget (primal), fewest slots for a target (dual) |
+| `src/math/expr.ts` (`pruneGroups`) | explicit, user-triggered removal of atoms mentioning a deleted group |
 | `src/harness/main.ts` | plain-DOM dev harness — deck editor, curve, per-draw table, 2D grid |
 | `src/harness/harness.html` | harness template; `<!--BUNDLE-->` is replaced at build time |
 | `scripts/build-harness.mjs` | esbuild → one self-contained `dist-harness/harness.html` |

@@ -394,4 +394,10 @@ Math is the current focus; these are noted so they aren't lost, not because they
 5. **Turn column ambiguity.** "Turn 4" reads differently depending on on-the-play vs on-the-draw and drawsPerTurn — once this leaves the harness, the axis label must always say which convention is active, not just expose it as a toggle elsewhere on the page.
 6. **Non-monotone results need a different visual grammar**, not just different text. A single "draws needed" number is the wrong shape for a result that's a bounded window with a peak — the real UI should probably show the window/peak on the curve itself (shading, a marker), not only in a sentence.
 7. **Rounding at display boundaries.** `99.6%` must never render as `100%`, and `90.04%` must never render as `90%` when the target is exactly 90 — both are already handled by fixed-precision truncation in the harness, but re-verify wherever formatting gets rewritten.
-8. **Query text vs AST divergence on parse errors.** While `state.queryError` is set, the textarea shows whatever the user typed, which may no longer match `state.ast`. That's correct (don't overwrite what they're typing), but the eventual UI should make clear *which* result is being shown — the last-valid one — so it doesn't read as if the broken text produced it.
+8b. **[Resolved]** Deleting a referenced group surfaced a correct but dead-end error with no
+    recovery path and no memory of the group's name. Fixed: the harness now remembers a
+    deleted group's last name (`ghostNames`) so the message says which group is gone, and
+    offers a one-click "Remove from query" action backed by `pruneGroups` (`src/math/expr.ts`)
+    — an explicit, tested AST rewrite (DEAD-sentinel propagation so AND/OR/atLeastK each use
+    their own identity) rather than a silent drop.
+9. **Query text vs AST divergence on parse errors.** While `state.queryError` is set, the textarea shows whatever the user typed, which may no longer match `state.ast`. That's correct (don't overwrite what they're typing), but the eventual UI should make clear *which* result is being shown — the last-valid one — so it doesn't read as if the broken text produced it.
