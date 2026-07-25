@@ -17,6 +17,7 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/math/analyze.ts` | ΔP, knee, peak, feasible windows, draws-needed |
 | `src/math/parse.ts` | text query language (`A>=2 & !B`, `any 2 of (…)`, `true`/`false`) |
 | `src/math/print.ts` | inverse of `parse` — renders an id-based AST with current group names |
+| `src/model/turns.ts` | draw-count <-> turn mapping (opening hand, on-the-play, draws/turn) |
 | `src/harness/main.ts` | plain-DOM dev harness — deck editor, curve, per-draw table, 2D grid |
 | `src/harness/harness.html` | harness template; `<!--BUNDLE-->` is replaced at build time |
 | `scripts/build-harness.mjs` | esbuild → one self-contained `dist-harness/harness.html` |

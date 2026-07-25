@@ -117,6 +117,22 @@
     </div>
   </div>
 
+  <div class="panel" style="margin-top:1rem">
+    <h2 style="margin-top:0">Turns</h2>
+    <div class="row">
+      <div><label for="openingHand">starting hand size</label><input id="openingHand" type="number" min="0" max="60" style="width:5rem"></div>
+      <div style="align-self:center;padding-bottom:.35rem">
+        <label style="display:inline-flex;align-items:center;gap:.4rem;margin:0">
+          <input id="onThePlay" type="checkbox" style="width:auto">
+          on the play <span class="hint">(no draw on turn 1)</span>
+        </label>
+      </div>
+    </div>
+    <p class="hint" style="margin-bottom:0">
+      Cards drawn below the starting hand size have no turn yet — they're still part of the opener.
+    </p>
+  </div>
+
   <div id="warn" class="warn"></div>
 
   <h2>Result</h2>

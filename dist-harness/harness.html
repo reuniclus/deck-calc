@@ -117,6 +117,22 @@
     </div>
   </div>
 
+  <div class="panel" style="margin-top:1rem">
+    <h2 style="margin-top:0">Turns</h2>
+    <div class="row">
+      <div><label for="openingHand">starting hand size</label><input id="openingHand" type="number" min="0" max="60" style="width:5rem"></div>
+      <div style="align-self:center;padding-bottom:.35rem">
+        <label style="display:inline-flex;align-items:center;gap:.4rem;margin:0">
+          <input id="onThePlay" type="checkbox" style="width:auto">
+          on the play <span class="hint">(no draw on turn 1)</span>
+        </label>
+      </div>
+    </div>
+    <p class="hint" style="margin-bottom:0">
+      Cards drawn below the starting hand size have no turn yet — they're still part of the opener.
+    </p>
+  </div>
+
   <div id="warn" class="warn"></div>
 
   <h2>Result</h2>
@@ -703,6 +719,19 @@
     };
   }
 
+  // src/model/turns.ts
+  var DEFAULT_TURN_CONFIG = {
+    openingHand: 7,
+    drawsPerTurn: 1,
+    onThePlay: true
+  };
+  function turnForCardsSeen(n, cfg) {
+    if (n < cfg.openingHand) return null;
+    if (cfg.drawsPerTurn <= 0) return 0;
+    const draws = Math.floor((n - cfg.openingHand) / cfg.drawsPerTurn);
+    return draws + (cfg.onThePlay ? 1 : 0);
+  }
+
   // src/harness/main.ts
   var state = {
     deckSize: 40,
@@ -719,6 +748,7 @@
     ast: null,
     queryError: null,
     target: 0.9,
+    turnCfg: { ...DEFAULT_TURN_CONFIG },
     gridGroup: "g0",
     gridMaxDraws: 20
   };
@@ -753,7 +783,6 @@
   function reprintQuery() {
     if (!state.ast || state.queryError || danglingIds().length > 0) return;
     state.query = printExpr(state.ast, nameOf);
-    setQueryText(state.query);
     $("query").value = state.query;
   }
   function renderDeck() {
@@ -875,13 +904,17 @@
       `peak <b>${pct(a.maxP)}</b> at n=<b>${a.argmaxP}</b>`
     ].join(" \xB7 ");
   }
+  function turnSuffix(n) {
+    const turn = turnForCardsSeen(n, state.turnCfg);
+    return turn === null ? "" : ` (turn ${turn})`;
+  }
   function renderSummary(a) {
     const t = pct(a.target);
     let line;
     if (a.windows.length === 0) {
-      line = `<span class="flag">Never reaches ${t}.</span> Best is ${pct(a.maxP)} at ${a.argmaxP} cards.`;
+      line = `<span class="flag">Never reaches ${t}.</span> Best is ${pct(a.maxP)} at ${a.argmaxP} cards${turnSuffix(a.argmaxP)}.`;
     } else if (a.monotone) {
-      line = `Reaches ${t} at <b>${a.drawsNeeded}</b> cards drawn, and stays there.`;
+      line = `Reaches ${t} at <b>${a.drawsNeeded}</b> cards drawn${turnSuffix(a.drawsNeeded)}, and stays there.`;
     } else {
       const w = a.windows.map(([s, e]) => s === e ? `${s}` : `${s}\u2013${e}`).join(", ");
       line = `P \u2265 ${t} only for n \u2208 {${w}} \u2014 a bounded window, because the query is capped above.`;
@@ -917,13 +950,15 @@
     for (let n = 0; n <= N; n++) {
       const hit = a.curve[n] >= a.target - 1e-12;
       const isKnee = n === a.knee + 1;
+      const turn = turnForCardsSeen(n, state.turnCfg);
       rows.push(`<tr class="${hit ? "hit" : ""}">
       <td>${n}</td>
+      <td class="dim">${turn ?? ""}</td>
       <td>${pct(a.curve[n])}</td>
       <td class="dim">${n === 0 ? "" : signed(a.deltas[n - 1])}${isKnee ? " \u25C2 steepest" : ""}</td>
     </tr>`);
     }
-    $("table").innerHTML = `<table class="num"><thead><tr><th>drawn</th><th>P</th><th>\u0394P per card</th></tr></thead>
+    $("table").innerHTML = `<table class="num"><thead><tr><th>drawn</th><th>turn${onPlaySuffix()}</th><th>P</th><th>\u0394P per card</th></tr></thead>
      <tbody>${rows.join("")}</tbody></table>`;
   }
   function renderGrid() {
@@ -963,6 +998,9 @@
      trading cards against <i>others</i>.</p>
      <table class="heat">${header}${rows.join("")}</table>`;
   }
+  function onPlaySuffix() {
+    return state.turnCfg.onThePlay ? "" : " (draw)";
+  }
   function range(a, b) {
     const out = [];
     for (let i = a; i <= b; i++) out.push(i);
@@ -987,10 +1025,13 @@
   var escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   var escapeAttr = (s) => escapeHtml(s).replace(/"/g, "&quot;");
   function init() {
+    setQueryText(state.query);
     $("deckSize").value = String(state.deckSize);
     $("query").value = state.query;
     $("target").value = String(Math.round(state.target * 100));
     $("maxDraws").value = String(state.gridMaxDraws);
+    $("openingHand").value = String(state.turnCfg.openingHand);
+    $("onThePlay").checked = state.turnCfg.onThePlay;
     $("deckSize").oninput = (e) => {
       const v = parseInt(e.target.value, 10);
       if (Number.isFinite(v) && v > 0 && v <= 1024) {
@@ -1016,6 +1057,17 @@
         state.gridMaxDraws = v;
         renderGrid();
       }
+    };
+    $("openingHand").oninput = (e) => {
+      const v = parseInt(e.target.value, 10);
+      if (Number.isFinite(v) && v >= 0) {
+        state.turnCfg = { ...state.turnCfg, openingHand: v };
+        recompute();
+      }
+    };
+    $("onThePlay").onchange = (e) => {
+      state.turnCfg = { ...state.turnCfg, onThePlay: e.target.checked };
+      recompute();
     };
     $("gridGroup").onchange = (e) => {
       state.gridGroup = e.target.value;

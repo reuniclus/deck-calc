@@ -8,6 +8,7 @@ import { printExpr } from '../math/print';
 import { normalize } from '../math/normalize';
 import { evaluate } from '../math/evaluate';
 import { analyze } from '../math/analyze';
+import { turnForCardsSeen, DEFAULT_TURN_CONFIG, type TurnConfig } from '../model/turns';
 import {
   QueryTooLargeError, UnknownGroupError, collectGroups, type Expr, type Sizes,
 } from '../math/expr';
@@ -29,6 +30,7 @@ const state = {
   ast: null as Expr | null,
   queryError: null as string | null,
   target: 0.9,
+  turnCfg: { ...DEFAULT_TURN_CONFIG } as TurnConfig,
   gridGroup: 'g0',
   gridMaxDraws: 20,
 };
@@ -75,7 +77,6 @@ function setQueryText(text: string): void {
 function reprintQuery(): void {
   if (!state.ast || state.queryError || danglingIds().length > 0) return;
   state.query = printExpr(state.ast, nameOf);
-  setQueryText(state.query);
   ($('query') as HTMLTextAreaElement).value = state.query;
 }
 
@@ -223,13 +224,18 @@ function renderStatus(res: ReturnType<typeof evaluate>, a: ReturnType<typeof ana
   ].join(' · ');
 }
 
+function turnSuffix(n: number): string {
+  const turn = turnForCardsSeen(n, state.turnCfg);
+  return turn === null ? '' : ` (turn ${turn})`;
+}
+
 function renderSummary(a: ReturnType<typeof analyze>): void {
   const t = pct(a.target);
   let line: string;
   if (a.windows.length === 0) {
-    line = `<span class="flag">Never reaches ${t}.</span> Best is ${pct(a.maxP)} at ${a.argmaxP} cards.`;
+    line = `<span class="flag">Never reaches ${t}.</span> Best is ${pct(a.maxP)} at ${a.argmaxP} cards${turnSuffix(a.argmaxP)}.`;
   } else if (a.monotone) {
-    line = `Reaches ${t} at <b>${a.drawsNeeded}</b> cards drawn, and stays there.`;
+    line = `Reaches ${t} at <b>${a.drawsNeeded}</b> cards drawn${turnSuffix(a.drawsNeeded!)}, and stays there.`;
   } else {
     const w = a.windows.map(([s, e]) => (s === e ? `${s}` : `${s}–${e}`)).join(', ');
     line = `P ≥ ${t} only for n ∈ {${w}} — a bounded window, because the query is capped above.`;
@@ -278,14 +284,16 @@ function renderTable(a: ReturnType<typeof analyze>): void {
   for (let n = 0; n <= N; n++) {
     const hit = a.curve[n]! >= a.target - 1e-12;
     const isKnee = n === a.knee + 1;
+    const turn = turnForCardsSeen(n, state.turnCfg);
     rows.push(`<tr class="${hit ? 'hit' : ''}">
       <td>${n}</td>
+      <td class="dim">${turn ?? ''}</td>
       <td>${pct(a.curve[n]!)}</td>
       <td class="dim">${n === 0 ? '' : signed(a.deltas[n - 1]!)}${isKnee ? ' ◂ steepest' : ''}</td>
     </tr>`);
   }
   $('table').innerHTML =
-    `<table class="num"><thead><tr><th>drawn</th><th>P</th><th>ΔP per card</th></tr></thead>
+    `<table class="num"><thead><tr><th>drawn</th><th>turn${onPlaySuffix()}</th><th>P</th><th>ΔP per card</th></tr></thead>
      <tbody>${rows.join('')}</tbody></table>`;
 }
 
@@ -325,6 +333,10 @@ function renderGrid(): void {
      <table class="heat">${header}${rows.join('')}</table>`;
 }
 
+function onPlaySuffix(): string {
+  return state.turnCfg.onThePlay ? '' : ' (draw)';
+}
+
 function range(a: number, b: number): number[] {
   const out: number[] = [];
   for (let i = a; i <= b; i++) out.push(i);
@@ -350,10 +362,13 @@ const escapeAttr = (s: string) => escapeHtml(s).replace(/"/g, '&quot;');
 
 // ── wiring ───────────────────────────────────────────────────────────────────
 function init(): void {
+  setQueryText(state.query); // populate state.ast before the first recompute()
   ($('deckSize') as HTMLInputElement).value = String(state.deckSize);
   ($('query') as HTMLTextAreaElement).value = state.query;
   ($('target') as HTMLInputElement).value = String(Math.round(state.target * 100));
   ($('maxDraws') as HTMLInputElement).value = String(state.gridMaxDraws);
+  ($('openingHand') as HTMLInputElement).value = String(state.turnCfg.openingHand);
+  ($('onThePlay') as HTMLInputElement).checked = state.turnCfg.onThePlay;
 
   ($('deckSize') as HTMLInputElement).oninput = (e) => {
     const v = parseInt((e.target as HTMLInputElement).value, 10);
@@ -369,6 +384,17 @@ function init(): void {
   ($('maxDraws') as HTMLInputElement).oninput = (e) => {
     const v = parseInt((e.target as HTMLInputElement).value, 10);
     if (Number.isFinite(v) && v > 0) { state.gridMaxDraws = v; renderGrid(); }
+  };
+  ($('openingHand') as HTMLInputElement).oninput = (e) => {
+    const v = parseInt((e.target as HTMLInputElement).value, 10);
+    if (Number.isFinite(v) && v >= 0) {
+      state.turnCfg = { ...state.turnCfg, openingHand: v };
+      recompute();
+    }
+  };
+  ($('onThePlay') as HTMLInputElement).onchange = (e) => {
+    state.turnCfg = { ...state.turnCfg, onThePlay: (e.target as HTMLInputElement).checked };
+    recompute();
   };
   ($('gridGroup') as HTMLSelectElement).onchange = (e) => {
     state.gridGroup = (e.target as HTMLSelectElement).value; renderGrid();
