@@ -30,3 +30,20 @@ console.log('parse err   :', txt('status'));
 q.value = 'A=1'; q.dispatchEvent(new dom.window.Event('input'));
 console.log('non-mono    :', txt('status'));
 console.log('non-mono sum:', txt('summary'));
+
+// derived `others` must track every count edit and every deck-size change
+const othersVal = () => d.querySelector('.others input').value;
+const setCount = (i, v) => {
+  const el = d.querySelectorAll('#groups input.count')[i];
+  el.value = String(v); el.dispatchEvent(new dom.window.Event('input'));
+};
+d.querySelector('button.dpreset[data-n="99"]').click();
+setCount(0, 4); setCount(1, 5);
+console.log('others 99/4+5:', othersVal(), othersVal() === '90' ? 'OK' : 'WRONG (expected 90)');
+setCount(1, 12);
+console.log('others 99/4+12:', othersVal(), othersVal() === '83' ? 'OK' : 'WRONG (expected 83)');
+d.querySelector('button.dpreset[data-n="40"]').click();
+console.log('others 40/4+12:', othersVal(), othersVal() === '24' ? 'OK' : 'WRONG (expected 24)');
+setCount(0, 30);
+console.log('overfill class:', d.querySelector('.others').className,
+  txt('warn').slice(0, 40));

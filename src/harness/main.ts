@@ -69,7 +69,11 @@ function renderDeck(): void {
   $('groups').querySelectorAll<HTMLInputElement>('input.count').forEach((el) => {
     el.oninput = () => {
       const v = parseInt(el.value, 10);
-      if (Number.isFinite(v) && v >= 0) { setGroup(el.dataset.id!, { count: v }); recompute(); }
+      if (Number.isFinite(v) && v >= 0) {
+        setGroup(el.dataset.id!, { count: v });
+        renderOthers();
+        recompute();
+      }
     };
   });
   $('groups').querySelectorAll<HTMLButtonElement>('button.del').forEach((el) => {
@@ -79,6 +83,19 @@ function renderDeck(): void {
       renderDeck(); renderGridPicker(); recompute();
     };
   });
+}
+
+/**
+ * Update only the derived `others` cell. A full renderDeck() here would destroy
+ * focus and cursor position while the user is still typing a count.
+ */
+function renderOthers(): void {
+  const row = $('groups').querySelector('tr.others');
+  if (!row) return;
+  const o = others();
+  row.classList.toggle('bad', o < 0);
+  const input = row.querySelector('input');
+  if (input instanceof HTMLInputElement) input.value = String(o);
 }
 
 function setGroup(id: string, patch: Partial<Group>): void {
@@ -287,7 +304,7 @@ function init(): void {
 
   ($('deckSize') as HTMLInputElement).oninput = (e) => {
     const v = parseInt((e.target as HTMLInputElement).value, 10);
-    if (Number.isFinite(v) && v > 0 && v <= 1024) { state.deckSize = v; renderDeck(); recompute(); }
+    if (Number.isFinite(v) && v > 0 && v <= 1024) { state.deckSize = v; renderOthers(); recompute(); }
   };
   ($('query') as HTMLTextAreaElement).oninput = (e) => {
     state.query = (e.target as HTMLTextAreaElement).value; recompute();
@@ -307,6 +324,15 @@ function init(): void {
     state.groups.push({ id: `g${seq++}`, name: `G${seq}`, count: 1 });
     renderDeck(); renderGridPicker(); recompute();
   };
+  document.querySelectorAll<HTMLButtonElement>('button.dpreset').forEach((b) => {
+    b.onclick = () => {
+      state.deckSize = Number(b.dataset.n);
+      ($('deckSize') as HTMLInputElement).value = String(state.deckSize);
+      renderOthers();
+      recompute();
+      renderGrid();
+    };
+  });
   document.querySelectorAll<HTMLButtonElement>('button.preset').forEach((b) => {
     b.onclick = () => {
       state.target = Number(b.dataset.p);

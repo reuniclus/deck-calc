@@ -64,8 +64,16 @@
     <div class="panel">
       <h2 style="margin-top:0">Deck</h2>
       <div class="row" style="margin-bottom:.75rem">
-        <div><label for="deckSize">deck size (locked)</label><input id="deckSize" type="number" min="1" max="1024" style="width:6rem"></div>
-        <button id="addGroup">+ group</button>
+        <div>
+          <label for="deckSize">deck size (locked)</label>
+          <input id="deckSize" type="number" min="1" max="1024" style="width:6rem">
+        </div>
+        <div class="chips" style="margin:0 0 .35rem">
+          <button class="dpreset" data-n="40">40</button>
+          <button class="dpreset" data-n="60">60</button>
+          <button class="dpreset" data-n="99">99</button>
+        </div>
+        <button id="addGroup" style="margin-bottom:.35rem">+ group</button>
       </div>
       <div id="groups"></div>
       <p class="hint" style="margin-bottom:0">
@@ -679,6 +687,7 @@
         const v = parseInt(el.value, 10);
         if (Number.isFinite(v) && v >= 0) {
           setGroup(el.dataset.id, { count: v });
+          renderOthers();
           recompute();
         }
       };
@@ -692,6 +701,14 @@
         recompute();
       };
     });
+  }
+  function renderOthers() {
+    const row = $("groups").querySelector("tr.others");
+    if (!row) return;
+    const o = others();
+    row.classList.toggle("bad", o < 0);
+    const input = row.querySelector("input");
+    if (input instanceof HTMLInputElement) input.value = String(o);
   }
   function setGroup(id, patch) {
     state.groups = state.groups.map((g) => g.id === id ? { ...g, ...patch } : g);
@@ -871,7 +888,7 @@
       const v = parseInt(e.target.value, 10);
       if (Number.isFinite(v) && v > 0 && v <= 1024) {
         state.deckSize = v;
-        renderDeck();
+        renderOthers();
         recompute();
       }
     };
@@ -903,6 +920,15 @@
       renderGridPicker();
       recompute();
     };
+    document.querySelectorAll("button.dpreset").forEach((b) => {
+      b.onclick = () => {
+        state.deckSize = Number(b.dataset.n);
+        $("deckSize").value = String(state.deckSize);
+        renderOthers();
+        recompute();
+        renderGrid();
+      };
+    });
     document.querySelectorAll("button.preset").forEach((b) => {
       b.onclick = () => {
         state.target = Number(b.dataset.p);

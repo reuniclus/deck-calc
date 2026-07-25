@@ -64,8 +64,16 @@
     <div class="panel">
       <h2 style="margin-top:0">Deck</h2>
       <div class="row" style="margin-bottom:.75rem">
-        <div><label for="deckSize">deck size (locked)</label><input id="deckSize" type="number" min="1" max="1024" style="width:6rem"></div>
-        <button id="addGroup">+ group</button>
+        <div>
+          <label for="deckSize">deck size (locked)</label>
+          <input id="deckSize" type="number" min="1" max="1024" style="width:6rem">
+        </div>
+        <div class="chips" style="margin:0 0 .35rem">
+          <button class="dpreset" data-n="40">40</button>
+          <button class="dpreset" data-n="60">60</button>
+          <button class="dpreset" data-n="99">99</button>
+        </div>
+        <button id="addGroup" style="margin-bottom:.35rem">+ group</button>
       </div>
       <div id="groups"></div>
       <p class="hint" style="margin-bottom:0">
