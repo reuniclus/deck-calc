@@ -48,6 +48,8 @@ const state = {
   /** value = raw P; dCopy = marginal gain from the next copy; dDraw = marginal gain from the next card drawn. */
   gridMode: 'value' as 'value' | 'dCopy' | 'dDraw' | 'both',
   resultView: 'chart' as 'chart' | 'table',
+  /** Series key of the currently-focused curve line, or null. Keys: 'real' or '<groupId>:<offset>'. */
+  curveFocus: null as string | null,
 };
 let seq = 2;
 
@@ -709,12 +711,28 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
     .sort((p, q) => Math.abs(q.offset!) - Math.abs(p.offset!));
   const real = series.find((s) => s.offset === null)!;
 
-  const phantomLines = phantoms.map((s) => {
-    const opacity = Math.abs(s.offset!) === 1 ? 0.45 : 0.18;
-    return `<polyline points="${pointsOf(s.curve)}" class="phantom" data-tip="${escapeAttr(s.composition)}"
-      style="stroke:${s.color};opacity:${opacity}"/>`;
-  }).join('');
-  const realLine = `<polyline points="${pointsOf(real.curve)}" class="line" data-tip="${escapeAttr(real.composition)}"/>`;
+  const keyOf = (s: CurveSeries): string => (s.offset === null ? 'real' : `${s.groupId}:${s.offset}`);
+
+  // A focused series that no longer exists (its group was deleted, or the
+  // offset got pruned) must not leave every remaining line stuck dimmed.
+  const liveKeys = new Set(series.map(keyOf));
+  if (state.curveFocus !== null && !liveKeys.has(state.curveFocus)) state.curveFocus = null;
+
+  const baseOpacity = (s: CurveSeries): number =>
+    s.offset === null ? 1 : Math.abs(s.offset) === 1 ? 0.45 : 0.18;
+  const effectiveOpacity = (key: string, base: number): number =>
+    state.curveFocus === null ? base : state.curveFocus === key ? 1 : 0.08;
+
+  const lineHtml = (s: CurveSeries, cls: string): string => {
+    const key = keyOf(s);
+    const base = baseOpacity(s);
+    const strokeStyle = s.offset === null ? '' : `stroke:${s.color};`;
+    return `<polyline points="${pointsOf(s.curve)}" class="${cls}" data-tip="${escapeAttr(s.composition)}"
+      data-key="${key}" data-baseop="${base}" style="${strokeStyle}opacity:${effectiveOpacity(key, base)}"/>`;
+  };
+
+  const phantomLines = phantoms.map((s) => lineHtml(s, 'phantom')).join('');
+  const realLine = lineHtml(real, 'line');
 
   const legend = state.groups.map((g) =>
     `<span class="swatch"><i style="background:hsl(${hueFor(g.id)}deg 65% 58%)"></i>${escapeHtml(g.name)}</span>`
@@ -725,13 +743,29 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
       ${phantomLines}${realLine}${marks}${knee}${ticks}
       <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>
      <p class="hint">Faint lines: +-1/+-2 copies of each group, holding the rest fixed.
-       ${legend}</p>
+       Click a line to focus it (dims the rest); click again to release. ${legend}</p>
      <p class="hint" id="curveTip">Hover or tap a line to see the composition that produced it.</p>`;
 
-  $('curve').querySelectorAll<SVGPolylineElement>('polyline[data-tip]').forEach((el) => {
-    const show = () => { $('curveTip').textContent = el.dataset.tip ?? ''; };
-    el.addEventListener('mouseenter', show);
-    el.addEventListener('click', show);
+  $('curve').querySelectorAll<SVGPolylineElement>('[data-key]').forEach((el) => {
+    const key = el.dataset.key!;
+    const base = Number(el.dataset.baseop);
+    const showTip = () => { $('curveTip').textContent = el.dataset.tip ?? ''; };
+    el.addEventListener('mouseenter', () => { showTip(); el.style.opacity = '1'; });
+    el.addEventListener('mouseleave', () => { el.style.opacity = String(effectiveOpacity(key, base)); });
+    el.addEventListener('click', () => {
+      showTip();
+      state.curveFocus = state.curveFocus === key ? null : key;
+      applyCurveFocusOpacities();
+    });
+  });
+}
+
+/** Re-applies focus/dim opacity to every line without rebuilding the SVG (called after a click). */
+function applyCurveFocusOpacities(): void {
+  $('curve').querySelectorAll<SVGPolylineElement>('[data-key]').forEach((el) => {
+    const key = el.dataset.key!;
+    const base = Number(el.dataset.baseop);
+    el.style.opacity = state.curveFocus === null ? String(base) : state.curveFocus === key ? '1' : '0.08';
   });
 }
 
