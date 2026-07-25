@@ -160,6 +160,14 @@
     <div class="row">
       <div><label for="gridGroup">vary copies of</label><select id="gridGroup"></select></div>
       <div><label for="maxDraws">max cards drawn</label><input id="maxDraws" type="number" min="1" max="60" style="width:5rem"></div>
+      <div>
+        <label for="gridMode">show</label>
+        <select id="gridMode">
+          <option value="value">values (P%)</option>
+          <option value="dCopy">Δ per extra copy</option>
+          <option value="dDraw">Δ per extra card drawn</option>
+        </select>
+      </div>
     </div>
     <div class="heatwrap"><div id="grid"></div></div>
   </div>
@@ -992,7 +1000,9 @@
     target: 0.9,
     turnCfg: { ...DEFAULT_TURN_CONFIG },
     gridGroup: "g0",
-    gridMaxDraws: 20
+    gridMaxDraws: 20,
+    /** value = raw P; dCopy = marginal gain from the next copy; dDraw = marginal gain from the next card drawn. */
+    gridMode: "value"
   };
   var seq = 2;
   var $ = (id) => document.getElementById(id);
@@ -1499,29 +1509,73 @@
       return;
     }
     const nStart = state.turnCfg.openingHand;
-    const header = `<tr><th class="corner">copies \u2193 / drawn \u2192</th>${range(nStart, nMax).map((n) => `<th>${n}</th>`).join("")}</tr>`;
-    const rows = [];
+    const curves = [];
     for (let k = 0; k <= kMax; k++) {
       const groups = state.groups.map((x) => x.id === g.id ? { ...x, count: k } : x);
-      let curve = null;
       try {
         const sizes = sizesOf(groups);
-        curve = evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve;
+        curves.push(evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve);
       } catch {
-        curve = null;
+        curves.push(null);
       }
-      const cells = range(nStart, nMax).map((n) => {
-        if (!curve) return `<td class="na">\u2014</td>`;
-        const p = curve[n];
-        return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn">${(p * 100).toFixed(0)}</td>`;
+    }
+    const cols = range(nStart, nMax);
+    const header = `<tr><th class="corner">copies \u2193 / drawn \u2192</th>${cols.map((n) => `<th>${n}</th>`).join("")}</tr>`;
+    let maxAbsDiff = 0;
+    if (state.gridMode !== "value") {
+      for (let k = 0; k <= kMax; k++) {
+        for (const n of cols) {
+          const d = diffAt(curves, k, n, state.gridMode);
+          if (d !== null) maxAbsDiff = Math.max(maxAbsDiff, Math.abs(d));
+        }
+      }
+    }
+    const rows = [];
+    for (let k = 0; k <= kMax; k++) {
+      const cells = cols.map((n) => {
+        if (state.gridMode === "value") {
+          const curve = curves[k];
+          if (!curve) return `<td class="na">\u2014</td>`;
+          const p = curve[n];
+          return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn: ${pct(p)}">${(p * 100).toFixed(0)}</td>`;
+        }
+        const d = diffAt(curves, k, n, state.gridMode);
+        if (d === null) return `<td class="na">\u2014</td>`;
+        const label = state.gridMode === "dCopy" ? `${k - 1}\u2192${k} copies` : `${n - 1}\u2192${n} drawn`;
+        return `<td style="background:${divHeat(d, maxAbsDiff)}" title="${label}: ${signed(d)}">${(d * 100).toFixed(1)}</td>`;
       }).join("");
       rows.push(`<tr><th>${k}${k === g.count ? " \u25C2" : ""}</th>${cells}</tr>`);
     }
-    $("grid").innerHTML = `<p class="hint">P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary
+    const modeNote = state.gridMode === "value" ? `P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary` : state.gridMode === "dCopy" ? `Gain (percentage points) from running <b>one more copy of ${escapeHtml(g.name)}</b>
+       \u2014 each cell is that row's P minus the row above's. Brighter = more return per slot spent
+       there; that's where to look for the best place to add a copy.` : `Gain (percentage points) from <b>drawing one more card</b> \u2014 each cell is that column's P
+       minus the column to its left. Shows where the deck's draws stop paying off, for any
+       ${escapeHtml(g.name)} count.`;
+    $("grid").innerHTML = `<p class="hint">${modeNote}
      (columns start at your ${state.turnCfg.openingHand}-card starting hand).
-     The row marked \u25C2 is your current deck. Everything else holds the rest of the deck fixed,
-     trading cards against <i>others</i>.</p>
+     The row marked \u25C2 is your current deck.</p>
      <table class="heat">${header}${rows.join("")}</table>`;
+  }
+  function diffAt(curves, k, n, mode) {
+    if (mode === "dCopy") {
+      if (k === 0) return null;
+      const cur = curves[k], prev = curves[k - 1];
+      if (!cur || !prev) return null;
+      return cur[n] - prev[n];
+    }
+    const curve = curves[k];
+    if (!curve || n === 0) return null;
+    return curve[n] - curve[n - 1];
+  }
+  function divHeat(d, maxAbs) {
+    const neutral = [30, 33, 40];
+    const pos = [56, 168, 140];
+    const neg = [210, 90, 70];
+    if (maxAbs <= 1e-12) return `rgb(${neutral.join(",")})`;
+    const t = Math.max(0, Math.min(1, Math.abs(d) / maxAbs));
+    const target = d >= 0 ? pos : neg;
+    const c = neutral.map((v, i) => Math.round(v + (target[i] - v) * t));
+    return `rgb(${c[0]},${c[1]},${c[2]})`;
   }
   function onPlaySuffix() {
     return state.turnCfg.onThePlay ? "" : " (draw)";
@@ -1596,6 +1650,11 @@
     };
     $("gridGroup").onchange = (e) => {
       state.gridGroup = e.target.value;
+      renderGrid();
+    };
+    $("gridMode").value = state.gridMode;
+    $("gridMode").onchange = (e) => {
+      state.gridMode = e.target.value;
       renderGrid();
     };
     $("addGroup").onclick = () => {

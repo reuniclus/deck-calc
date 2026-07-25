@@ -160,6 +160,14 @@
     <div class="row">
       <div><label for="gridGroup">vary copies of</label><select id="gridGroup"></select></div>
       <div><label for="maxDraws">max cards drawn</label><input id="maxDraws" type="number" min="1" max="60" style="width:5rem"></div>
+      <div>
+        <label for="gridMode">show</label>
+        <select id="gridMode">
+          <option value="value">values (P%)</option>
+          <option value="dCopy">Δ per extra copy</option>
+          <option value="dDraw">Δ per extra card drawn</option>
+        </select>
+      </div>
     </div>
     <div class="heatwrap"><div id="grid"></div></div>
   </div>

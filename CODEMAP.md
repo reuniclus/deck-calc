@@ -22,7 +22,7 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/math/allocate.ts` | slot-budget optimizer: maximize P for a budget (primal), fewest slots for a target (dual) |
 | `src/math/expr.ts` (`pruneGroups`) | explicit, user-triggered removal of atoms mentioning a deleted group |
 | `src/math/builder.ts` | compile/decompile between a flat structured query (group+comparator+number rows) and Expr |
-| `src/harness/main.ts` | plain-DOM dev harness — deck editor, query builder + text, curve (+phantom offsets), table, grid, frontier |
+| `src/harness/main.ts` | plain-DOM dev harness — deck editor, query builder + text, curve (+phantom offsets), table, grid (values/Δcopy/Δdraw), frontier |
 | `src/harness/harness.html` | harness template; `<!--BUNDLE-->` is replaced at build time |
 | `scripts/build-harness.mjs` | esbuild → one self-contained `dist-harness/harness.html` |
 | `scripts/smoke-harness.mjs` | boots the built harness in jsdom and asserts every view renders |

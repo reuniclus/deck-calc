@@ -45,6 +45,8 @@ const state = {
   turnCfg: { ...DEFAULT_TURN_CONFIG } as TurnConfig,
   gridGroup: 'g0',
   gridMaxDraws: 20,
+  /** value = raw P; dCopy = marginal gain from the next copy; dDraw = marginal gain from the next card drawn. */
+  gridMode: 'value' as 'value' | 'dCopy' | 'dDraw',
 };
 let seq = 2;
 
@@ -642,30 +644,98 @@ function renderGrid(): void {
   }
   const nStart = state.turnCfg.openingHand;
 
+  // Compute every row's curve ONCE. dDraw reads adjacent entries of the same
+  // curve for free; dCopy reads the same column from the row above — neither
+  // needs extra DP calls beyond the kMax+1 we already needed for the values view.
+  const curves: Array<Float64Array | null> = [];
+  for (let k = 0; k <= kMax; k++) {
+    const groups = state.groups.map((x) => (x.id === g.id ? { ...x, count: k } : x));
+    try {
+      const sizes = sizesOf(groups);
+      curves.push(evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve);
+    } catch { curves.push(null); }
+  }
+
+  const cols = range(nStart, nMax);
   const header = `<tr><th class="corner">copies ↓ / drawn →</th>${
-    range(nStart, nMax).map((n) => `<th>${n}</th>`).join('')}</tr>`;
+    cols.map((n) => `<th>${n}</th>`).join('')}</tr>`;
+
+  // Diffs can be negative (non-monotone queries) and their typical magnitude
+  // varies a lot by query, so scale color contrast to what's actually on
+  // screen rather than a fixed range — otherwise a query whose biggest swing
+  // is 3% renders as all-neutral against a scale built for 30% swings.
+  let maxAbsDiff = 0;
+  if (state.gridMode !== 'value') {
+    for (let k = 0; k <= kMax; k++) {
+      for (const n of cols) {
+        const d = diffAt(curves, k, n, state.gridMode);
+        if (d !== null) maxAbsDiff = Math.max(maxAbsDiff, Math.abs(d));
+      }
+    }
+  }
 
   const rows: string[] = [];
   for (let k = 0; k <= kMax; k++) {
-    const groups = state.groups.map((x) => (x.id === g.id ? { ...x, count: k } : x));
-    let curve: Float64Array | null = null;
-    try {
-      const sizes = sizesOf(groups);
-      curve = evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve;
-    } catch { curve = null; }
-    const cells = range(nStart, nMax).map((n) => {
-      if (!curve) return `<td class="na">—</td>`;
-      const p = curve[n]!;
-      return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn">${(p * 100).toFixed(0)}</td>`;
+    const cells = cols.map((n) => {
+      if (state.gridMode === 'value') {
+        const curve = curves[k];
+        if (!curve) return `<td class="na">—</td>`;
+        const p = curve[n]!;
+        return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn: ${pct(p)}">${(p * 100).toFixed(0)}</td>`;
+      }
+      const d = diffAt(curves, k, n, state.gridMode);
+      if (d === null) return `<td class="na">—</td>`;
+      const label = state.gridMode === 'dCopy' ? `${k - 1}\u2192${k} copies` : `${n - 1}\u2192${n} drawn`;
+      return `<td style="background:${divHeat(d, maxAbsDiff)}" title="${label}: ${signed(d)}">${(d * 100).toFixed(1)}</td>`;
     }).join('');
     rows.push(`<tr><th>${k}${k === g.count ? ' ◂' : ''}</th>${cells}</tr>`);
   }
+
+  const modeNote = state.gridMode === 'value'
+    ? `P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary`
+    : state.gridMode === 'dCopy'
+    ? `Gain (percentage points) from running <b>one more copy of ${escapeHtml(g.name)}</b>
+       — each cell is that row's P minus the row above's. Brighter = more return per slot spent
+       there; that's where to look for the best place to add a copy.`
+    : `Gain (percentage points) from <b>drawing one more card</b> — each cell is that column's P
+       minus the column to its left. Shows where the deck's draws stop paying off, for any
+       ${escapeHtml(g.name)} count.`;
+
   $('grid').innerHTML =
-    `<p class="hint">P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary
+    `<p class="hint">${modeNote}
      (columns start at your ${state.turnCfg.openingHand}-card starting hand).
-     The row marked ◂ is your current deck. Everything else holds the rest of the deck fixed,
-     trading cards against <i>others</i>.</p>
+     The row marked ◂ is your current deck.</p>
      <table class="heat">${header}${rows.join('')}</table>`;
+}
+
+/** null when there's no adjacent cell to diff against (k=0 for dCopy, n=nStart for dDraw). */
+function diffAt(
+  curves: Array<Float64Array | null>,
+  k: number,
+  n: number,
+  mode: 'dCopy' | 'dDraw',
+): number | null {
+  if (mode === 'dCopy') {
+    if (k === 0) return null;
+    const cur = curves[k], prev = curves[k - 1];
+    if (!cur || !prev) return null;
+    return cur[n]! - prev[n]!;
+  }
+  const curve = curves[k];
+  if (!curve || n === 0) return null;
+  return curve[n]! - curve[n - 1]!;
+}
+
+/** Diverging scale for differentials: negative -> warm, positive -> cool, 0 -> neutral. */
+function divHeat(d: number, maxAbs: number): string {
+  const neutral: [number, number, number] = [30, 33, 40];
+  const pos: [number, number, number] = [56, 168, 140];
+  const neg: [number, number, number] = [210, 90, 70];
+  if (maxAbs <= 1e-12) return `rgb(${neutral.join(',')})`;
+  const t = Math.max(0, Math.min(1, Math.abs(d) / maxAbs));
+  const target = d >= 0 ? pos : neg;
+  const c = neutral.map((v, i) => Math.round(v + (target[i]! - v) * t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
 function onPlaySuffix(): string {
@@ -733,6 +803,11 @@ function init(): void {
   };
   ($('gridGroup') as HTMLSelectElement).onchange = (e) => {
     state.gridGroup = (e.target as HTMLSelectElement).value; renderGrid();
+  };
+  ($('gridMode') as HTMLSelectElement).value = state.gridMode;
+  ($('gridMode') as HTMLSelectElement).onchange = (e) => {
+    state.gridMode = (e.target as HTMLSelectElement).value as typeof state.gridMode;
+    renderGrid();
   };
   $('addGroup').onclick = () => {
     state.groups.push({ id: `g${seq++}`, name: `G${seq}`, count: 1 });
