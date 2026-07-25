@@ -72,8 +72,11 @@
   #builder select, #builder input{padding:.25rem .4rem}
   .bclause{border:1px dashed var(--line);border-radius:6px;padding:.5rem;margin-bottom:.4rem}
   .bclause-rows{display:flex;flex-direction:column;gap:.2rem}
-  .bclause-actions{display:flex;gap:.5rem;margin-top:.4rem}
+  .bclause-actions{display:flex;gap:.6rem;margin-top:.4rem;flex-wrap:wrap;align-items:center}
   .bclause-actions button{font-size:.72rem;color:var(--dim);padding:.15rem .4rem}
+  .bthresh-wrap{display:flex;gap:.35rem;align-items:center;font-size:.75rem}
+  .bthresh-wrap input[type="checkbox"]{width:auto}
+  .bthresh-wrap input.bthresh{width:3rem}
   .conj{color:var(--dim);font-size:.72rem;margin:.1rem 0;display:block}
   .conj-or{text-align:center;color:var(--acc);font-size:.75rem;margin:.15rem 0}
 </style>
@@ -961,12 +964,12 @@
   }
   function clauseExpr(c) {
     if (c.rows.length === 1) return rowExpr(c.rows[0]);
-    return { t: "and", kids: c.rows.map(rowExpr) };
+    if (c.k >= c.rows.length) return { t: "and", kids: c.rows.map(rowExpr) };
+    return { t: "atLeastK", k: c.k, kids: c.rows.map(rowExpr) };
   }
   function compileFlat(fq) {
-    if (fq.mode === "and") return { t: "and", kids: fq.rows.map(rowExpr) };
-    if (fq.mode === "atLeastK") return { t: "atLeastK", k: fq.k, kids: fq.rows.map(rowExpr) };
     const nonEmpty = fq.clauses.filter((c) => c.rows.length > 0);
+    if (nonEmpty.length === 0) return { t: "and", kids: [] };
     return { t: "or", kids: nonEmpty.map(clauseExpr) };
   }
   function tryAtomOrNeg(e) {
@@ -1015,35 +1018,28 @@
     }
     return rows;
   }
-  function decompileFlat(e) {
-    const empty = { rows: [], clauses: [], k: 1 };
+  function clauseFromExpr(e) {
     const single = tryAtomOrNeg(e);
-    if (single) return { mode: "and", ...empty, rows: [single] };
+    if (single) return { rows: [single], k: 1 };
     if (e.t === "and") {
       const rows = rowsFromAndKids(e.kids);
-      return rows ? { mode: "and", ...empty, rows } : null;
+      return rows ? { rows, k: rows.length } : null;
     }
     if (e.t === "atLeastK") {
       const rows = e.kids.map(rowFromCondition);
       if (rows.some((r) => r === null)) return null;
-      return { mode: "atLeastK", ...empty, rows, k: e.k };
-    }
-    if (e.t === "or") {
-      const clauses = [];
-      for (const kid of e.kids) {
-        if (kid.t === "and") {
-          const rows = rowsFromAndKids(kid.kids);
-          if (!rows) return null;
-          clauses.push({ rows });
-        } else {
-          const row = rowFromCondition(kid);
-          if (!row) return null;
-          clauses.push({ rows: [row] });
-        }
-      }
-      return { mode: "or", ...empty, clauses };
+      return { rows, k: e.k };
     }
     return null;
+  }
+  function decompileFlat(e) {
+    if (e.t === "or") {
+      const clauses = e.kids.map(clauseFromExpr);
+      if (clauses.some((c2) => c2 === null)) return null;
+      return { clauses };
+    }
+    const c = clauseFromExpr(e);
+    return c ? { clauses: [c] } : null;
   }
 
   // src/harness/main.ts
@@ -1164,10 +1160,7 @@
   function locateRow(el) {
     const b = state.builder;
     if (!b) return void 0;
-    if (el.dataset.ci !== void 0) {
-      return b.clauses[Number(el.dataset.ci)]?.rows[Number(el.dataset.ri)];
-    }
-    return b.rows[Number(el.dataset.i)];
+    return b.clauses[Number(el.dataset.ci)]?.rows[Number(el.dataset.ri)];
   }
   function wireRowControls(box) {
     box.querySelectorAll(".bneg").forEach((el) => {
@@ -1239,6 +1232,40 @@
       };
     });
   }
+  function thresholdControlsHtml(c, ci) {
+    const isAll = c.k >= c.rows.length;
+    const max = Math.max(1, c.rows.length);
+    return `<span class="bthresh-wrap">
+    <label class="hint"><input type="checkbox" class="ballreq" data-ci="${ci}" ${isAll ? "checked" : ""}> require all</label>
+    <span class="hint">or at least</span>
+    <input type="number" class="bthresh" data-ci="${ci}" min="1" max="${max}" value="${Math.min(c.k, max)}" ${isAll ? "disabled" : ""}>
+    <span class="hint">of ${c.rows.length} condition${c.rows.length === 1 ? "" : "s"}</span>
+  </span>`;
+  }
+  function wireThresholdControls(box) {
+    box.querySelectorAll(".ballreq").forEach((el) => {
+      el.onchange = () => {
+        const ci = Number(el.dataset.ci);
+        const c = state.builder.clauses[ci];
+        if (!c) return;
+        c.k = el.checked ? c.rows.length : Math.max(1, c.rows.length - 1);
+        renderBuilder();
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bthresh").forEach((el) => {
+      el.oninput = () => {
+        const ci = Number(el.dataset.ci);
+        const c = state.builder.clauses[ci];
+        if (!c) return;
+        const v = parseInt(el.value, 10);
+        if (Number.isFinite(v) && v >= 1) {
+          c.k = Math.min(v, c.rows.length);
+          applyBuilder();
+        }
+      };
+    });
+  }
   function renderBuilder() {
     const box = $("builder");
     if (state.groups.length === 0) {
@@ -1247,7 +1274,7 @@
     }
     if (state.builderUnavailable) {
       box.innerHTML = `<p class="hint flag">Current query has real nesting this picker can't represent
-       yet (e.g. an AND inside an OR that isn't shaped as "combos", or a NOT of more than a single
+       yet (e.g. an AND inside an OR that isn't shaped as combos, or a NOT of more than a single
        condition) \u2014 too complex for this picker. Text still works below.
        Your last builder state is kept in case you switch back.</p>`;
       return;
@@ -1257,107 +1284,65 @@
       return;
     }
     const b = state.builder;
-    const modeSelectHtml = `
-    <select id="bmode">
-      <option value="and" ${b.mode === "and" ? "selected" : ""}>all of these (AND)</option>
-      <option value="or" ${b.mode === "or" ? "selected" : ""}>any of these combos (OR)</option>
-      <option value="atLeastK" ${b.mode === "atLeastK" ? "selected" : ""}>at least N of these</option>
-    </select>
-    ${b.mode === "atLeastK" ? `<input id="bk" type="number" min="1" max="${Math.max(1, b.rows.length)}" value="${b.k}" style="width:3.5rem">` : ""}`;
-    if (b.mode === "or") {
-      const clausesHtml = b.clauses.map((c, ci) => {
-        const rowsHtml2 = c.rows.map((r, ri) => rowControlsHtml(r, `data-ci="${ci}" data-ri="${ri}"`)).join('<span class="hint conj">and</span>');
-        return `<div class="bclause">
-        <div class="bclause-rows">${rowsHtml2 || '<span class="hint">empty \u2014 add a condition</span>'}</div>
-        <div class="bclause-actions">
-          <button class="baddCond" data-ci="${ci}">+ and condition</button>
-          <button class="bdelClause" data-ci="${ci}">\u2715 remove this combo</button>
-        </div>
-      </div>`;
-      }).join('<div class="hint conj-or">\u2014 or \u2014</div>');
-      box.innerHTML = `
-      <div class="row" style="margin-bottom:.5rem">${modeSelectHtml}<button id="baddClause">+ combo</button></div>
-      ${clausesHtml || '<p class="hint">No combos yet \u2014 add one.</p>'}`;
-      wireModeControls();
-      wireRowControls(box);
-      box.querySelectorAll(".baddCond").forEach((el) => {
-        el.onclick = () => {
-          const ci = Number(el.dataset.ci);
-          state.builder.clauses[ci].rows.push({ g: state.groups[0].id, neg: false, lo: 1, hi: null });
-          renderBuilder();
-          applyBuilder();
-        };
-      });
-      box.querySelectorAll(".bdelClause").forEach((el) => {
-        el.onclick = () => {
-          const ci = Number(el.dataset.ci);
-          state.builder.clauses.splice(ci, 1);
-          renderBuilder();
-          applyBuilder();
-        };
-      });
-      box.querySelectorAll(".bdel").forEach((el) => {
-        el.onclick = () => {
-          const ci = Number(el.dataset.ci), ri = Number(el.dataset.ri);
-          const clause = state.builder.clauses[ci];
-          if (!clause) return;
-          clause.rows.splice(ri, 1);
-          if (clause.rows.length === 0) state.builder.clauses.splice(ci, 1);
-          renderBuilder();
-          applyBuilder();
-        };
-      });
-      return;
-    }
-    const rowsHtml = b.rows.map((r, i) => rowControlsHtml(r, `data-i="${i}"`)).join("");
+    const clausesHtml = b.clauses.map((c, ci) => {
+      const rowsHtml = c.rows.map((r, ri) => rowControlsHtml(r, `data-ci="${ci}" data-ri="${ri}"`)).join("");
+      return `<div class="bclause">
+      <div class="bclause-rows">${rowsHtml || '<span class="hint">empty \u2014 add a condition</span>'}</div>
+      <div class="bclause-actions">
+        ${c.rows.length > 1 ? thresholdControlsHtml(c, ci) : ""}
+        <button class="baddCond" data-ci="${ci}">+ condition</button>
+        <button class="bdelClause" data-ci="${ci}">\u2715 remove combo</button>
+      </div>
+    </div>`;
+    }).join('<div class="hint conj-or">\u2014 or \u2014</div>');
     box.innerHTML = `
-    <div class="row" style="margin-bottom:.5rem">${modeSelectHtml}<button id="baddRow">+ condition</button></div>
-    ${rowsHtml || '<p class="hint">No conditions yet \u2014 add one.</p>'}`;
-    wireModeControls();
+    ${clausesHtml || '<p class="hint">No combos yet \u2014 add one.</p>'}
+    <button id="baddClause">+ combo</button>`;
     wireRowControls(box);
-    $("baddRow").addEventListener("click", () => {
-      state.builder.rows.push({ g: state.groups[0].id, neg: false, lo: 1, hi: null });
-      renderBuilder();
-      applyBuilder();
+    wireThresholdControls(box);
+    box.querySelectorAll(".baddCond").forEach((el) => {
+      el.onclick = () => {
+        const ci = Number(el.dataset.ci);
+        const c = state.builder.clauses[ci];
+        if (!c) return;
+        const wasAll = c.k >= c.rows.length;
+        c.rows.push({ g: state.groups[0].id, neg: false, lo: 1, hi: null });
+        if (wasAll) c.k = c.rows.length;
+        renderBuilder();
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bdelClause").forEach((el) => {
+      el.onclick = () => {
+        const ci = Number(el.dataset.ci);
+        state.builder.clauses.splice(ci, 1);
+        renderBuilder();
+        applyBuilder();
+      };
     });
     box.querySelectorAll(".bdel").forEach((el) => {
       el.onclick = () => {
-        const i = Number(el.dataset.i);
-        state.builder.rows.splice(i, 1);
-        if (state.builder.mode === "atLeastK") {
-          state.builder.k = Math.min(state.builder.k, Math.max(1, state.builder.rows.length));
+        const ci = Number(el.dataset.ci), ri = Number(el.dataset.ri);
+        const clause = state.builder.clauses[ci];
+        if (!clause) return;
+        const wasAll = clause.k >= clause.rows.length;
+        clause.rows.splice(ri, 1);
+        if (clause.rows.length === 0) {
+          state.builder.clauses.splice(ci, 1);
+        } else if (wasAll) {
+          clause.k = clause.rows.length;
+        } else {
+          clause.k = Math.min(clause.k, clause.rows.length);
         }
         renderBuilder();
         applyBuilder();
       };
     });
-    function wireModeControls() {
-      $("bmode").onchange = (e) => {
-        switchBuilderMode(e.target.value);
-      };
-      const bk = document.getElementById("bk");
-      if (bk) bk.oninput = () => {
-        const v = parseInt(bk.value, 10);
-        if (Number.isFinite(v) && v >= 1) {
-          state.builder.k = v;
-          applyBuilder();
-        }
-      };
-    }
-  }
-  function switchBuilderMode(mode) {
-    const b = state.builder;
-    if (mode === "or" && b.mode !== "or") {
-      b.clauses = b.rows.map((r) => ({ rows: [r] }));
-      b.rows = [];
-    } else if (mode !== "or" && b.mode === "or") {
-      b.rows = b.clauses.flatMap((c) => c.rows);
-      b.clauses = [];
-    }
-    b.mode = mode;
-    if (mode === "atLeastK") b.k = Math.min(b.k || 1, Math.max(1, b.rows.length));
-    renderBuilder();
-    applyBuilder();
+    $("baddClause").addEventListener("click", () => {
+      state.builder.clauses.push({ rows: [{ g: state.groups[0].id, neg: false, lo: 1, hi: null }], k: 1 });
+      renderBuilder();
+      applyBuilder();
+    });
   }
   function renderDeck() {
     const rows = state.groups.map((g) => `

@@ -3,16 +3,22 @@
  * Expr AST. Exists because the text query language, while total and tested,
  * still requires knowing precedence, quoting rules, and `any k of (...)`
  * syntax by hand — a picker that can only ever emit valid Expr trees removes
- * that whole failure class for the common shapes below. Free-text remains
- * the escape hatch for anything that doesn't fit.
+ * that whole failure class for the shape below. Free-text remains the escape
+ * hatch for anything that doesn't fit.
  *
- * Three shapes are supported:
- *   'and'      — a single list of conditions, all required (A>=1 & B>=1)
- *   'atLeastK' — k of a list of conditions (any 2 of A>=1, B>=1, C>=1)
- *   'or'       — a union of COMBOS, each combo itself an AND of conditions:
- *                (A>1 & B>2) | (C>1) | ... — this is what makes "multiple
- *                combos" (several distinct card combinations, any one of
- *                which is a win) expressible without dropping to text.
+ * Unified model: a query is a union of COMBOS (OR'd together). Each combo is
+ * a list of conditions plus a threshold k — "at least k of these conditions
+ * must hold." k defaults to the full row count, which IS an AND — so "all of
+ * these," "any of these," and "at least N of these" are not three separate
+ * shapes, they're the same one combo with different threshold values:
+ *   - one combo, k = rows.length           -> old "all of these" (AND)
+ *   - several 1-row combos, each k = 1      -> old "any of these" (OR)
+ *   - one combo, k < rows.length            -> old "at least N of these"
+ *   - several combos, some with k < rows.length -> the general case,
+ *     e.g. (any 2 of A,B,C) | (D>=1)
+ * A single combo pre-filled with k = rows.length (i.e. AND) is exactly what
+ * a fresh query should look like, and it emerges from this model for free —
+ * no special-casing needed to make "OR mode with AND preloaded" the default.
  */
 import type { Expr, GroupId } from './expr';
 
@@ -23,21 +29,15 @@ export interface Row {
   hi: number | null;
 }
 
-/** One AND'd-together combo inside an 'or' query. */
+/** One combo: "at least k of these rows." k === rows.length means all of them (AND). */
 export interface Clause {
   rows: Row[];
+  k: number;
 }
 
-export type Mode = 'and' | 'or' | 'atLeastK';
-
 export interface FlatQuery {
-  mode: Mode;
-  /** Used by 'and' and 'atLeastK'. Empty for 'or'. */
-  rows: Row[];
-  /** Used by 'or' — each entry is one combo, ANDed internally, ORed together. Empty otherwise. */
+  /** Combos, OR'd together. */
   clauses: Clause[];
-  /** Only meaningful when mode is 'atLeastK'. */
-  k: number;
 }
 
 function rowExpr(r: Row): Expr {
@@ -47,15 +47,15 @@ function rowExpr(r: Row): Expr {
 
 function clauseExpr(c: Clause): Expr {
   if (c.rows.length === 1) return rowExpr(c.rows[0]!);
-  return { t: 'and', kids: c.rows.map(rowExpr) };
+  if (c.k >= c.rows.length) return { t: 'and', kids: c.rows.map(rowExpr) };
+  return { t: 'atLeastK', k: c.k, kids: c.rows.map(rowExpr) };
 }
 
 export function compileFlat(fq: FlatQuery): Expr {
-  if (fq.mode === 'and') return { t: 'and', kids: fq.rows.map(rowExpr) };
-  if (fq.mode === 'atLeastK') return { t: 'atLeastK', k: fq.k, kids: fq.rows.map(rowExpr) };
-  // 'or': drop any combo with no conditions rather than let it compile to an
+  // Drop any combo with no conditions rather than let it compile to an
   // always-true branch that would silently make the whole OR always true.
   const nonEmpty = fq.clauses.filter((c) => c.rows.length > 0);
+  if (nonEmpty.length === 0) return { t: 'and', kids: [] }; // no conditions anywhere: unconstrained
   return { t: 'or', kids: nonEmpty.map(clauseExpr) };
 }
 
@@ -124,41 +124,35 @@ function rowsFromAndKids(kids: readonly Expr[]): Row[] | null {
   return rows;
 }
 
-/**
- * Inverse of compileFlat, when possible. Returns null for anything with real
- * nesting this shape doesn't cover (an OR inside an AND, a NOT of something
- * other than a bare atom, etc.) — those queries still work fine as text.
- */
-export function decompileFlat(e: Expr): FlatQuery | null {
-  const empty = { rows: [], clauses: [], k: 1 };
-
-  // The whole expression might itself be a single condition.
+/** One combo's worth of Expr -> Clause, or null if it's not a flat shape. */
+function clauseFromExpr(e: Expr): Clause | null {
   const single = tryAtomOrNeg(e);
-  if (single) return { mode: 'and', ...empty, rows: [single] };
-
+  if (single) return { rows: [single], k: 1 };
   if (e.t === 'and') {
     const rows = rowsFromAndKids(e.kids);
-    return rows ? { mode: 'and', ...empty, rows } : null;
+    return rows ? { rows, k: rows.length } : null;
   }
   if (e.t === 'atLeastK') {
     const rows = e.kids.map(rowFromCondition);
     if (rows.some((r) => r === null)) return null;
-    return { mode: 'atLeastK', ...empty, rows: rows as Row[], k: e.k };
-  }
-  if (e.t === 'or') {
-    const clauses: Clause[] = [];
-    for (const kid of e.kids) {
-      if (kid.t === 'and') {
-        const rows = rowsFromAndKids(kid.kids);
-        if (!rows) return null;
-        clauses.push({ rows });
-      } else {
-        const row = rowFromCondition(kid);
-        if (!row) return null;
-        clauses.push({ rows: [row] });
-      }
-    }
-    return { mode: 'or', ...empty, clauses };
+    return { rows: rows as Row[], k: e.k };
   }
   return null;
+}
+
+/**
+ * Inverse of compileFlat, when possible. A top-level OR becomes several
+ * combos; anything else (a bare atom, an AND, an atLeastK) becomes a single
+ * combo. Returns null for real nesting this shape doesn't cover (an OR
+ * inside an AND, an OR nested inside another OR, a NOT of something other
+ * than a bare atom) — those queries still work fine as text.
+ */
+export function decompileFlat(e: Expr): FlatQuery | null {
+  if (e.t === 'or') {
+    const clauses = e.kids.map(clauseFromExpr);
+    if (clauses.some((c) => c === null)) return null;
+    return { clauses: clauses as Clause[] };
+  }
+  const c = clauseFromExpr(e);
+  return c ? { clauses: [c] } : null;
 }

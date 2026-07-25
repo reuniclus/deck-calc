@@ -11,7 +11,7 @@ import { analyze } from '../math/analyze';
 import { turnForCardsSeen, DEFAULT_TURN_CONFIG, type TurnConfig } from '../model/turns';
 import { minimalVectors } from '../math/frontier';
 import { allocate, minSlotsForTarget } from '../math/allocate';
-import { compileFlat, decompileFlat, type Row, type Mode, type FlatQuery } from '../math/builder';
+import { compileFlat, decompileFlat, type Row, type Clause, type FlatQuery } from '../math/builder';
 import {
   QueryTooLargeError, UnknownGroupError, collectGroups, pruneGroups, type Expr, type Sizes,
 } from '../math/expr';
@@ -153,13 +153,10 @@ function rowControlsHtml(r: Row, attrs: string): string {
 function locateRow(el: HTMLElement): Row | undefined {
   const b = state.builder;
   if (!b) return undefined;
-  if (el.dataset.ci !== undefined) {
-    return b.clauses[Number(el.dataset.ci)]?.rows[Number(el.dataset.ri)];
-  }
-  return b.rows[Number(el.dataset.i)];
+  return b.clauses[Number(el.dataset.ci)]?.rows[Number(el.dataset.ri)];
 }
 
-/** Shared wiring for value-only edits (negate/group/comparator/numbers) — works for both flat rows and clause rows. */
+/** Shared wiring for value-only edits (negate/group/comparator/numbers) on a clause's rows. */
 function wireRowControls(box: HTMLElement): void {
   box.querySelectorAll<HTMLButtonElement>('.bneg').forEach((el) => {
     el.onclick = () => {
@@ -209,6 +206,37 @@ function wireRowControls(box: HTMLElement): void {
   });
 }
 
+/** "require all" checkbox + a threshold number, disabled while checked. k===rows.length IS "all" — no separate flag. */
+function thresholdControlsHtml(c: Clause, ci: number): string {
+  const isAll = c.k >= c.rows.length;
+  const max = Math.max(1, c.rows.length);
+  return `<span class="bthresh-wrap">
+    <label class="hint"><input type="checkbox" class="ballreq" data-ci="${ci}" ${isAll ? 'checked' : ''}> require all</label>
+    <span class="hint">or at least</span>
+    <input type="number" class="bthresh" data-ci="${ci}" min="1" max="${max}" value="${Math.min(c.k, max)}" ${isAll ? 'disabled' : ''}>
+    <span class="hint">of ${c.rows.length} condition${c.rows.length === 1 ? '' : 's'}</span>
+  </span>`;
+}
+
+function wireThresholdControls(box: HTMLElement): void {
+  box.querySelectorAll<HTMLInputElement>('.ballreq').forEach((el) => {
+    el.onchange = () => {
+      const ci = Number(el.dataset.ci);
+      const c = state.builder!.clauses[ci]; if (!c) return;
+      c.k = el.checked ? c.rows.length : Math.max(1, c.rows.length - 1);
+      renderBuilder(); applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLInputElement>('.bthresh').forEach((el) => {
+    el.oninput = () => {
+      const ci = Number(el.dataset.ci);
+      const c = state.builder!.clauses[ci]; if (!c) return;
+      const v = parseInt(el.value, 10);
+      if (Number.isFinite(v) && v >= 1) { c.k = Math.min(v, c.rows.length); applyBuilder(); }
+    };
+  });
+}
+
 function renderBuilder(): void {
   const box = $('builder');
   if (state.groups.length === 0) {
@@ -217,7 +245,7 @@ function renderBuilder(): void {
   }
   if (state.builderUnavailable) {
     box.innerHTML = `<p class="hint flag">Current query has real nesting this picker can't represent
-       yet (e.g. an AND inside an OR that isn't shaped as "combos", or a NOT of more than a single
+       yet (e.g. an AND inside an OR that isn't shaped as combos, or a NOT of more than a single
        condition) — too complex for this picker. Text still works below.
        Your last builder state is kept in case you switch back.</p>`;
     return;
@@ -228,115 +256,62 @@ function renderBuilder(): void {
   }
 
   const b = state.builder;
-  const modeSelectHtml = `
-    <select id="bmode">
-      <option value="and" ${b.mode === 'and' ? 'selected' : ''}>all of these (AND)</option>
-      <option value="or" ${b.mode === 'or' ? 'selected' : ''}>any of these combos (OR)</option>
-      <option value="atLeastK" ${b.mode === 'atLeastK' ? 'selected' : ''}>at least N of these</option>
-    </select>
-    ${b.mode === 'atLeastK'
-      ? `<input id="bk" type="number" min="1" max="${Math.max(1, b.rows.length)}" value="${b.k}" style="width:3.5rem">`
-      : ''}`;
+  const clausesHtml = b.clauses.map((c, ci) => {
+    const rowsHtml = c.rows
+      .map((r, ri) => rowControlsHtml(r, `data-ci="${ci}" data-ri="${ri}"`))
+      .join('');
+    return `<div class="bclause">
+      <div class="bclause-rows">${rowsHtml || '<span class="hint">empty — add a condition</span>'}</div>
+      <div class="bclause-actions">
+        ${c.rows.length > 1 ? thresholdControlsHtml(c, ci) : ''}
+        <button class="baddCond" data-ci="${ci}">+ condition</button>
+        <button class="bdelClause" data-ci="${ci}">✕ remove combo</button>
+      </div>
+    </div>`;
+  }).join('<div class="hint conj-or">— or —</div>');
 
-  if (b.mode === 'or') {
-    const clausesHtml = b.clauses.map((c, ci) => {
-      const rowsHtml = c.rows
-        .map((r, ri) => rowControlsHtml(r, `data-ci="${ci}" data-ri="${ri}"`))
-        .join('<span class="hint conj">and</span>');
-      return `<div class="bclause">
-        <div class="bclause-rows">${rowsHtml || '<span class="hint">empty — add a condition</span>'}</div>
-        <div class="bclause-actions">
-          <button class="baddCond" data-ci="${ci}">+ and condition</button>
-          <button class="bdelClause" data-ci="${ci}">✕ remove this combo</button>
-        </div>
-      </div>`;
-    }).join('<div class="hint conj-or">— or —</div>');
-
-    box.innerHTML = `
-      <div class="row" style="margin-bottom:.5rem">${modeSelectHtml}<button id="baddClause">+ combo</button></div>
-      ${clausesHtml || '<p class="hint">No combos yet — add one.</p>'}`;
-
-    wireModeControls();
-    wireRowControls(box);
-    box.querySelectorAll<HTMLButtonElement>('.baddCond').forEach((el) => {
-      el.onclick = () => {
-        const ci = Number(el.dataset.ci);
-        state.builder!.clauses[ci]!.rows.push({ g: state.groups[0]!.id, neg: false, lo: 1, hi: null });
-        renderBuilder(); applyBuilder();
-      };
-    });
-    box.querySelectorAll<HTMLButtonElement>('.bdelClause').forEach((el) => {
-      el.onclick = () => {
-        const ci = Number(el.dataset.ci);
-        state.builder!.clauses.splice(ci, 1);
-        renderBuilder(); applyBuilder();
-      };
-    });
-    box.querySelectorAll<HTMLButtonElement>('.bdel').forEach((el) => {
-      el.onclick = () => {
-        const ci = Number(el.dataset.ci), ri = Number(el.dataset.ri);
-        const clause = state.builder!.clauses[ci];
-        if (!clause) return;
-        clause.rows.splice(ri, 1);
-        if (clause.rows.length === 0) state.builder!.clauses.splice(ci, 1); // drop the now-empty combo
-        renderBuilder(); applyBuilder();
-      };
-    });
-    return;
-  }
-
-  // 'and' / 'atLeastK': one flat list of rows, unchanged shape from before.
-  const rowsHtml = b.rows.map((r, i) => rowControlsHtml(r, `data-i="${i}"`)).join('');
   box.innerHTML = `
-    <div class="row" style="margin-bottom:.5rem">${modeSelectHtml}<button id="baddRow">+ condition</button></div>
-    ${rowsHtml || '<p class="hint">No conditions yet — add one.</p>'}`;
+    ${clausesHtml || '<p class="hint">No combos yet — add one.</p>'}
+    <button id="baddClause">+ combo</button>`;
 
-  wireModeControls();
   wireRowControls(box);
-  $('baddRow').addEventListener('click', () => {
-    state.builder!.rows.push({ g: state.groups[0]!.id, neg: false, lo: 1, hi: null });
-    renderBuilder(); applyBuilder();
-  });
-  box.querySelectorAll<HTMLButtonElement>('.bdel').forEach((el) => {
+  wireThresholdControls(box);
+  box.querySelectorAll<HTMLButtonElement>('.baddCond').forEach((el) => {
     el.onclick = () => {
-      const i = Number(el.dataset.i);
-      state.builder!.rows.splice(i, 1);
-      if (state.builder!.mode === 'atLeastK') {
-        state.builder!.k = Math.min(state.builder!.k, Math.max(1, state.builder!.rows.length));
-      }
+      const ci = Number(el.dataset.ci);
+      const c = state.builder!.clauses[ci]; if (!c) return;
+      const wasAll = c.k >= c.rows.length;
+      c.rows.push({ g: state.groups[0]!.id, neg: false, lo: 1, hi: null });
+      if (wasAll) c.k = c.rows.length; // stay "all" as the combo grows
       renderBuilder(); applyBuilder();
     };
   });
-
-  function wireModeControls(): void {
-    ($('bmode') as HTMLSelectElement).onchange = (e) => {
-      switchBuilderMode((e.target as HTMLSelectElement).value as Mode);
+  box.querySelectorAll<HTMLButtonElement>('.bdelClause').forEach((el) => {
+    el.onclick = () => {
+      const ci = Number(el.dataset.ci);
+      state.builder!.clauses.splice(ci, 1);
+      renderBuilder(); applyBuilder();
     };
-    const bk = document.getElementById('bk') as HTMLInputElement | null;
-    if (bk) bk.oninput = () => {
-      const v = parseInt(bk.value, 10);
-      if (Number.isFinite(v) && v >= 1) { state.builder!.k = v; applyBuilder(); }
+  });
+  box.querySelectorAll<HTMLButtonElement>('.bdel').forEach((el) => {
+    el.onclick = () => {
+      const ci = Number(el.dataset.ci), ri = Number(el.dataset.ri);
+      const clause = state.builder!.clauses[ci];
+      if (!clause) return;
+      const wasAll = clause.k >= clause.rows.length;
+      clause.rows.splice(ri, 1);
+      if (clause.rows.length === 0) { state.builder!.clauses.splice(ci, 1); }
+      else if (wasAll) { clause.k = clause.rows.length; } // stay "all" as the combo shrinks
+      else { clause.k = Math.min(clause.k, clause.rows.length); }
+      renderBuilder(); applyBuilder();
     };
-  }
+  });
+  $('baddClause').addEventListener('click', () => {
+    state.builder!.clauses.push({ rows: [{ g: state.groups[0]!.id, neg: false, lo: 1, hi: null }], k: 1 });
+    renderBuilder(); applyBuilder();
+  });
 }
 
-/** Converts the CURRENT rows/clauses into the new mode's shape rather than discarding them. */
-function switchBuilderMode(mode: Mode): void {
-  const b = state.builder!;
-  if (mode === 'or' && b.mode !== 'or') {
-    // each existing flat row becomes its own single-condition combo
-    b.clauses = b.rows.map((r) => ({ rows: [r] }));
-    b.rows = [];
-  } else if (mode !== 'or' && b.mode === 'or') {
-    // flatten every combo's rows back into one list (lossy if there were 2+ combos with 2+ rows each,
-    // but that's an inherent shape change, not a bug — AND/atLeastK have no notion of separate combos)
-    b.rows = b.clauses.flatMap((c) => c.rows);
-    b.clauses = [];
-  }
-  b.mode = mode;
-  if (mode === 'atLeastK') b.k = Math.min(b.k || 1, Math.max(1, b.rows.length));
-  renderBuilder(); applyBuilder();
-}
 
 
 // ── deck editor ──────────────────────────────────────────────────────────────

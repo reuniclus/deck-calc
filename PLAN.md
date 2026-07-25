@@ -250,6 +250,19 @@ minimize Σ K_g   s.t.  P ≥ target
 ```
 "Fewest deck slots to hit 90% by turn 3." A scalar cost collapses the antichain into a single answer — report ties, they're real deckbuilding choices.
 
+### 4b. Builder model simplification: combos, not modes
+
+The three original builder modes ("all of these" / "any of these" / "at least N of
+these") turned out to be one shape: a combo (a list of conditions) with a threshold
+k — "at least k of these conditions." k = rows.length is exactly AND; several
+1-row combos each with k=1 is exactly the old OR; a single combo with k < rows.length
+is exactly the old atLeastK. Unifying to `FlatQuery = { clauses: Clause[] }`,
+`Clause = { rows: Row[], k: number }` removed the mode selector entirely and made
+"AND pre-loaded, add more combos if you want OR" the natural default rather than a
+special case — a fresh single combo simply has k = rows.length. UI: a "require all"
+checkbox per combo (checked ⟺ k===rows.length) with a threshold number revealed
+underneath when unchecked, shown only for combos with 2+ conditions.
+
 ### 5.3b Interaction term (grid "Δ both")
 
 `interaction(k,n) = P(k,n) - P(k,n-1) - P(k-1,n) + P(k-1,n-1)` — the discrete mixed
