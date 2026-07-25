@@ -23,7 +23,7 @@
   .row{display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap}
   .chips{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.5rem}
   .chips button{font-size:.75rem;padding:.2rem .45rem;color:var(--dim)}
-  .chips button.gmode.active{color:var(--fg);border-color:var(--acc);background:#132030}
+  .chips button.gmode.active, .chips button.rview.active{color:var(--fg);border-color:var(--acc);background:#132030}
   table{border-collapse:collapse;font-variant-numeric:tabular-nums}
   th,td{padding:.2rem .5rem;border-bottom:1px solid var(--line);text-align:right}
   th:first-child,td:first-child{text-align:left}
@@ -49,7 +49,11 @@
   #curveTip{font-style:italic}
   svg .ax{stroke:var(--line)}
   svg .tgt{stroke:var(--ok);stroke-dasharray:4 3;opacity:.7}
+  svg .hand{stroke:var(--flag);stroke-dasharray:2 2;opacity:.6}
+  svg .hand-lbl{fill:var(--flag);font-size:9px}
   svg .hit{fill:var(--ok)}
+  svg .knee{fill:none;stroke:var(--flag);stroke-width:2}
+  svg .knee-lbl{fill:var(--flag);font-size:9px}
   svg .lbl{fill:var(--dim);font-size:10px}
   svg .mid{text-anchor:middle}
   table.heat{font-size:.7rem;margin-top:.5rem}
@@ -158,11 +162,15 @@
   <div class="panel">
     <div id="status"></div>
     <div id="summary"></div>
+    <div class="row" style="margin:.5rem 0">
+      <div class="chips" style="margin:0">
+        <button class="rview" data-view="chart">chart</button>
+        <button class="rview" data-view="table">table</button>
+      </div>
+    </div>
     <div id="curve"></div>
+    <div class="scroll" id="tableWrap"><div id="table"></div></div>
   </div>
-
-  <h2>Per-draw table</h2>
-  <div class="scroll"><div id="table"></div></div>
 
   <h2>Two-variable grid</h2>
   <div class="panel">

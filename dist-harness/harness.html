@@ -23,7 +23,7 @@
   .row{display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap}
   .chips{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.5rem}
   .chips button{font-size:.75rem;padding:.2rem .45rem;color:var(--dim)}
-  .chips button.gmode.active{color:var(--fg);border-color:var(--acc);background:#132030}
+  .chips button.gmode.active, .chips button.rview.active{color:var(--fg);border-color:var(--acc);background:#132030}
   table{border-collapse:collapse;font-variant-numeric:tabular-nums}
   th,td{padding:.2rem .5rem;border-bottom:1px solid var(--line);text-align:right}
   th:first-child,td:first-child{text-align:left}
@@ -49,7 +49,11 @@
   #curveTip{font-style:italic}
   svg .ax{stroke:var(--line)}
   svg .tgt{stroke:var(--ok);stroke-dasharray:4 3;opacity:.7}
+  svg .hand{stroke:var(--flag);stroke-dasharray:2 2;opacity:.6}
+  svg .hand-lbl{fill:var(--flag);font-size:9px}
   svg .hit{fill:var(--ok)}
+  svg .knee{fill:none;stroke:var(--flag);stroke-width:2}
+  svg .knee-lbl{fill:var(--flag);font-size:9px}
   svg .lbl{fill:var(--dim);font-size:10px}
   svg .mid{text-anchor:middle}
   table.heat{font-size:.7rem;margin-top:.5rem}
@@ -158,11 +162,15 @@
   <div class="panel">
     <div id="status"></div>
     <div id="summary"></div>
+    <div class="row" style="margin:.5rem 0">
+      <div class="chips" style="margin:0">
+        <button class="rview" data-view="chart">chart</button>
+        <button class="rview" data-view="table">table</button>
+      </div>
+    </div>
     <div id="curve"></div>
+    <div class="scroll" id="tableWrap"><div id="table"></div></div>
   </div>
-
-  <h2>Per-draw table</h2>
-  <div class="scroll"><div id="table"></div></div>
 
   <h2>Two-variable grid</h2>
   <div class="panel">
@@ -1060,7 +1068,8 @@
     gridGroup: "g0",
     gridMaxDraws: 20,
     /** value = raw P; dCopy = marginal gain from the next copy; dDraw = marginal gain from the next card drawn. */
-    gridMode: "value"
+    gridMode: "value",
+    resultView: "chart"
   };
   var seq = 2;
   var $ = (id) => document.getElementById(id);
@@ -1609,6 +1618,12 @@
     const ticks = tickValues(N).map((n) => `<text x="${x(n)}" y="${H - 8}" class="lbl mid">${n}</text>`).join("");
     const targetLine = `<line x1="${PAD}" x2="${W - 8}" y1="${y(a.target)}" y2="${y(a.target)}" class="tgt"/>`;
     const marks = a.drawsNeeded !== null ? `<circle cx="${x(a.drawsNeeded)}" cy="${y(a.curve[a.drawsNeeded])}" r="4" class="hit"/>` : "";
+    const hand = state.turnCfg.openingHand;
+    const handLine = hand >= 0 && hand <= N ? `<line x1="${x(hand)}" x2="${x(hand)}" y1="8" y2="${H - PAD}" class="hand"/>
+       <text x="${x(hand)}" y="10" class="lbl mid hand-lbl">hand</text>` : "";
+    const steepestN = a.knee + 1;
+    const knee = steepestN >= 0 && steepestN <= N ? `<circle cx="${x(steepestN)}" cy="${y(a.curve[steepestN])}" r="4" class="knee"/>
+       <text x="${x(steepestN)}" y="${y(a.curve[steepestN]) - 8}" class="lbl mid knee-lbl">steepest</text>` : "";
     const phantoms = series.filter((s) => s.offset !== null).sort((p, q) => Math.abs(q.offset) - Math.abs(p.offset));
     const real = series.find((s) => s.offset === null);
     const phantomLines = phantoms.map((s) => {
@@ -1620,8 +1635,8 @@
     const legend = state.groups.map(
       (g) => `<span class="swatch"><i style="background:hsl(${hueFor(g.id)}deg 65% 58%)"></i>${escapeHtml(g.name)}</span>`
     ).join(" ");
-    $("curve").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}
-      ${phantomLines}${realLine}${marks}${ticks}
+    $("curve").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}${handLine}
+      ${phantomLines}${realLine}${marks}${knee}${ticks}
       <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>
      <p class="hint">Faint lines: +-1/+-2 copies of each group, holding the rest fixed.
        ${legend}</p>
@@ -1657,6 +1672,13 @@
     }
     $("table").innerHTML = `<table class="num"><thead><tr><th>drawn</th><th>turn${onPlaySuffix()}</th><th>P</th><th>\u0394P per card</th></tr></thead>
      <tbody>${rows.join("")}</tbody></table>`;
+  }
+  function syncResultView() {
+    document.querySelectorAll("button.rview").forEach((el) => {
+      el.classList.toggle("active", el.dataset.view === state.resultView);
+    });
+    $("curve").style.display = state.resultView === "chart" ? "" : "none";
+    $("tableWrap").style.display = state.resultView === "table" ? "" : "none";
   }
   function syncGridModeButtons() {
     document.querySelectorAll("button.gmode").forEach((el) => {
@@ -1834,6 +1856,13 @@
       };
     });
     syncGridModeButtons();
+    document.querySelectorAll("button.rview").forEach((el) => {
+      el.onclick = () => {
+        state.resultView = el.dataset.view;
+        syncResultView();
+      };
+    });
+    syncResultView();
     $("addGroup").onclick = () => {
       state.groups.push({ id: `g${seq++}`, name: `G${seq}`, count: 1 });
       renderDeck();

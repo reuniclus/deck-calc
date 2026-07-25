@@ -47,6 +47,7 @@ const state = {
   gridMaxDraws: 20,
   /** value = raw P; dCopy = marginal gain from the next copy; dDraw = marginal gain from the next card drawn. */
   gridMode: 'value' as 'value' | 'dCopy' | 'dDraw',
+  resultView: 'chart' as 'chart' | 'table',
 };
 let seq = 2;
 
@@ -688,6 +689,20 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
     ? `<circle cx="${x(a.drawsNeeded)}" cy="${y(a.curve[a.drawsNeeded]!)}" r="4" class="hit"/>`
     : '';
 
+  // Starting hand: vertical reference line, same n=openingHand cutoff the tables use.
+  const hand = state.turnCfg.openingHand;
+  const handLine = hand >= 0 && hand <= N
+    ? `<line x1="${x(hand)}" x2="${x(hand)}" y1="8" y2="${H - PAD}" class="hand"/>
+       <text x="${x(hand)}" y="10" class="lbl mid hand-lbl">hand</text>`
+    : '';
+
+  // Steepest gain — same point the per-draw table marks with "◂ steepest".
+  const steepestN = a.knee + 1;
+  const knee = steepestN >= 0 && steepestN <= N
+    ? `<circle cx="${x(steepestN)}" cy="${y(a.curve[steepestN]!)}" r="4" class="knee"/>
+       <text x="${x(steepestN)}" y="${y(a.curve[steepestN]!) - 8}" class="lbl mid knee-lbl">steepest</text>`
+    : '';
+
   // Phantoms first (so the real curve always draws on top), farthest offset
   // first so +-1 layers over +-2 within the same group's color.
   const phantoms = series.filter((s) => s.offset !== null)
@@ -706,8 +721,8 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
   ).join(' ');
 
   $('curve').innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}
-      ${phantomLines}${realLine}${marks}${ticks}
+    `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}${handLine}
+      ${phantomLines}${realLine}${marks}${knee}${ticks}
       <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>
      <p class="hint">Faint lines: +-1/+-2 copies of each group, holding the rest fixed.
        ${legend}</p>
@@ -746,6 +761,15 @@ function renderTable(a: ReturnType<typeof analyze>): void {
   $('table').innerHTML =
     `<table class="num"><thead><tr><th>drawn</th><th>turn${onPlaySuffix()}</th><th>P</th><th>ΔP per card</th></tr></thead>
      <tbody>${rows.join('')}</tbody></table>`;
+}
+
+// ── result view (chart vs table) ─────────────────────────────────────────────
+function syncResultView(): void {
+  document.querySelectorAll<HTMLButtonElement>('button.rview').forEach((el) => {
+    el.classList.toggle('active', el.dataset.view === state.resultView);
+  });
+  $('curve').style.display = state.resultView === 'chart' ? '' : 'none';
+  $('tableWrap').style.display = state.resultView === 'table' ? '' : 'none';
 }
 
 // ── 2D grid: cards drawn × copies of one group ───────────────────────────────
@@ -939,6 +963,13 @@ function init(): void {
     };
   });
   syncGridModeButtons();
+  document.querySelectorAll<HTMLButtonElement>('button.rview').forEach((el) => {
+    el.onclick = () => {
+      state.resultView = el.dataset.view as typeof state.resultView;
+      syncResultView();
+    };
+  });
+  syncResultView();
   $('addGroup').onclick = () => {
     state.groups.push({ id: `g${seq++}`, name: `G${seq}`, count: 1 });
     renderDeck(); renderGridPicker(); recompute();
