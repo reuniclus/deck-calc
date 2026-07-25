@@ -684,6 +684,9 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
   const gridLines = [0.25, 0.5, 0.75, 1].map((p) =>
     `<line x1="${PAD}" x2="${W - 8}" y1="${y(p)}" y2="${y(p)}" class="ax"/>
      <text x="2" y="${y(p) + 4}" class="lbl">${p * 100}%</text>`).join('');
+  const vGridLines = Array.from({ length: N + 1 }, (_, n) => n).map((n) =>
+    `<line x1="${x(n)}" x2="${x(n)}" y1="8" y2="${H - PAD}" class="${n % 5 === 0 ? 'vax5' : 'vax'}"/>`
+  ).join('');
   const ticks = tickValues(N).map((n) =>
     `<text x="${x(n)}" y="${H - 8}" class="lbl mid">${n}</text>`).join('');
   const targetLine = `<line x1="${PAD}" x2="${W - 8}" y1="${y(a.target)}" y2="${y(a.target)}" class="tgt"/>`;
@@ -739,7 +742,7 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
   ).join(' ');
 
   $('curve').innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}${handLine}
+    `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${vGridLines}${targetLine}${handLine}
       ${phantomLines}${realLine}${marks}${knee}${ticks}
       <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>
      <p class="hint">Faint lines: +-1/+-2 copies of each group, holding the rest fixed.
