@@ -382,10 +382,35 @@ function recompute(): void {
   const a = analyze(res.curve, state.target, res.monotone);
   renderStatus(res, a);
   renderSummary(a);
-  renderCurve(a);
+  renderCurve(a, computePhantomCurves(state.ast));
   renderTable(a);
   renderGrid();
   renderFrontier(dnf, a, sizes);
+}
+
+/**
+ * P(n) for the swept group ("vary copies of", shared with the grid) at
+ * +-1/+-2 copies, holding every other group fixed. Purely illustrative context
+ * for the main curve — "what if I ran one more/fewer" — not a separate query.
+ */
+function computePhantomCurves(
+  ast: Expr,
+): Array<{ offset: number; curve: Float64Array }> {
+  const g = state.groups.find((x) => x.id === state.gridGroup);
+  if (!g) return [];
+  const out: Array<{ offset: number; curve: Float64Array }> = [];
+  for (const offset of [-2, -1, 1, 2]) {
+    const count = g.count + offset;
+    if (count < 0) continue;
+    const groups = state.groups.map((x) => (x.id === g.id ? { ...x, count } : x));
+    try {
+      const s = sizesOf(groups);
+      out.push({ offset, curve: evaluate(state.deckSize, s, normalize(ast, s)).curve });
+    } catch {
+      // deck too small to hold this many copies, or some other constraint violation — skip it
+    }
+  }
+  return out;
 }
 
 function renderFrontier(
@@ -531,12 +556,17 @@ function renderSummary(a: ReturnType<typeof analyze>): void {
 }
 
 // ── curve ────────────────────────────────────────────────────────────────────
-function renderCurve(a: ReturnType<typeof analyze>): void {
+function renderCurve(
+  a: ReturnType<typeof analyze>,
+  phantoms: Array<{ offset: number; curve: Float64Array }> = [],
+): void {
   const N = a.curve.length - 1;
   const W = 640, H = 200, PAD = 28;
   const x = (n: number) => PAD + (n / N) * (W - PAD - 8);
   const y = (p: number) => H - PAD - p * (H - PAD - 10);
-  const pts = Array.from(a.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
+  const pointsOf = (curve: Float64Array) =>
+    Array.from(curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
+  const pts = pointsOf(a.curve);
   const gridLines = [0.25, 0.5, 0.75, 1].map((p) =>
     `<line x1="${PAD}" x2="${W - 8}" y1="${y(p)}" y2="${y(p)}" class="ax"/>
      <text x="2" y="${y(p) + 4}" class="lbl">${p * 100}%</text>`).join('');
@@ -546,10 +576,25 @@ function renderCurve(a: ReturnType<typeof analyze>): void {
   const marks = a.drawsNeeded !== null
     ? `<circle cx="${x(a.drawsNeeded)}" cy="${y(a.curve[a.drawsNeeded]!)}" r="4" class="hit"/>`
     : '';
+  // Closer offsets (+-1) more opaque than farther ones (+-2); drawn UNDER the
+  // real curve so the actual deck's line always reads as the primary one.
+  const phantomLines = phantoms
+    .slice()
+    .sort((p, q) => Math.abs(q.offset) - Math.abs(p.offset)) // draw +-2 first, +-1 on top of it
+    .map((p) => `<polyline points="${pointsOf(p.curve)}" class="phantom mag${Math.abs(p.offset)}"/>`)
+    .join('');
+  const g = state.groups.find((x) => x.id === state.gridGroup);
+  const legend = phantoms.length > 0 && g
+    ? `<p class="hint">Faint lines: <b>${escapeHtml(g.name)}</b> at ${
+        phantoms.slice().sort((p, q) => p.offset - q.offset)
+          .map((p) => (p.offset > 0 ? `+${p.offset}` : p.offset)).join(', ')
+      } compared to its current ${g.count} copies — closer counts are more solid.</p>`
+    : '';
   $('curve').innerHTML =
     `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}
+      ${phantomLines}
       <polyline points="${pts}" class="line"/>${marks}${ticks}
-      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>`;
+      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>${legend}`;
 }
 
 function tickValues(N: number): number[] {
@@ -562,8 +607,9 @@ function tickValues(N: number): number[] {
 // ── per-draw table ───────────────────────────────────────────────────────────
 function renderTable(a: ReturnType<typeof analyze>): void {
   const N = a.curve.length - 1;
+  const start = Math.min(state.turnCfg.openingHand, N);
   const rows: string[] = [];
-  for (let n = 0; n <= N; n++) {
+  for (let n = start; n <= N; n++) {
     const hit = a.curve[n]! >= a.target - 1e-12;
     const isKnee = n === a.knee + 1;
     const turn = turnForCardsSeen(n, state.turnCfg);
@@ -571,7 +617,7 @@ function renderTable(a: ReturnType<typeof analyze>): void {
       <td>${n}</td>
       <td class="dim">${turn ?? ''}</td>
       <td>${pct(a.curve[n]!)}</td>
-      <td class="dim">${n === 0 ? '' : signed(a.deltas[n - 1]!)}${isKnee ? ' ◂ steepest' : ''}</td>
+      <td class="dim">${n === start ? '' : signed(a.deltas[n - 1]!)}${isKnee ? ' ◂ steepest' : ''}</td>
     </tr>`);
   }
   $('table').innerHTML =
@@ -589,9 +635,15 @@ function renderGrid(): void {
   const nMax = Math.min(state.deckSize, state.gridMaxDraws);
   const ast = state.ast;
   if (!ast) { $('grid').innerHTML = ''; return; }
+  if (state.turnCfg.openingHand > nMax) {
+    $('grid').innerHTML = `<p class="hint flag">Starting hand size (${state.turnCfg.openingHand}) is
+      past "max cards drawn" (${nMax}) — raise max draws to see any columns.</p>`;
+    return;
+  }
+  const nStart = state.turnCfg.openingHand;
 
   const header = `<tr><th class="corner">copies ↓ / drawn →</th>${
-    range(0, nMax).map((n) => `<th>${n}</th>`).join('')}</tr>`;
+    range(nStart, nMax).map((n) => `<th>${n}</th>`).join('')}</tr>`;
 
   const rows: string[] = [];
   for (let k = 0; k <= kMax; k++) {
@@ -601,7 +653,7 @@ function renderGrid(): void {
       const sizes = sizesOf(groups);
       curve = evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve;
     } catch { curve = null; }
-    const cells = range(0, nMax).map((n) => {
+    const cells = range(nStart, nMax).map((n) => {
       if (!curve) return `<td class="na">—</td>`;
       const p = curve[n]!;
       return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn">${(p * 100).toFixed(0)}</td>`;
@@ -609,7 +661,8 @@ function renderGrid(): void {
     rows.push(`<tr><th>${k}${k === g.count ? ' ◂' : ''}</th>${cells}</tr>`);
   }
   $('grid').innerHTML =
-    `<p class="hint">P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary.
+    `<p class="hint">P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary
+     (columns start at your ${state.turnCfg.openingHand}-card starting hand).
      The row marked ◂ is your current deck. Everything else holds the rest of the deck fixed,
      trading cards against <i>others</i>.</p>
      <table class="heat">${header}${rows.join('')}</table>`;

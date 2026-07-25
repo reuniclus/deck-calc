@@ -41,6 +41,9 @@
   tr.hit td{background:rgba(104,211,145,.08)}
   tr.hit td:nth-child(2){color:var(--ok)}
   svg .line{fill:none;stroke:var(--acc);stroke-width:2}
+  svg .phantom{fill:none;stroke:var(--acc);stroke-width:1.5}
+  svg .phantom.mag1{opacity:.45}
+  svg .phantom.mag2{opacity:.18}
   svg .ax{stroke:var(--line)}
   svg .tgt{stroke:var(--ok);stroke-dasharray:4 3;opacity:.7}
   svg .hit{fill:var(--ok)}
@@ -1308,10 +1311,26 @@
     const a = analyze(res.curve, state.target, res.monotone);
     renderStatus(res, a);
     renderSummary(a);
-    renderCurve(a);
+    renderCurve(a, computePhantomCurves(state.ast));
     renderTable(a);
     renderGrid();
     renderFrontier(dnf, a, sizes);
+  }
+  function computePhantomCurves(ast) {
+    const g = state.groups.find((x) => x.id === state.gridGroup);
+    if (!g) return [];
+    const out = [];
+    for (const offset of [-2, -1, 1, 2]) {
+      const count = g.count + offset;
+      if (count < 0) continue;
+      const groups = state.groups.map((x) => x.id === g.id ? { ...x, count } : x);
+      try {
+        const s = sizesOf(groups);
+        out.push({ offset, curve: evaluate(state.deckSize, s, normalize(ast, s)).curve });
+      } catch {
+      }
+    }
+    return out;
   }
   function renderFrontier(dnf, a, sizes) {
     const box = $("frontier");
@@ -1416,20 +1435,25 @@
     const after = a.monotone ? "Past that, every extra card buys less than the one before." : `P turns over at n=${a.argmaxP}; past there extra cards actively hurt.`;
     $("summary").innerHTML = `<p>${line}</p><p class="hint">Steepest gain: card ${a.knee + 1} is worth ${signed(knee)}. ${after}</p>`;
   }
-  function renderCurve(a) {
+  function renderCurve(a, phantoms = []) {
     const N = a.curve.length - 1;
     const W = 640, H = 200, PAD = 28;
     const x = (n) => PAD + n / N * (W - PAD - 8);
     const y = (p) => H - PAD - p * (H - PAD - 10);
-    const pts = Array.from(a.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
+    const pointsOf = (curve) => Array.from(curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
+    const pts = pointsOf(a.curve);
     const gridLines = [0.25, 0.5, 0.75, 1].map((p) => `<line x1="${PAD}" x2="${W - 8}" y1="${y(p)}" y2="${y(p)}" class="ax"/>
      <text x="2" y="${y(p) + 4}" class="lbl">${p * 100}%</text>`).join("");
     const ticks = tickValues(N).map((n) => `<text x="${x(n)}" y="${H - 8}" class="lbl mid">${n}</text>`).join("");
     const targetLine = `<line x1="${PAD}" x2="${W - 8}" y1="${y(a.target)}" y2="${y(a.target)}" class="tgt"/>`;
     const marks = a.drawsNeeded !== null ? `<circle cx="${x(a.drawsNeeded)}" cy="${y(a.curve[a.drawsNeeded])}" r="4" class="hit"/>` : "";
+    const phantomLines = phantoms.slice().sort((p, q) => Math.abs(q.offset) - Math.abs(p.offset)).map((p) => `<polyline points="${pointsOf(p.curve)}" class="phantom mag${Math.abs(p.offset)}"/>`).join("");
+    const g = state.groups.find((x2) => x2.id === state.gridGroup);
+    const legend = phantoms.length > 0 && g ? `<p class="hint">Faint lines: <b>${escapeHtml(g.name)}</b> at ${phantoms.slice().sort((p, q) => p.offset - q.offset).map((p) => p.offset > 0 ? `+${p.offset}` : p.offset).join(", ")} compared to its current ${g.count} copies \u2014 closer counts are more solid.</p>` : "";
     $("curve").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${targetLine}
+      ${phantomLines}
       <polyline points="${pts}" class="line"/>${marks}${ticks}
-      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>`;
+      <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>${legend}`;
   }
   function tickValues(N) {
     const step = N <= 20 ? 5 : N <= 60 ? 10 : 25;
@@ -1439,8 +1463,9 @@
   }
   function renderTable(a) {
     const N = a.curve.length - 1;
+    const start = Math.min(state.turnCfg.openingHand, N);
     const rows = [];
-    for (let n = 0; n <= N; n++) {
+    for (let n = start; n <= N; n++) {
       const hit = a.curve[n] >= a.target - 1e-12;
       const isKnee = n === a.knee + 1;
       const turn = turnForCardsSeen(n, state.turnCfg);
@@ -1448,7 +1473,7 @@
       <td>${n}</td>
       <td class="dim">${turn ?? ""}</td>
       <td>${pct(a.curve[n])}</td>
-      <td class="dim">${n === 0 ? "" : signed(a.deltas[n - 1])}${isKnee ? " \u25C2 steepest" : ""}</td>
+      <td class="dim">${n === start ? "" : signed(a.deltas[n - 1])}${isKnee ? " \u25C2 steepest" : ""}</td>
     </tr>`);
     }
     $("table").innerHTML = `<table class="num"><thead><tr><th>drawn</th><th>turn${onPlaySuffix()}</th><th>P</th><th>\u0394P per card</th></tr></thead>
@@ -1468,7 +1493,13 @@
       $("grid").innerHTML = "";
       return;
     }
-    const header = `<tr><th class="corner">copies \u2193 / drawn \u2192</th>${range(0, nMax).map((n) => `<th>${n}</th>`).join("")}</tr>`;
+    if (state.turnCfg.openingHand > nMax) {
+      $("grid").innerHTML = `<p class="hint flag">Starting hand size (${state.turnCfg.openingHand}) is
+      past "max cards drawn" (${nMax}) \u2014 raise max draws to see any columns.</p>`;
+      return;
+    }
+    const nStart = state.turnCfg.openingHand;
+    const header = `<tr><th class="corner">copies \u2193 / drawn \u2192</th>${range(nStart, nMax).map((n) => `<th>${n}</th>`).join("")}</tr>`;
     const rows = [];
     for (let k = 0; k <= kMax; k++) {
       const groups = state.groups.map((x) => x.id === g.id ? { ...x, count: k } : x);
@@ -1479,14 +1510,15 @@
       } catch {
         curve = null;
       }
-      const cells = range(0, nMax).map((n) => {
+      const cells = range(nStart, nMax).map((n) => {
         if (!curve) return `<td class="na">\u2014</td>`;
         const p = curve[n];
         return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn">${(p * 100).toFixed(0)}</td>`;
       }).join("");
       rows.push(`<tr><th>${k}${k === g.count ? " \u25C2" : ""}</th>${cells}</tr>`);
     }
-    $("grid").innerHTML = `<p class="hint">P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary.
+    $("grid").innerHTML = `<p class="hint">P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary
+     (columns start at your ${state.turnCfg.openingHand}-card starting hand).
      The row marked \u25C2 is your current deck. Everything else holds the rest of the deck fixed,
      trading cards against <i>others</i>.</p>
      <table class="heat">${header}${rows.join("")}</table>`;
