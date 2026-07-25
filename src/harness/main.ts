@@ -4,10 +4,13 @@
  * app will, so it cannot drift from the tested code.
  */
 import { parseQuery, ParseError } from '../math/parse';
+import { printExpr } from '../math/print';
 import { normalize } from '../math/normalize';
 import { evaluate } from '../math/evaluate';
 import { analyze } from '../math/analyze';
-import { QueryTooLargeError, UnknownGroupError, type Sizes } from '../math/expr';
+import {
+  QueryTooLargeError, UnknownGroupError, collectGroups, type Expr, type Sizes,
+} from '../math/expr';
 
 interface Group { id: string; name: string; count: number }
 
@@ -17,7 +20,14 @@ const state = {
     { id: 'g0', name: 'A', count: 4 },
     { id: 'g1', name: 'B', count: 3 },
   ] as Group[],
+  /** Display text. Regenerated from `ast` whenever a group is renamed. */
   query: 'A>=1 & B>=1',
+  /**
+   * Source of truth for the query, holding group IDS. Names are presentation only,
+   * so renaming a group can never invalidate a query. PLAN.md §8.
+   */
+  ast: null as Expr | null,
+  queryError: null as string | null,
   target: 0.9,
   gridGroup: 'g0',
   gridMaxDraws: 20,
@@ -39,6 +49,34 @@ function sizesOf(groups: Group[]): Sizes {
 function resolverFor(groups: Group[]) {
   return (name: string): string | null =>
     groups.find((g) => g.name.toLowerCase() === name.trim().toLowerCase())?.id ?? null;
+}
+
+const nameOf = (id: string): string => state.groups.find((g) => g.id === id)?.name ?? '?';
+
+/** Ids in the query that no longer correspond to a group. */
+function danglingIds(): string[] {
+  if (!state.ast) return [];
+  const live = new Set(state.groups.map((g) => g.id));
+  return [...collectGroups(state.ast)].filter((id) => !live.has(id));
+}
+
+/** Text -> AST. Keeps the previous AST on failure so a later rename can still re-print. */
+function setQueryText(text: string): void {
+  state.query = text;
+  try {
+    state.ast = parseQuery(text, resolverFor(state.groups));
+    state.queryError = null;
+  } catch (e) {
+    state.queryError = describeError(e);
+  }
+}
+
+/** AST -> text, using each group's CURRENT name. */
+function reprintQuery(): void {
+  if (!state.ast || state.queryError || danglingIds().length > 0) return;
+  state.query = printExpr(state.ast, nameOf);
+  setQueryText(state.query);
+  ($('query') as HTMLTextAreaElement).value = state.query;
 }
 
 // ── deck editor ──────────────────────────────────────────────────────────────
@@ -63,7 +101,12 @@ function renderDeck(): void {
     </table>`;
 
   $('groups').querySelectorAll<HTMLInputElement>('input.name').forEach((el) => {
-    el.oninput = () => { setGroup(el.dataset.id!, { name: el.value }); recompute(); };
+    el.oninput = () => {
+      setGroup(el.dataset.id!, { name: el.value });
+      reprintQuery(); // the query tracks the group, not the old spelling
+      renderGridPicker();
+      recompute();
+    };
   });
   // Commit on change, not on every keystroke: never clamp or reflow mid-typing.
   $('groups').querySelectorAll<HTMLInputElement>('input.count').forEach((el) => {
@@ -130,18 +173,20 @@ function recompute(): void {
   warn.textContent = '';
   warn.className = 'warn';
 
+  const dangling = danglingIds();
+  if (dangling.length > 0) {
+    return failQuery(`Query references ${dangling.length} deleted group`
+      + `${dangling.length === 1 ? '' : 's'}. Edit the query to remove it.`);
+  }
+  if (state.queryError) return failQuery(state.queryError);
+  if (!state.ast) return failQuery('No query.');
+
   const sizes = sizesOf(state.groups);
   let res: ReturnType<typeof evaluate>;
   try {
-    const dnf = normalize(parseQuery(state.query, resolverFor(state.groups)), sizes);
-    res = evaluate(N, sizes, dnf);
+    res = evaluate(N, sizes, normalize(state.ast, sizes));
   } catch (e) {
-    $('status').innerHTML = `<span class="bad">${escapeHtml(describeError(e))}</span>`;
-    $('summary').innerHTML = '';
-    $('curve').innerHTML = '';
-    $('table').innerHTML = '';
-    $('grid').innerHTML = '';
-    return;
+    return failQuery(describeError(e));
   }
 
   const a = analyze(res.curve, state.target, res.monotone);
@@ -150,6 +195,14 @@ function recompute(): void {
   renderCurve(a);
   renderTable(a);
   renderGrid();
+}
+
+function failQuery(msg: string): void {
+  $('status').innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
+  $('summary').innerHTML = '';
+  $('curve').innerHTML = '';
+  $('table').innerHTML = '';
+  $('grid').innerHTML = '';
 }
 
 function describeError(e: unknown): string {
@@ -244,7 +297,8 @@ function renderGrid(): void {
   const fixed = state.groups.filter((x) => x.id !== g.id).reduce((s, x) => s + x.count, 0);
   const kMax = Math.min(state.deckSize - fixed, 12);
   const nMax = Math.min(state.deckSize, state.gridMaxDraws);
-  const resolve = resolverFor(state.groups);
+  const ast = state.ast;
+  if (!ast) { $('grid').innerHTML = ''; return; }
 
   const header = `<tr><th class="corner">copies ↓ / drawn →</th>${
     range(0, nMax).map((n) => `<th>${n}</th>`).join('')}</tr>`;
@@ -255,8 +309,7 @@ function renderGrid(): void {
     let curve: Float64Array | null = null;
     try {
       const sizes = sizesOf(groups);
-      curve = evaluate(state.deckSize, sizes,
-        normalize(parseQuery(state.query, resolve), sizes)).curve;
+      curve = evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve;
     } catch { curve = null; }
     const cells = range(0, nMax).map((n) => {
       if (!curve) return `<td class="na">—</td>`;
@@ -307,7 +360,7 @@ function init(): void {
     if (Number.isFinite(v) && v > 0 && v <= 1024) { state.deckSize = v; renderOthers(); recompute(); }
   };
   ($('query') as HTMLTextAreaElement).oninput = (e) => {
-    state.query = (e.target as HTMLTextAreaElement).value; recompute();
+    setQueryText((e.target as HTMLTextAreaElement).value); recompute();
   };
   ($('target') as HTMLInputElement).oninput = (e) => {
     const v = parseFloat((e.target as HTMLInputElement).value);
@@ -342,7 +395,7 @@ function init(): void {
   });
   document.querySelectorAll<HTMLButtonElement>('button.ex').forEach((b) => {
     b.onclick = () => {
-      state.query = b.dataset.q!;
+      setQueryText(b.dataset.q!);
       ($('query') as HTMLTextAreaElement).value = state.query;
       recompute();
     };

@@ -97,6 +97,12 @@
         <code>&gt;=</code> <code>&lt;=</code> <code>=</code> <code>&gt;</code> <code>&lt;</code>,
         combined with <code>&amp;</code> <code>|</code> <code>!</code> and parentheses.
         A bare name means &ge;1. <code>any k of (…)</code> works. Quote multi-word names.
+        Also <code>true</code> / <code>false</code>.
+      </p>
+      <p class="hint">
+        The query is stored against groups, not spellings — <b>rename a group and the query
+        follows it</b>. Delete a group it references and you get told, rather than silently
+        getting different numbers.
       </p>
       <div class="row" style="margin-top:.5rem">
         <div><label for="target">target %</label><input id="target" type="number" min="1" max="100" step="1" style="width:5rem"></div>

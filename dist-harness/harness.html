@@ -97,6 +97,12 @@
         <code>&gt;=</code> <code>&lt;=</code> <code>=</code> <code>&gt;</code> <code>&lt;</code>,
         combined with <code>&amp;</code> <code>|</code> <code>!</code> and parentheses.
         A bare name means &ge;1. <code>any k of (…)</code> works. Quote multi-word names.
+        Also <code>true</code> / <code>false</code>.
+      </p>
+      <p class="hint">
+        The query is stored against groups, not spellings — <b>rename a group and the query
+        follows it</b>. Delete a group it references and you get told, rather than silently
+        getting different numbers.
       </p>
       <div class="row" style="margin-top:.5rem">
         <div><label for="target">target %</label><input id="target" type="number" min="1" max="100" step="1" style="width:5rem"></div>
@@ -266,6 +272,14 @@
       if (t.k === "id") {
         const word = t.v.toLowerCase();
         if (!t.quoted && (word === "any" || word === "atleast")) return parseAtLeastK();
+        if (!t.quoted && word === "true") {
+          p++;
+          return { t: "and", kids: [] };
+        }
+        if (!t.quoted && word === "false") {
+          p++;
+          return { t: "or", kids: [] };
+        }
         p++;
         const gid = resolve(t.v);
         if (!gid) throw new ParseError(`unknown group "${t.v}"`, t.i);
@@ -308,6 +322,46 @@
     const e = parseOr();
     if (p < toks.length) throw new ParseError("unexpected trailing input", pos());
     return e;
+  }
+
+  // src/math/print.ts
+  var KEYWORDS = /* @__PURE__ */ new Set(["and", "or", "not", "any", "atleast", "of", "true", "false"]);
+  var BARE = /^[A-Za-z_][A-Za-z0-9_\-]*$/;
+  function quoteName(name) {
+    if (BARE.test(name) && !KEYWORDS.has(name.toLowerCase())) return name;
+    return name.includes('"') ? `'${name.replace(/'/g, "")}'` : `"${name}"`;
+  }
+  var OR = 1;
+  var AND = 2;
+  var UNARY = 3;
+  function printExpr(e, nameOf2) {
+    return go(e, OR);
+    function go(x, parent) {
+      switch (x.t) {
+        case "atom": {
+          const n = quoteName(nameOf2(x.g));
+          if (x.hi === null) return `${n}>=${x.lo}`;
+          if (x.lo === x.hi) return `${n}=${x.lo}`;
+          if (x.lo === 0) return `${n}<=${x.hi}`;
+          return wrap(`${n}>=${x.lo} & ${n}<=${x.hi}`, AND, parent);
+        }
+        case "not":
+          return `!${go(x.kid, UNARY)}`;
+        case "and":
+          if (x.kids.length === 0) return "true";
+          if (x.kids.length === 1) return go(x.kids[0], parent);
+          return wrap(x.kids.map((k) => go(k, AND)).join(" & "), AND, parent);
+        case "or":
+          if (x.kids.length === 0) return "false";
+          if (x.kids.length === 1) return go(x.kids[0], parent);
+          return wrap(x.kids.map((k) => go(k, OR)).join(" | "), OR, parent);
+        case "atLeastK":
+          return `any ${x.k} of (${x.kids.map((k) => go(k, OR)).join(", ")})`;
+      }
+    }
+  }
+  function wrap(s, own, parent) {
+    return parent > own ? `(${s})` : s;
   }
 
   // src/math/lnfact.ts
@@ -357,6 +411,22 @@
       if (ai.lo < bi.lo || ai.hi > bi.hi) return false;
     }
     return true;
+  }
+  function collectGroups(e, into = /* @__PURE__ */ new Set()) {
+    switch (e.t) {
+      case "atom":
+        into.add(e.g);
+        break;
+      case "not":
+        collectGroups(e.kid, into);
+        break;
+      case "and":
+      case "or":
+      case "atLeastK":
+        for (const k of e.kids) collectGroups(k, into);
+        break;
+    }
+    return into;
   }
 
   // src/math/normalize.ts
@@ -640,7 +710,14 @@
       { id: "g0", name: "A", count: 4 },
       { id: "g1", name: "B", count: 3 }
     ],
+    /** Display text. Regenerated from `ast` whenever a group is renamed. */
     query: "A>=1 & B>=1",
+    /**
+     * Source of truth for the query, holding group IDS. Names are presentation only,
+     * so renaming a group can never invalidate a query. PLAN.md §8.
+     */
+    ast: null,
+    queryError: null,
     target: 0.9,
     gridGroup: "g0",
     gridMaxDraws: 20
@@ -657,6 +734,27 @@
   }
   function resolverFor(groups) {
     return (name) => groups.find((g) => g.name.toLowerCase() === name.trim().toLowerCase())?.id ?? null;
+  }
+  var nameOf = (id) => state.groups.find((g) => g.id === id)?.name ?? "?";
+  function danglingIds() {
+    if (!state.ast) return [];
+    const live = new Set(state.groups.map((g) => g.id));
+    return [...collectGroups(state.ast)].filter((id) => !live.has(id));
+  }
+  function setQueryText(text) {
+    state.query = text;
+    try {
+      state.ast = parseQuery(text, resolverFor(state.groups));
+      state.queryError = null;
+    } catch (e) {
+      state.queryError = describeError(e);
+    }
+  }
+  function reprintQuery() {
+    if (!state.ast || state.queryError || danglingIds().length > 0) return;
+    state.query = printExpr(state.ast, nameOf);
+    setQueryText(state.query);
+    $("query").value = state.query;
   }
   function renderDeck() {
     const rows = state.groups.map((g) => `
@@ -679,6 +777,8 @@
     $("groups").querySelectorAll("input.name").forEach((el) => {
       el.oninput = () => {
         setGroup(el.dataset.id, { name: el.value });
+        reprintQuery();
+        renderGridPicker();
         recompute();
       };
     });
@@ -734,18 +834,18 @@
     }
     warn.textContent = "";
     warn.className = "warn";
+    const dangling = danglingIds();
+    if (dangling.length > 0) {
+      return failQuery(`Query references ${dangling.length} deleted group${dangling.length === 1 ? "" : "s"}. Edit the query to remove it.`);
+    }
+    if (state.queryError) return failQuery(state.queryError);
+    if (!state.ast) return failQuery("No query.");
     const sizes = sizesOf(state.groups);
     let res;
     try {
-      const dnf = normalize(parseQuery(state.query, resolverFor(state.groups)), sizes);
-      res = evaluate(N, sizes, dnf);
+      res = evaluate(N, sizes, normalize(state.ast, sizes));
     } catch (e) {
-      $("status").innerHTML = `<span class="bad">${escapeHtml(describeError(e))}</span>`;
-      $("summary").innerHTML = "";
-      $("curve").innerHTML = "";
-      $("table").innerHTML = "";
-      $("grid").innerHTML = "";
-      return;
+      return failQuery(describeError(e));
     }
     const a = analyze(res.curve, state.target, res.monotone);
     renderStatus(res, a);
@@ -753,6 +853,13 @@
     renderCurve(a);
     renderTable(a);
     renderGrid();
+  }
+  function failQuery(msg) {
+    $("status").innerHTML = `<span class="bad">${escapeHtml(msg)}</span>`;
+    $("summary").innerHTML = "";
+    $("curve").innerHTML = "";
+    $("table").innerHTML = "";
+    $("grid").innerHTML = "";
   }
   function describeError(e) {
     if (e instanceof ParseError) return `Parse error at ${e.pos}: ${e.message}`;
@@ -828,7 +935,11 @@
     const fixed = state.groups.filter((x) => x.id !== g.id).reduce((s, x) => s + x.count, 0);
     const kMax = Math.min(state.deckSize - fixed, 12);
     const nMax = Math.min(state.deckSize, state.gridMaxDraws);
-    const resolve = resolverFor(state.groups);
+    const ast = state.ast;
+    if (!ast) {
+      $("grid").innerHTML = "";
+      return;
+    }
     const header = `<tr><th class="corner">copies \u2193 / drawn \u2192</th>${range(0, nMax).map((n) => `<th>${n}</th>`).join("")}</tr>`;
     const rows = [];
     for (let k = 0; k <= kMax; k++) {
@@ -836,11 +947,7 @@
       let curve = null;
       try {
         const sizes = sizesOf(groups);
-        curve = evaluate(
-          state.deckSize,
-          sizes,
-          normalize(parseQuery(state.query, resolve), sizes)
-        ).curve;
+        curve = evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve;
       } catch {
         curve = null;
       }
@@ -893,7 +1000,7 @@
       }
     };
     $("query").oninput = (e) => {
-      state.query = e.target.value;
+      setQueryText(e.target.value);
       recompute();
     };
     $("target").oninput = (e) => {
@@ -938,7 +1045,7 @@
     });
     document.querySelectorAll("button.ex").forEach((b) => {
       b.onclick = () => {
-        state.query = b.dataset.q;
+        setQueryText(b.dataset.q);
         $("query").value = state.query;
         recompute();
       };

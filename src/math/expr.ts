@@ -71,3 +71,13 @@ export function subsumes(b: Box, a: Box, sizes: Sizes): boolean {
   }
   return true;
 }
+
+/** Every group id mentioned anywhere in an expression. */
+export function collectGroups(e: Expr, into: Set<GroupId> = new Set()): Set<GroupId> {
+  switch (e.t) {
+    case 'atom': into.add(e.g); break;
+    case 'not': collectGroups(e.kid, into); break;
+    case 'and': case 'or': case 'atLeastK': for (const k of e.kids) collectGroups(k, into); break;
+  }
+  return into;
+}

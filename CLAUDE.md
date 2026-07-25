@@ -30,7 +30,7 @@ React 19 · TypeScript 7 · Vite 8 · Vitest 4 · Node 22
 3. **Groups are disjoint.** The multivariate hypergeometric requires a partition of the deck. Violating this produces wrong numbers with no error. Enforce in the model, assert in the DP.
 4. **`others` is derived, never stored.** `others = deckSize - Σ group counts`.
 5. **Never clamp numeric inputs while the user is typing.** Hold input as a string in local state, commit on valid parse. Invalid deck states are allowed and shown, not silently corrected.
-6. **Queries reference groups by stable `id`, not array index.** Deleting or reordering a group must cascade into saved queries.
+6. **Queries reference groups by stable `id`, never by name or array index.** The AST is the source of truth; display text is regenerated via `printExpr` with current names. Renaming a group must not change any result; deleting a referenced group must surface an explicit error, never silently different numbers.
 7. **`vite.config.ts` `base` must match the repo name** (`/deck-calc/`) or the Pages build serves a blank page.
 8. **The harness is generated, never hand-edited.** `src/harness/` is the source; the single-file HTML is a build artifact. It imports the real `src/math` modules so it cannot drift from tested code.
 9. Every new math function gets a test against either the BigInt oracle or brute-force enumeration before it gets a UI.

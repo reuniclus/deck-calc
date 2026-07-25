@@ -4,6 +4,7 @@
  *   (A>=1 | B>=1) & !C=0
  *   any 2 of (A>=1, B>=1, C>=2)
  *   "Blue Mana">=2 & !Dead
+ * `true` / `false` are literals, so every expression can be printed and re-parsed.
  * Bare `A` means `A>=1`. Operators: >= <= = == > < ; & | ! and parentheses.
  */
 import { type Expr, type GroupId } from './expr';
@@ -112,6 +113,8 @@ export function parseQuery(src: string, resolve: (name: string) => GroupId | nul
     if (t.k === 'id') {
       const word = t.v.toLowerCase();
       if (!t.quoted && (word === 'any' || word === 'atleast')) return parseAtLeastK();
+      if (!t.quoted && word === 'true') { p++; return { t: 'and', kids: [] }; }
+      if (!t.quoted && word === 'false') { p++; return { t: 'or', kids: [] }; }
       p++;
       const gid = resolve(t.v);
       if (!gid) throw new ParseError(`unknown group "${t.v}"`, t.i);

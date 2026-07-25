@@ -15,7 +15,8 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/math/normalize.ts` | `atLeastK` expansion, NOT elimination, DNF distribution, pruning, up-set detection |
 | `src/math/evaluate.ts` | DNF → inclusion–exclusion → curve, Kahan-summed, box-curve memo |
 | `src/math/analyze.ts` | ΔP, knee, peak, feasible windows, draws-needed |
-| `src/math/parse.ts` | text query language (`A>=2 & !B`, `any 2 of (…)`) |
+| `src/math/parse.ts` | text query language (`A>=2 & !B`, `any 2 of (…)`, `true`/`false`) |
+| `src/math/print.ts` | inverse of `parse` — renders an id-based AST with current group names |
 | `src/harness/main.ts` | plain-DOM dev harness — deck editor, curve, per-draw table, 2D grid |
 | `src/harness/harness.html` | harness template; `<!--BUNDLE-->` is replaced at build time |
 | `scripts/build-harness.mjs` | esbuild → one self-contained `dist-harness/harness.html` |

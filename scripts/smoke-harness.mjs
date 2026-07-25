@@ -47,3 +47,22 @@ console.log('others 40/4+12:', othersVal(), othersVal() === '24' ? 'OK' : 'WRONG
 setCount(0, 30);
 console.log('overfill class:', d.querySelector('.others').className,
   txt('warn').slice(0, 40));
+
+// ── queries follow group IDs, not names ──────────────────────────────────────
+setCount(0, 4); setCount(1, 3);
+const qbox = d.getElementById('query');
+const setName = (i, v) => {
+  const el = d.querySelectorAll('#groups input.name')[i];
+  el.value = v; el.dispatchEvent(new dom.window.Event('input'));
+};
+qbox.value = 'A>=1 & B>=1'; qbox.dispatchEvent(new dom.window.Event('input'));
+const pBefore = txt('summary');
+setName(0, 'blink etb');
+console.log('after rename :', qbox.value);
+console.log('  same result:', txt('summary') === pBefore ? 'OK (unchanged)' : 'WRONG');
+console.log('  status     :', txt('status').slice(0, 40));
+setName(0, 'any');
+console.log('keyword name :', qbox.value, '->', txt('status').slice(0, 30));
+setName(0, 'A');
+d.querySelector('#groups button.del').click();
+console.log('after delete :', txt('status'));
