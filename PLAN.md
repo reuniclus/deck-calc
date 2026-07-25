@@ -250,6 +250,20 @@ minimize Σ K_g   s.t.  P ≥ target
 ```
 "Fewest deck slots to hit 90% by turn 3." A scalar cost collapses the antichain into a single answer — report ties, they're real deckbuilding choices.
 
+### 5.3b Interaction term (grid "Δ both")
+
+`interaction(k,n) = P(k,n) - P(k,n-1) - P(k-1,n) + P(k-1,n-1)` — the discrete mixed
+partial. Positive: the two levers (an extra copy, an extra draw) compound. Negative:
+they overlap/substitute (typical of an OR-shaped query, where either alone already
+covers most of the outcome). Implemented in the harness (`diffAt`, mode `'both'`);
+the single-axis `dCopy`/`dDraw` toggles are commented out in the HTML (not deleted —
+code stays in `main.ts`) since this mode answers "where's the optimum" more directly
+than either alone. True eigenvectors of the local Hessian were considered and
+rejected: the two axes (draws vs. deck slots) have no shared unit, so a principal
+curvature direction isn't actionable — you can't act on "0.6 draws + 0.8 copies."
+Where a real exchange rate exists (slot-for-slot at a fixed budget), `allocate.ts`
+already answers it directly.
+
 ### 5.4 Grid / surface
 Sample the DP over a 2D lattice `(cards drawn) × (group size)`; overlay the staircase as an isoprobability contour. Contour *spacing* already is the diminishing-returns picture — widening bands = saturation. Cheaper and more legible than any derivative readout.
 

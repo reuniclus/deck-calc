@@ -46,7 +46,7 @@ const state = {
   gridGroup: 'g0',
   gridMaxDraws: 20,
   /** value = raw P; dCopy = marginal gain from the next copy; dDraw = marginal gain from the next card drawn. */
-  gridMode: 'value' as 'value' | 'dCopy' | 'dDraw',
+  gridMode: 'value' as 'value' | 'dCopy' | 'dDraw' | 'both',
   resultView: 'chart' as 'chart' | 'table',
 };
 let seq = 2;
@@ -836,7 +836,9 @@ function renderGrid(): void {
       }
       const d = diffAt(curves, k, n, state.gridMode);
       if (d === null) return `<td class="na">—</td>`;
-      const label = state.gridMode === 'dCopy' ? `${k - 1}\u2192${k} copies` : `${n - 1}\u2192${n} drawn`;
+      const label = state.gridMode === 'dCopy' ? `${k - 1}\u2192${k} copies`
+        : state.gridMode === 'dDraw' ? `${n - 1}\u2192${n} drawn`
+        : `${k - 1}\u2192${k} copies × ${n - 1}\u2192${n} drawn (interaction)`;
       return `<td style="background:${divHeat(d, maxAbsDiff)}" title="${label}: ${signed(d)}">${(d * 100).toFixed(1)}</td>`;
     }).join('');
     rows.push(`<tr><th>${k}${k === g.count ? ' ◂' : ''}</th>${cells}</tr>`);
@@ -848,9 +850,14 @@ function renderGrid(): void {
     ? `Gain (percentage points) from running <b>one more copy of ${escapeHtml(g.name)}</b>
        — each cell is that row's P minus the row above's. Brighter = more return per slot spent
        there; that's where to look for the best place to add a copy.`
-    : `Gain (percentage points) from <b>drawing one more card</b> — each cell is that column's P
+    : state.gridMode === 'dDraw'
+    ? `Gain (percentage points) from <b>drawing one more card</b> — each cell is that column's P
        minus the column to its left. Shows where the deck's draws stop paying off, for any
-       ${escapeHtml(g.name)} count.`;
+       ${escapeHtml(g.name)} count.`
+    : `Interaction between an extra copy of <b>${escapeHtml(g.name)}</b> and an extra card drawn
+       — positive (cool) means the two compound: more copies make each draw worth more.
+       Negative (warm) means they overlap/substitute — likely an OR-shaped query where either
+       lever alone already covers most of it. Near zero means they act independently.`;
 
   $('grid').innerHTML =
     `<p class="hint">${modeNote}
@@ -859,12 +866,20 @@ function renderGrid(): void {
      <table class="heat">${header}${rows.join('')}</table>`;
 }
 
-/** null when there's no adjacent cell to diff against (k=0 for dCopy, n=nStart for dDraw). */
+/**
+ * null when there's no adjacent cell to diff against.
+ * 'both' is the discrete mixed partial d^2P/(dcopy dn) — how much the two
+ * levers COMPOUND rather than each acting alone. Positive: an extra copy is
+ * worth more once you've also drawn more (the two reinforce each other).
+ * Negative: they overlap/substitute — likely under an OR-shaped query, where
+ * either lever alone already covers most of the outcome, so stacking both
+ * buys less than their separate gains would suggest.
+ */
 function diffAt(
   curves: Array<Float64Array | null>,
   k: number,
   n: number,
-  mode: 'dCopy' | 'dDraw',
+  mode: 'dCopy' | 'dDraw' | 'both',
 ): number | null {
   if (mode === 'dCopy') {
     if (k === 0) return null;
@@ -872,9 +887,16 @@ function diffAt(
     if (!cur || !prev) return null;
     return cur[n]! - prev[n]!;
   }
-  const curve = curves[k];
-  if (!curve || n === 0) return null;
-  return curve[n]! - curve[n - 1]!;
+  if (mode === 'dDraw') {
+    const curve = curves[k];
+    if (!curve || n === 0) return null;
+    return curve[n]! - curve[n - 1]!;
+  }
+  // 'both': needs all four corners of the 2x2 neighborhood.
+  if (k === 0 || n === 0) return null;
+  const cur = curves[k], prev = curves[k - 1];
+  if (!cur || !prev) return null;
+  return (cur[n]! - cur[n - 1]!) - (prev[n]! - prev[n - 1]!);
 }
 
 /** Diverging scale for differentials: negative -> warm, positive -> cool, 0 -> neutral. */

@@ -181,8 +181,13 @@
         <label>show</label>
         <div class="chips" style="margin:0">
           <button class="gmode" data-mode="value">values</button>
+          <!-- Single-axis deltas: superseded by "Δ both" (the interaction term) below,
+               which is what actually answers "where's the optimum". Code (diffAt,
+               divHeat, caption text) is untouched in main.ts — uncomment to bring back.
           <button class="gmode" data-mode="dCopy">Δ per copy</button>
           <button class="gmode" data-mode="dDraw">Δ per draw</button>
+          -->
+          <button class="gmode" data-mode="both">Δ both (interaction)</button>
         </div>
       </div>
     </div>

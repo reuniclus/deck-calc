@@ -181,8 +181,13 @@
         <label>show</label>
         <div class="chips" style="margin:0">
           <button class="gmode" data-mode="value">values</button>
+          <!-- Single-axis deltas: superseded by "Δ both" (the interaction term) below,
+               which is what actually answers "where's the optimum". Code (diffAt,
+               divHeat, caption text) is untouched in main.ts — uncomment to bring back.
           <button class="gmode" data-mode="dCopy">Δ per copy</button>
           <button class="gmode" data-mode="dDraw">Δ per draw</button>
+          -->
+          <button class="gmode" data-mode="both">Δ both (interaction)</button>
         </div>
       </div>
     </div>
@@ -1737,16 +1742,19 @@
         }
         const d = diffAt(curves, k, n, state.gridMode);
         if (d === null) return `<td class="na">\u2014</td>`;
-        const label = state.gridMode === "dCopy" ? `${k - 1}\u2192${k} copies` : `${n - 1}\u2192${n} drawn`;
+        const label = state.gridMode === "dCopy" ? `${k - 1}\u2192${k} copies` : state.gridMode === "dDraw" ? `${n - 1}\u2192${n} drawn` : `${k - 1}\u2192${k} copies \xD7 ${n - 1}\u2192${n} drawn (interaction)`;
         return `<td style="background:${divHeat(d, maxAbsDiff)}" title="${label}: ${signed(d)}">${(d * 100).toFixed(1)}</td>`;
       }).join("");
       rows.push(`<tr><th>${k}${k === g.count ? " \u25C2" : ""}</th>${cells}</tr>`);
     }
     const modeNote = state.gridMode === "value" ? `P (%) as <b>${escapeHtml(g.name)}</b> copies and cards drawn both vary` : state.gridMode === "dCopy" ? `Gain (percentage points) from running <b>one more copy of ${escapeHtml(g.name)}</b>
        \u2014 each cell is that row's P minus the row above's. Brighter = more return per slot spent
-       there; that's where to look for the best place to add a copy.` : `Gain (percentage points) from <b>drawing one more card</b> \u2014 each cell is that column's P
+       there; that's where to look for the best place to add a copy.` : state.gridMode === "dDraw" ? `Gain (percentage points) from <b>drawing one more card</b> \u2014 each cell is that column's P
        minus the column to its left. Shows where the deck's draws stop paying off, for any
-       ${escapeHtml(g.name)} count.`;
+       ${escapeHtml(g.name)} count.` : `Interaction between an extra copy of <b>${escapeHtml(g.name)}</b> and an extra card drawn
+       \u2014 positive (cool) means the two compound: more copies make each draw worth more.
+       Negative (warm) means they overlap/substitute \u2014 likely an OR-shaped query where either
+       lever alone already covers most of it. Near zero means they act independently.`;
     $("grid").innerHTML = `<p class="hint">${modeNote}
      (columns start at your ${state.turnCfg.openingHand}-card starting hand).
      The row marked \u25C2 is your current deck.</p>
@@ -1755,13 +1763,19 @@
   function diffAt(curves, k, n, mode) {
     if (mode === "dCopy") {
       if (k === 0) return null;
-      const cur = curves[k], prev = curves[k - 1];
-      if (!cur || !prev) return null;
-      return cur[n] - prev[n];
+      const cur2 = curves[k], prev2 = curves[k - 1];
+      if (!cur2 || !prev2) return null;
+      return cur2[n] - prev2[n];
     }
-    const curve = curves[k];
-    if (!curve || n === 0) return null;
-    return curve[n] - curve[n - 1];
+    if (mode === "dDraw") {
+      const curve = curves[k];
+      if (!curve || n === 0) return null;
+      return curve[n] - curve[n - 1];
+    }
+    if (k === 0 || n === 0) return null;
+    const cur = curves[k], prev = curves[k - 1];
+    if (!cur || !prev) return null;
+    return cur[n] - cur[n - 1] - (prev[n] - prev[n - 1]);
   }
   function divHeat(d, maxAbs) {
     const neutral = [30, 33, 40];
