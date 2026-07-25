@@ -11,6 +11,7 @@ import { analyze } from '../math/analyze';
 import { turnForCardsSeen, DEFAULT_TURN_CONFIG, type TurnConfig } from '../model/turns';
 import { minimalVectors } from '../math/frontier';
 import { allocate, minSlotsForTarget } from '../math/allocate';
+import { compileFlat, decompileFlat, type Row, type Mode } from '../math/builder';
 import {
   QueryTooLargeError, UnknownGroupError, collectGroups, pruneGroups, type Expr, type Sizes,
 } from '../math/expr';
@@ -33,6 +34,13 @@ const state = {
   queryError: null as string | null,
   /** Last-known display name for a group after it's been deleted, so error messages can name it. */
   ghostNames: {} as Record<string, string>,
+  /**
+   * The builder mirrors state.ast when possible (decompileFlat succeeds) and is
+   * the AUTHORING side: editing a row calls applyBuilder(), which compiles ->
+   * prints -> setQueryText, so text stays the single source of truth throughout.
+   */
+  builder: null as { mode: Mode; k: number; rows: Row[] } | null,
+  builderUnavailable: false,
   target: 0.9,
   turnCfg: { ...DEFAULT_TURN_CONFIG } as TurnConfig,
   gridGroup: 'g0',
@@ -72,9 +80,29 @@ function setQueryText(text: string): void {
   try {
     state.ast = parseQuery(text, resolverFor(state.groups));
     state.queryError = null;
+    syncBuilderFromAst();
   } catch (e) {
     state.queryError = describeError(e);
+    // keep whatever builder state we had; the text is what's broken, not the model
   }
+}
+
+/** Mirror state.ast into the builder when it's flat enough; otherwise flag it. */
+function syncBuilderFromAst(): void {
+  if (!state.ast) { state.builder = null; state.builderUnavailable = false; return; }
+  const fq = decompileFlat(state.ast);
+  if (fq) { state.builder = fq; state.builderUnavailable = false; }
+  else { state.builderUnavailable = true; } // leave last-known rows alone
+}
+
+/** Builder -> Expr -> text. The builder never edits state.ast directly. */
+function applyBuilder(): void {
+  if (!state.builder) return;
+  const expr = compileFlat(state.builder);
+  const text = printExpr(expr, nameOf);
+  setQueryText(text);
+  ($('query') as HTMLTextAreaElement).value = state.query;
+  recompute();
 }
 
 /** AST -> text, using each group's CURRENT name. */
@@ -82,6 +110,143 @@ function reprintQuery(): void {
   if (!state.ast || state.queryError || danglingIds().length > 0) return;
   state.query = printExpr(state.ast, nameOf);
   ($('query') as HTMLTextAreaElement).value = state.query;
+}
+
+// ── query builder ────────────────────────────────────────────────────────────
+function cmpOf(row: Row): 'gte' | 'lte' | 'eq' | 'range' {
+  if (row.hi === null) return 'gte';
+  if (row.lo === 0) return 'lte';
+  if (row.lo === row.hi) return 'eq';
+  return 'range';
+}
+
+function renderBuilder(): void {
+  const box = $('builder');
+  if (state.groups.length === 0) {
+    box.innerHTML = '<p class="hint">Add a group first.</p>';
+    return;
+  }
+  if (state.builderUnavailable) {
+    box.innerHTML = `<p class="hint flag">Current query has real nesting (mixed AND/OR, or NOT of more than
+       a single condition) — too complex for this picker. Text still works below.
+       Your last builder state is kept in case you switch back.</p>`;
+    return;
+  }
+  if (!state.builder) {
+    box.innerHTML = `<p class="hint">No query yet.</p>`;
+    return;
+  }
+
+  const b = state.builder;
+  const groupOpts = (selected: string) => state.groups
+    .map((g) => `<option value="${g.id}" ${g.id === selected ? 'selected' : ''}>${escapeHtml(g.name)}</option>`)
+    .join('');
+
+  const rowsHtml = b.rows.map((r, i) => {
+    const cmp = cmpOf(r);
+    return `<div class="brow" data-i="${i}">
+      <button class="bneg ${r.neg ? 'on' : ''}" data-i="${i}" title="negate">${r.neg ? 'NOT' : 'not'}</button>
+      <select class="bgroup" data-i="${i}">${groupOpts(r.g)}</select>
+      <select class="bcmp" data-i="${i}">
+        <option value="gte" ${cmp === 'gte' ? 'selected' : ''}>&ge;</option>
+        <option value="lte" ${cmp === 'lte' ? 'selected' : ''}>&le;</option>
+        <option value="eq" ${cmp === 'eq' ? 'selected' : ''}>=</option>
+        <option value="range" ${cmp === 'range' ? 'selected' : ''}>range</option>
+      </select>
+      <input class="bnum1" data-i="${i}" type="number" min="0" value="${cmp === 'lte' ? r.hi : r.lo}" style="width:3.5rem">
+      ${cmp === 'range' ? `<span class="hint">to</span><input class="bnum2" data-i="${i}" type="number" min="0" value="${r.hi}" style="width:3.5rem">` : ''}
+      <button class="bdel" data-i="${i}">✕</button>
+    </div>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div class="row" style="margin-bottom:.5rem">
+      <select id="bmode">
+        <option value="and" ${b.mode === 'and' ? 'selected' : ''}>all of these (AND)</option>
+        <option value="or" ${b.mode === 'or' ? 'selected' : ''}>any of these (OR)</option>
+        <option value="atLeastK" ${b.mode === 'atLeastK' ? 'selected' : ''}>at least N of these</option>
+      </select>
+      ${b.mode === 'atLeastK'
+        ? `<input id="bk" type="number" min="1" max="${b.rows.length}" value="${b.k}" style="width:3.5rem">`
+        : ''}
+      <button id="baddRow">+ condition</button>
+    </div>
+    ${rowsHtml || '<p class="hint">No conditions yet — add one.</p>'}`;
+
+  ($('bmode') as HTMLSelectElement).onchange = (e) => {
+    state.builder!.mode = (e.target as HTMLSelectElement).value as Mode;
+    if (state.builder!.mode === 'atLeastK') {
+      state.builder!.k = Math.min(state.builder!.k || 1, state.builder!.rows.length || 1);
+    }
+    renderBuilder(); applyBuilder();
+  };
+  const bk = document.getElementById('bk') as HTMLInputElement | null;
+  if (bk) bk.oninput = () => {
+    const v = parseInt(bk.value, 10);
+    if (Number.isFinite(v) && v >= 1) { state.builder!.k = v; applyBuilder(); }
+  };
+  $('baddRow').addEventListener('click', () => {
+    state.builder!.rows.push({ g: state.groups[0]!.id, neg: false, lo: 1, hi: null });
+    renderBuilder(); applyBuilder();
+  });
+  box.querySelectorAll<HTMLButtonElement>('.bneg').forEach((el) => {
+    el.onclick = () => {
+      const i = Number(el.dataset.i);
+      state.builder!.rows[i]!.neg = !state.builder!.rows[i]!.neg;
+      renderBuilder(); applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLSelectElement>('.bgroup').forEach((el) => {
+    el.onchange = () => {
+      const i = Number(el.dataset.i);
+      state.builder!.rows[i]!.g = el.value;
+      applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLSelectElement>('.bcmp').forEach((el) => {
+    el.onchange = () => {
+      const i = Number(el.dataset.i);
+      const row = state.builder!.rows[i]!;
+      const v = el.value as 'gte' | 'lte' | 'eq' | 'range';
+      const g = state.groups.find((x) => x.id === row.g);
+      const K = g?.count ?? 1;
+      if (v === 'gte') { row.lo = Math.max(1, row.lo || 1); row.hi = null; }
+      else if (v === 'lte') { row.hi = row.hi ?? K; row.lo = 0; }
+      else if (v === 'eq') { const n = row.lo || 1; row.lo = n; row.hi = n; }
+      else { row.hi = row.hi ?? K; row.lo = Math.min(row.lo || 0, row.hi); }
+      renderBuilder(); applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLInputElement>('.bnum1').forEach((el) => {
+    el.oninput = () => {
+      const i = Number(el.dataset.i);
+      const row = state.builder!.rows[i]!;
+      const v = parseInt(el.value, 10);
+      if (!Number.isFinite(v) || v < 0) return;
+      const cmp = cmpOf(row);
+      if (cmp === 'lte') row.hi = v;
+      else if (cmp === 'eq') { row.lo = v; row.hi = v; }
+      else row.lo = v; // gte or range's lo
+      applyBuilder();
+    };
+  });
+  box.querySelectorAll<HTMLInputElement>('.bnum2').forEach((el) => {
+    el.oninput = () => {
+      const i = Number(el.dataset.i);
+      const v = parseInt(el.value, 10);
+      if (Number.isFinite(v) && v >= 0) { state.builder!.rows[i]!.hi = v; applyBuilder(); }
+    };
+  });
+  box.querySelectorAll<HTMLButtonElement>('.bdel').forEach((el) => {
+    el.onclick = () => {
+      const i = Number(el.dataset.i);
+      state.builder!.rows.splice(i, 1);
+      if (state.builder!.mode === 'atLeastK') {
+        state.builder!.k = Math.min(state.builder!.k, Math.max(1, state.builder!.rows.length));
+      }
+      renderBuilder(); applyBuilder();
+    };
+  });
 }
 
 // ── deck editor ──────────────────────────────────────────────────────────────
@@ -169,6 +334,7 @@ function recompute(): void {
     warn.textContent = `Groups total ${N - o} cards but the deck is ${N}. Reduce a group or raise the deck size.`;
     warn.className = 'warn bad';
     clearViews();
+    renderBuilder();
     return;
   }
   const dupes = state.groups.filter((g, i) =>
@@ -177,10 +343,12 @@ function recompute(): void {
     warn.textContent = `Duplicate group name: "${dupes[0]!.name}". Names must be unique — groups are disjoint.`;
     warn.className = 'warn bad';
     clearViews();
+    renderBuilder();
     return;
   }
   warn.textContent = '';
   warn.className = 'warn';
+  renderBuilder();
 
   const dangling = danglingIds();
   if (dangling.length > 0) {

@@ -400,4 +400,15 @@ Math is the current focus; these are noted so they aren't lost, not because they
     offers a one-click "Remove from query" action backed by `pruneGroups` (`src/math/expr.ts`)
     — an explicit, tested AST rewrite (DEAD-sentinel propagation so AND/OR/atLeastK each use
     their own identity) rather than a silent drop.
-9. **Query text vs AST divergence on parse errors.** While `state.queryError` is set, the textarea shows whatever the user typed, which may no longer match `state.ast`. That's correct (don't overwrite what they're typing), but the eventual UI should make clear *which* result is being shown — the last-valid one — so it doesn't read as if the broken text produced it.
+9b. **[Added]** Structured query builder (`src/math/builder.ts` + harness wiring): a flat
+    picker (group / comparator / number, joined by AND / OR / at-least-N) that writes valid
+    query text on every change, so the fragile hand-typed syntax is opt-in rather than the
+    only path. `decompileFlat` mirrors state.ast back into the picker when possible and
+    otherwise says so, rather than guessing. Caught two real bugs this way: (1) a stale
+    "unavailable" builder kept rendering old rows because the render function checked
+    `!state.builder` before the unavailable flag; (2) a range condition (`lo>0` and `hi<K`)
+    has no single-token text form, so it prints as `G>=lo & G<=hi` — round-tripping that back
+    through the parser produces a genuine two-atom AND, which `decompileFlat` didn't
+    originally recognize as "the same row" and incorrectly called the query too complex.
+    Both are covered by regression tests (`builder.test.ts`).
+10. **Query text vs AST divergence on parse errors.** While `state.queryError` is set, the textarea shows whatever the user typed, which may no longer match `state.ast`. That's correct (don't overwrite what they're typing), but the eventual UI should make clear *which* result is being shown — the last-valid one — so it doesn't read as if the broken text produced it.

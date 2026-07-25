@@ -53,6 +53,11 @@
   th.corner{font-size:.65rem;white-space:nowrap}
   .heatwrap{overflow-x:auto}
   code{color:var(--acc);font-family:ui-monospace,monospace}
+  .brow{display:flex;align-items:center;gap:.35rem;margin-bottom:.35rem;flex-wrap:wrap}
+  .bneg{font-size:.7rem;color:var(--dim);padding:.15rem .4rem}
+  .bneg.on{color:var(--bad);border-color:var(--bad)}
+  .bdel{color:var(--dim);padding:.15rem .4rem}
+  #builder select, #builder input{padding:.25rem .4rem}
 </style>
 </head>
 <body>
@@ -84,6 +89,8 @@
 
     <div class="panel">
       <h2 style="margin-top:0">Query</h2>
+      <div id="builder" style="margin-bottom:.75rem"></div>
+      <p class="hint" style="margin:0 0 .5rem">— or edit as text —</p>
       <textarea id="query" spellcheck="false"></textarea>
       <div class="chips">
         <button class="ex" data-q="A>=1">A&ge;1</button>
@@ -912,6 +919,49 @@
     return { extraSlots: null, best: top.best, bestP: top.bestP };
   }
 
+  // src/math/builder.ts
+  function compileFlat(fq) {
+    const kids = fq.rows.map((r) => {
+      const atom = { t: "atom", g: r.g, lo: r.lo, hi: r.hi };
+      return r.neg ? { t: "not", kid: atom } : atom;
+    });
+    if (fq.mode === "and") return { t: "and", kids };
+    if (fq.mode === "or") return { t: "or", kids };
+    return { t: "atLeastK", k: fq.k, kids };
+  }
+  function asRow(e) {
+    if (e.t === "atom") return { g: e.g, neg: false, lo: e.lo, hi: e.hi };
+    if (e.t === "not" && e.kid.t === "atom") {
+      return { g: e.kid.g, neg: true, lo: e.kid.lo, hi: e.kid.hi };
+    }
+    if (e.t === "and" && e.kids.length === 2) {
+      const [x, y] = e.kids;
+      if (x.t === "atom" && y.t === "atom" && x.g === y.g) {
+        const lo = Math.max(x.lo, y.lo);
+        const hiCandidates = [x.hi, y.hi].filter((h) => h !== null);
+        if (hiCandidates.length > 0) {
+          return { g: x.g, neg: false, lo, hi: Math.min(...hiCandidates) };
+        }
+      }
+    }
+    return null;
+  }
+  function decompileFlat(e) {
+    const single = asRow(e);
+    if (single) return { mode: "and", k: 1, rows: [single] };
+    if (e.t === "and" || e.t === "or") {
+      const rows = e.kids.map(asRow);
+      if (rows.some((r) => r === null)) return null;
+      return { mode: e.t, k: rows.length, rows };
+    }
+    if (e.t === "atLeastK") {
+      const rows = e.kids.map(asRow);
+      if (rows.some((r) => r === null)) return null;
+      return { mode: "atLeastK", k: e.k, rows };
+    }
+    return null;
+  }
+
   // src/harness/main.ts
   var state = {
     deckSize: 40,
@@ -929,6 +979,13 @@
     queryError: null,
     /** Last-known display name for a group after it's been deleted, so error messages can name it. */
     ghostNames: {},
+    /**
+     * The builder mirrors state.ast when possible (decompileFlat succeeds) and is
+     * the AUTHORING side: editing a row calls applyBuilder(), which compiles ->
+     * prints -> setQueryText, so text stays the single source of truth throughout.
+     */
+    builder: null,
+    builderUnavailable: false,
     target: 0.9,
     turnCfg: { ...DEFAULT_TURN_CONFIG },
     gridGroup: "g0",
@@ -958,14 +1015,186 @@
     try {
       state.ast = parseQuery(text, resolverFor(state.groups));
       state.queryError = null;
+      syncBuilderFromAst();
     } catch (e) {
       state.queryError = describeError(e);
     }
+  }
+  function syncBuilderFromAst() {
+    if (!state.ast) {
+      state.builder = null;
+      state.builderUnavailable = false;
+      return;
+    }
+    const fq = decompileFlat(state.ast);
+    if (fq) {
+      state.builder = fq;
+      state.builderUnavailable = false;
+    } else {
+      state.builderUnavailable = true;
+    }
+  }
+  function applyBuilder() {
+    if (!state.builder) return;
+    const expr = compileFlat(state.builder);
+    const text = printExpr(expr, nameOf);
+    setQueryText(text);
+    $("query").value = state.query;
+    recompute();
   }
   function reprintQuery() {
     if (!state.ast || state.queryError || danglingIds().length > 0) return;
     state.query = printExpr(state.ast, nameOf);
     $("query").value = state.query;
+  }
+  function cmpOf(row) {
+    if (row.hi === null) return "gte";
+    if (row.lo === 0) return "lte";
+    if (row.lo === row.hi) return "eq";
+    return "range";
+  }
+  function renderBuilder() {
+    const box = $("builder");
+    if (state.groups.length === 0) {
+      box.innerHTML = '<p class="hint">Add a group first.</p>';
+      return;
+    }
+    if (state.builderUnavailable) {
+      box.innerHTML = `<p class="hint flag">Current query has real nesting (mixed AND/OR, or NOT of more than
+       a single condition) \u2014 too complex for this picker. Text still works below.
+       Your last builder state is kept in case you switch back.</p>`;
+      return;
+    }
+    if (!state.builder) {
+      box.innerHTML = `<p class="hint">No query yet.</p>`;
+      return;
+    }
+    const b = state.builder;
+    const groupOpts = (selected) => state.groups.map((g) => `<option value="${g.id}" ${g.id === selected ? "selected" : ""}>${escapeHtml(g.name)}</option>`).join("");
+    const rowsHtml = b.rows.map((r, i) => {
+      const cmp = cmpOf(r);
+      return `<div class="brow" data-i="${i}">
+      <button class="bneg ${r.neg ? "on" : ""}" data-i="${i}" title="negate">${r.neg ? "NOT" : "not"}</button>
+      <select class="bgroup" data-i="${i}">${groupOpts(r.g)}</select>
+      <select class="bcmp" data-i="${i}">
+        <option value="gte" ${cmp === "gte" ? "selected" : ""}>&ge;</option>
+        <option value="lte" ${cmp === "lte" ? "selected" : ""}>&le;</option>
+        <option value="eq" ${cmp === "eq" ? "selected" : ""}>=</option>
+        <option value="range" ${cmp === "range" ? "selected" : ""}>range</option>
+      </select>
+      <input class="bnum1" data-i="${i}" type="number" min="0" value="${cmp === "lte" ? r.hi : r.lo}" style="width:3.5rem">
+      ${cmp === "range" ? `<span class="hint">to</span><input class="bnum2" data-i="${i}" type="number" min="0" value="${r.hi}" style="width:3.5rem">` : ""}
+      <button class="bdel" data-i="${i}">\u2715</button>
+    </div>`;
+    }).join("");
+    box.innerHTML = `
+    <div class="row" style="margin-bottom:.5rem">
+      <select id="bmode">
+        <option value="and" ${b.mode === "and" ? "selected" : ""}>all of these (AND)</option>
+        <option value="or" ${b.mode === "or" ? "selected" : ""}>any of these (OR)</option>
+        <option value="atLeastK" ${b.mode === "atLeastK" ? "selected" : ""}>at least N of these</option>
+      </select>
+      ${b.mode === "atLeastK" ? `<input id="bk" type="number" min="1" max="${b.rows.length}" value="${b.k}" style="width:3.5rem">` : ""}
+      <button id="baddRow">+ condition</button>
+    </div>
+    ${rowsHtml || '<p class="hint">No conditions yet \u2014 add one.</p>'}`;
+    $("bmode").onchange = (e) => {
+      state.builder.mode = e.target.value;
+      if (state.builder.mode === "atLeastK") {
+        state.builder.k = Math.min(state.builder.k || 1, state.builder.rows.length || 1);
+      }
+      renderBuilder();
+      applyBuilder();
+    };
+    const bk = document.getElementById("bk");
+    if (bk) bk.oninput = () => {
+      const v = parseInt(bk.value, 10);
+      if (Number.isFinite(v) && v >= 1) {
+        state.builder.k = v;
+        applyBuilder();
+      }
+    };
+    $("baddRow").addEventListener("click", () => {
+      state.builder.rows.push({ g: state.groups[0].id, neg: false, lo: 1, hi: null });
+      renderBuilder();
+      applyBuilder();
+    });
+    box.querySelectorAll(".bneg").forEach((el) => {
+      el.onclick = () => {
+        const i = Number(el.dataset.i);
+        state.builder.rows[i].neg = !state.builder.rows[i].neg;
+        renderBuilder();
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bgroup").forEach((el) => {
+      el.onchange = () => {
+        const i = Number(el.dataset.i);
+        state.builder.rows[i].g = el.value;
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bcmp").forEach((el) => {
+      el.onchange = () => {
+        const i = Number(el.dataset.i);
+        const row = state.builder.rows[i];
+        const v = el.value;
+        const g = state.groups.find((x) => x.id === row.g);
+        const K = g?.count ?? 1;
+        if (v === "gte") {
+          row.lo = Math.max(1, row.lo || 1);
+          row.hi = null;
+        } else if (v === "lte") {
+          row.hi = row.hi ?? K;
+          row.lo = 0;
+        } else if (v === "eq") {
+          const n = row.lo || 1;
+          row.lo = n;
+          row.hi = n;
+        } else {
+          row.hi = row.hi ?? K;
+          row.lo = Math.min(row.lo || 0, row.hi);
+        }
+        renderBuilder();
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bnum1").forEach((el) => {
+      el.oninput = () => {
+        const i = Number(el.dataset.i);
+        const row = state.builder.rows[i];
+        const v = parseInt(el.value, 10);
+        if (!Number.isFinite(v) || v < 0) return;
+        const cmp = cmpOf(row);
+        if (cmp === "lte") row.hi = v;
+        else if (cmp === "eq") {
+          row.lo = v;
+          row.hi = v;
+        } else row.lo = v;
+        applyBuilder();
+      };
+    });
+    box.querySelectorAll(".bnum2").forEach((el) => {
+      el.oninput = () => {
+        const i = Number(el.dataset.i);
+        const v = parseInt(el.value, 10);
+        if (Number.isFinite(v) && v >= 0) {
+          state.builder.rows[i].hi = v;
+          applyBuilder();
+        }
+      };
+    });
+    box.querySelectorAll(".bdel").forEach((el) => {
+      el.onclick = () => {
+        const i = Number(el.dataset.i);
+        state.builder.rows.splice(i, 1);
+        if (state.builder.mode === "atLeastK") {
+          state.builder.k = Math.min(state.builder.k, Math.max(1, state.builder.rows.length));
+        }
+        renderBuilder();
+        applyBuilder();
+      };
+    });
   }
   function renderDeck() {
     const rows = state.groups.map((g) => `
@@ -1038,6 +1267,7 @@
       warn.textContent = `Groups total ${N - o} cards but the deck is ${N}. Reduce a group or raise the deck size.`;
       warn.className = "warn bad";
       clearViews();
+      renderBuilder();
       return;
     }
     const dupes = state.groups.filter((g, i) => state.groups.findIndex((h) => h.name.trim().toLowerCase() === g.name.trim().toLowerCase()) !== i);
@@ -1045,10 +1275,12 @@
       warn.textContent = `Duplicate group name: "${dupes[0].name}". Names must be unique \u2014 groups are disjoint.`;
       warn.className = "warn bad";
       clearViews();
+      renderBuilder();
       return;
     }
     warn.textContent = "";
     warn.className = "warn";
+    renderBuilder();
     const dangling = danglingIds();
     if (dangling.length > 0) {
       const names = dangling.map((id) => state.ghostNames[id] ?? id);

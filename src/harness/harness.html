@@ -53,6 +53,11 @@
   th.corner{font-size:.65rem;white-space:nowrap}
   .heatwrap{overflow-x:auto}
   code{color:var(--acc);font-family:ui-monospace,monospace}
+  .brow{display:flex;align-items:center;gap:.35rem;margin-bottom:.35rem;flex-wrap:wrap}
+  .bneg{font-size:.7rem;color:var(--dim);padding:.15rem .4rem}
+  .bneg.on{color:var(--bad);border-color:var(--bad)}
+  .bdel{color:var(--dim);padding:.15rem .4rem}
+  #builder select, #builder input{padding:.25rem .4rem}
 </style>
 </head>
 <body>
@@ -84,6 +89,8 @@
 
     <div class="panel">
       <h2 style="margin-top:0">Query</h2>
+      <div id="builder" style="margin-bottom:.75rem"></div>
+      <p class="hint" style="margin:0 0 .5rem">— or edit as text —</p>
       <textarea id="query" spellcheck="false"></textarea>
       <div class="chips">
         <button class="ex" data-q="A>=1">A&ge;1</button>
