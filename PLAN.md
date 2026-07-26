@@ -363,6 +363,52 @@ prompt for manual Ctrl+C) since `navigator.clipboard` isn't guaranteed available
 every context (e.g. some sandboxed or file:// origins) — confirmed the fallback path
 itself in a headless environment with no real clipboard.
 
+### 4e. "Path to target" advisor + a real frontier.ts bug it exposed
+
+Added a "by turn" input (separate from target %) driving the Tradeoffs panel, which
+now presents two genuine alternatives to the same goal: (A) keep today's deck and
+draw longer (`analyze()`'s existing `drawsNeeded`, already computed) vs. (B) keep
+the turn fixed and change the deck (`minimalVectors` at that fixed n). Previously
+this panel evaluated `minimalVectors` at `n = drawsNeeded` — circular, since by
+definition the current deck already meets target exactly there, so it could only
+ever report "0 more copies needed." Turn is now a free variable, which immediately
+exposed two real, pre-existing bugs in `frontier.ts` (not new code — they'd been
+there since §5's original build, just never exercised by a test case where the
+search ceiling actually mattered):
+
+1. **The search ceiling was bound to the query's current group size, not deck
+   capacity.** An unbounded atom like `A>=1` normalizes to `hi = K` (the group's
+   CURRENT count) — correct for evaluating probability, wrong as a search ceiling:
+   it made it structurally impossible to ever suggest running *more* copies than
+   already in the deck. Fixed at the call site: build a separate search box with
+   `hi = N` before handing off to `minimalVectors`/`allocate`/`minSlotsForTarget`;
+   each function's own accounting (other groups' minimums, N itself) tightens it
+   further from there.
+
+2. **`minimalVectors`'s "descend from the maximal corner" approach breaks the
+   moment a budget constraint (`kSum <= N`) cross-cuts the search box** — e.g.
+   `(K_a=20,K_b=5)` and `(K_a=5,K_b=20)` can both be feasible with neither
+   dominating the other, so no single corner's descent reaches the whole feasible
+   region. The old code's corner (each group at its own unconstrained max) usually
+   violated the budget outright and the function just gave up, reporting
+   "unreachable" for queries that were very reachable. Replaced with a genuine 2D
+   staircase walk (the O(range) algorithm PLAN.md originally described, never
+   actually implemented) over the last two free groups, with any additional groups
+   fixed via a bounded outer loop (`OUTER_CAP`) for m=3/4. `bestP` also no longer
+   checks only "one group maxed, rest at minimum" corners (which found only 25%
+   when the true balanced optimum was 99.96%) — it now reuses `allocate.ts`'s
+   already-tested exact/greedy solver directly rather than re-deriving the same
+   optimization worse.
+
+Caught mid-session by dogfooding the new feature immediately, not by pre-existing
+tests — none of the original test cases had `hi` large enough relative to `N` for
+the budget to actually bind, which is exactly why 10/10 passed while the bug was
+live. Added cases that specifically stress the budget boundary (`hi` close to `N`,
+2/3/4 groups) verified against brute force, plus one hand-verified-by-exhaustive-
+search 4-group case pinning that `allocate()`'s greedy heuristic found the true
+optimum for that instance specifically (m=4 remains a heuristic in general, per
+§5.2 — this only confirms one case, not the heuristic's general behavior).
+
 ### 5.3b Interaction term (grid "Δ both")
 
 `interaction(k,n) = P(k,n) - P(k,n-1) - P(k-1,n) + P(k-1,n-1)` — the discrete mixed

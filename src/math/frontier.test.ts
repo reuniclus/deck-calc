@@ -33,15 +33,35 @@ describe('minimalVectors vs brute force', () => {
     [['a', 'b'], 5, 18, 6, 0.5],
     [['a', 'b'], 8, 40, 10, 0.75],
     [['a', 'b', 'c'], 4, 24, 8, 0.6],
+    // hi close to N: the budget constraint genuinely binds and multiple
+    // incomparable minimal points must be found (no single group can be
+    // maxed out alone — see PLAN.md, this is the case an earlier version
+    // of minimalVectors silently returned "unreachable" for).
+    [['a', 'b'], 18, 20, 7, 0.9],
+    [['a', 'b'], 22, 24, 9, 0.85],
+    [['a', 'b', 'c'], 15, 18, 6, 0.7],
+    // 4 groups, unreachable target — verified by exhaustive search (not just
+    // brute-force minimality) that 0.6 truly exceeds the achievable max
+    // (52.25% at a=4,b=4,c=5,d=5), since allocate()'s bestP uses a greedy
+    // heuristic at m=4 and this pins that the heuristic found the true optimum here.
+    [['a', 'b', 'c', 'd'], 15, 18, 6, 0.6],
   ];
   for (const [groups, maxK, N, n, target] of cases) {
-    it(`groups=${groups.join('')} N=${N} n=${n} target=${target}`, () => {
+    it(`groups=${groups.join('')} maxK=${maxK} N=${N} n=${n} target=${target}`, () => {
       const clause = Object.fromEntries(groups.map((g) => [g, { lo: 1, hi: maxK }]));
       const got = minimalVectors(clause, n, N, target);
       const want = bruteMinimal(groups, maxK, N, n, target);
       expect(sortedKeys(got.vectors, groups)).toEqual(sortedKeys(want, groups));
     });
   }
+
+  it('bestP matches the true optimum, not just the best solo-maxed corner', () => {
+    // K_a=20,K_b=20 (balanced) beats K_a=39,K_b=1 or K_a=1,K_b=39 (solo-maxed) —
+    // an implementation that only checks solo corners gets this badly wrong.
+    const clause = { a: { lo: 1, hi: 40 }, b: { lo: 1, hi: 40 } };
+    const { bestP } = minimalVectors(clause, 10, 40, 0.9);
+    expect(bestP).toBeGreaterThan(0.99); // the true (balanced) optimum
+  });
 });
 
 describe('minimalVectors properties', () => {

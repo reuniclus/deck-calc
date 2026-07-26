@@ -218,6 +218,13 @@
 
   <h2>Tradeoffs &amp; allocation</h2>
   <div class="panel">
+    <div class="row" style="margin-bottom:.5rem">
+      <div><label for="adviseTurn">by turn</label><input id="adviseTurn" type="number" min="0" max="60" style="width:4rem"></div>
+      <p class="hint" style="margin:0">
+        Compares two ways to hit your target %: drawing longer with today's deck, vs.
+        keeping the same turn and changing what's in it.
+      </p>
+    </div>
     <div id="frontier"></div>
   </div>
 </div>
@@ -810,74 +817,18 @@
   function effectiveOpeningHand(cfg) {
     return Math.max(0, cfg.openingHand - cfg.mulligans);
   }
+  function cardsSeenByTurn(turn, cfg) {
+    const hand = effectiveOpeningHand(cfg);
+    if (turn <= 0) return hand;
+    const draws = cfg.onThePlay ? turn - 1 : turn;
+    return hand + Math.max(0, draws) * cfg.drawsPerTurn;
+  }
   function turnForCardsSeen(n, cfg) {
     const hand = effectiveOpeningHand(cfg);
     if (n < hand) return null;
     if (cfg.drawsPerTurn <= 0) return 0;
     const draws = Math.floor((n - hand) / cfg.drawsPerTurn);
     return draws + (cfg.onThePlay ? 1 : 0);
-  }
-
-  // src/math/frontier.ts
-  function minimalVectors(clause, n, N, target) {
-    const groups = Object.keys(clause).sort();
-    if (groups.length === 0) return { vectors: [], bestP: 1 };
-    const maxPerGroup = {};
-    for (const g of groups) {
-      const restMin = groups.filter((h) => h !== g).reduce((s, h) => s + clause[h].lo, 0);
-      const deckLimited = Math.max(clause[g].lo, N - restMin);
-      maxPerGroup[g] = Math.min(clause[g].hi, deckLimited);
-    }
-    const memo = /* @__PURE__ */ new Map();
-    const key = (v) => groups.map((g) => v[g]).join(",");
-    function reaches(v) {
-      const k = key(v);
-      const cached = memo.get(k);
-      if (cached !== void 0) return cached;
-      const kSum = groups.reduce((s, g) => s + v[g], 0);
-      const ok = kSum <= N && boxCurve(N, groups.map((g) => ({ K: v[g], lo: clause[g].lo, hi: v[g] })))[n] >= target - 1e-12;
-      memo.set(k, ok);
-      return ok;
-    }
-    function pOf2(v) {
-      const kSum = groups.reduce((s, g) => s + v[g], 0);
-      if (kSum > N) return 0;
-      return boxCurve(N, groups.map((g) => ({ K: v[g], lo: clause[g].lo, hi: v[g] })))[n];
-    }
-    const top = {};
-    for (const g of groups) top[g] = maxPerGroup[g];
-    const bestP = pOf2(top);
-    if (!reaches(top)) return { vectors: [], bestP };
-    const found = [];
-    const seenMinimal = /* @__PURE__ */ new Set();
-    const visited = /* @__PURE__ */ new Set();
-    const MAX_VISITED = 2e5;
-    function descend(v) {
-      const k = key(v);
-      if (visited.has(k)) return;
-      visited.add(k);
-      if (visited.size > MAX_VISITED) {
-        throw new RangeError(`minimalVectors: explored ${MAX_VISITED} states without terminating`);
-      }
-      let anyChild = false;
-      for (const g of groups) {
-        if (v[g] <= clause[g].lo) continue;
-        const child = { ...v, [g]: v[g] - 1 };
-        if (reaches(child)) {
-          anyChild = true;
-          descend(child);
-        }
-      }
-      if (!anyChild && !seenMinimal.has(k)) {
-        seenMinimal.add(k);
-        found.push(v);
-      }
-    }
-    descend(top);
-    return { vectors: dedupeMinimal(found, groups), bestP };
-  }
-  function dedupeMinimal(found, groups) {
-    return found.filter((a, i) => !found.some((b, j) => j !== i && groups.every((g) => b[g] <= a[g]) && groups.some((g) => b[g] < a[g])));
   }
 
   // src/math/allocate.ts
@@ -962,6 +913,83 @@
     }
     const top = allocate(clause, n, N, capTotal);
     return { extraSlots: null, best: top.best, bestP: top.bestP };
+  }
+
+  // src/math/frontier.ts
+  var OUTER_CAP = 2e4;
+  function minimalVectors(clause, n, N, target) {
+    const groups = Object.keys(clause).sort();
+    if (groups.length === 0) return { vectors: [], bestP: 1 };
+    const memo = /* @__PURE__ */ new Map();
+    const key = (v) => groups.map((g) => v[g]).join(",");
+    function reaches(v) {
+      const k = key(v);
+      const cached = memo.get(k);
+      if (cached !== void 0) return cached;
+      const kSum = groups.reduce((s, g) => s + v[g], 0);
+      const ok = kSum <= N && boxCurve(N, groups.map((g) => ({ K: v[g], lo: clause[g].lo, hi: v[g] })))[n] >= target - 1e-12;
+      memo.set(k, ok);
+      return ok;
+    }
+    const { bestP } = allocate(clause, n, N, N);
+    const ownMax = {};
+    for (const g of groups) {
+      const restMin = groups.filter((h) => h !== g).reduce((s, h) => s + clause[h].lo, 0);
+      ownMax[g] = Math.min(clause[g].hi, Math.max(clause[g].lo, N - restMin));
+    }
+    const found = [];
+    function staircase2D(gx2, gy2, base) {
+      const otherSum = Object.values(base).reduce((s, v) => s + v, 0);
+      const budgetForPair = N - otherSum;
+      const loX = clause[gx2].lo, loY = clause[gy2].lo;
+      const hiX = Math.min(ownMax[gx2], budgetForPair - loY);
+      const at = (x, y2) => ({ ...base, [gx2]: x, [gy2]: y2 });
+      let y = Math.min(ownMax[gy2], budgetForPair - loX);
+      let lastY = Infinity;
+      for (let x = loX; x <= hiX; x++) {
+        y = Math.min(y, budgetForPair - x);
+        while (y > loY && reaches(at(x, y - 1))) y--;
+        if (reaches(at(x, y)) && y < lastY) {
+          found.push(at(x, y));
+          lastY = y;
+        }
+      }
+    }
+    const prefixGroups = groups.slice(0, -2);
+    const [gx, gy] = groups.slice(-2);
+    if (groups.length === 1) {
+      const g = groups[0];
+      let lo = clause[g].lo, hi = ownMax[g];
+      let v = hi;
+      while (v > lo && reaches({ [g]: v - 1 })) v--;
+      if (reaches({ [g]: v })) found.push({ [g]: v });
+    } else if (prefixGroups.length === 0) {
+      staircase2D(gx, gy, {});
+    } else {
+      let outerCount = 0;
+      const recurse = (idx, base) => {
+        if (idx === prefixGroups.length) {
+          staircase2D(gx, gy, base);
+          return;
+        }
+        const g = prefixGroups[idx];
+        for (let v = clause[g].lo; v <= ownMax[g]; v++) {
+          outerCount++;
+          if (outerCount > OUTER_CAP) {
+            throw new RangeError(`minimalVectors: prefix search exceeded ${OUTER_CAP} combinations`);
+          }
+          recurse(idx + 1, { ...base, [g]: v });
+        }
+      };
+      recurse(0, {});
+    }
+    return { vectors: dedupeMinimal(found, groups), bestP };
+  }
+  function dedupeMinimal(found, groups) {
+    const seen = /* @__PURE__ */ new Map();
+    for (const v of found) seen.set(groups.map((g) => v[g]).join(","), v);
+    const uniq = [...seen.values()];
+    return uniq.filter((a, i) => !uniq.some((b, j) => j !== i && groups.every((g) => b[g] <= a[g]) && groups.some((g) => b[g] < a[g])));
   }
 
   // src/math/builder.ts
@@ -1054,6 +1082,8 @@
     builder: null,
     builderUnavailable: false,
     target: 0.9,
+    /** The turn the "path to target" advisor compares options against. */
+    adviseTurn: 4,
     turnCfg: { ...DEFAULT_TURN_CONFIG },
     gridGroup: "g0",
     gridMaxDraws: 20,
@@ -1466,24 +1496,32 @@
       return;
     }
     const N = state.deckSize;
-    const n = a.drawsNeeded ?? a.argmaxP;
+    const n = Math.min(N, cardsSeenByTurn(state.adviseTurn, state.turnCfg));
+    const already = a.curve[n] >= state.target - 1e-12;
+    const searchClause = {};
+    for (const gid of groups) searchClause[gid] = { lo: clause[gid].lo, hi: N };
+    const drawMoreHtml = already ? `<p class="hint"><b>Already there:</b> today's deck reaches ${pct(a.curve[n])} by turn
+       ${state.adviseTurn} (n=${n}) \u2014 no change needed for this target.</p>` : a.drawsNeeded !== null ? `<p class="hint"><b>Draw longer:</b> same deck reaches ${pct(state.target)} at
+       n=${a.drawsNeeded}${turnSuffix(a.drawsNeeded)} instead of turn ${state.adviseTurn}.</p>` : `<p class="hint flag"><b>Draw longer won't get there:</b> best is ${pct(a.maxP)} at
+       n=${a.argmaxP}, even drawing the whole deck.</p>`;
     let vectors = [];
     let bestP = 0;
     try {
-      ({ vectors, bestP } = minimalVectors(clause, n, N, state.target));
+      ({ vectors, bestP } = minimalVectors(searchClause, n, N, state.target));
     } catch (e) {
       box.innerHTML = `<p class="hint bad">${escapeHtml(e instanceof Error ? e.message : String(e))}</p>`;
       return;
     }
     const rowsHtml = vectors.sort((x, y) => groups.reduce((s, g) => s + x[g] - y[g], 0)).map((v) => `<tr>${groups.map((g) => `<td>${v[g]}</td>`).join("")}</tr>`).join("");
-    const vecPart = vectors.length === 0 ? `<p class="hint flag">Not reachable at ${n} cards drawn within the searched range
-       (best ${pct(bestP)}). Try a lower target or more draws.</p>` : `<table class="num"><thead><tr>${groups.map((g) => `<th>${escapeHtml(nameOf(g))}</th>`).join("")}</tr></thead>
+    const copiesHtml = already ? "" : vectors.length === 0 ? `<p class="hint flag"><b>Adding copies won't get there</b> at turn ${state.adviseTurn} within
+       the searched range (best ${pct(bestP)}). Try a later turn or a lower target.</p>` : `<p class="hint"><b>Or keep turn ${state.adviseTurn}, change the deck:</b></p>
+       <table class="num"><thead><tr>${groups.map((g) => `<th>${escapeHtml(nameOf(g))}</th>`).join("")}</tr></thead>
        <tbody>${rowsHtml}</tbody></table>
        <p class="hint">Each row is a minimal combination \u2014 none can be trimmed further without
        dropping below ${pct(state.target)}. All are genuine tradeoffs, not ranked.</p>`;
-    const allocPart = renderAllocation(clause, groups, n, N, sizes);
-    box.innerHTML = `<p class="hint">at n=${n} cards drawn${turnSuffix(n)}, target ${pct(state.target)}</p>
-    ${vecPart}<div style="margin-top:1rem">${allocPart}</div>`;
+    const allocPart = renderAllocation(searchClause, groups, n, N, sizes);
+    box.innerHTML = `<p class="hint">Target ${pct(state.target)} by turn ${state.adviseTurn} (n=${n} cards drawn):</p>
+    ${drawMoreHtml}${copiesHtml}<div style="margin-top:1rem">${allocPart}</div>`;
   }
   function renderAllocation(clause, groups, n, N, sizes) {
     const currentSpend = groups.reduce((s, g) => s + (sizes[g] ?? 0), 0);
@@ -1495,9 +1533,10 @@
     const dualRow = dual.extraSlots === null ? `never reaches ${pct(state.target)} within the searched caps (best ${pct(dual.bestP)})` : `${dual.best ? groups.map((g) => `${escapeHtml(nameOf(g))}: ${dual.best[g]}`).join(", ") : ""}
        \u2014 ${dual.extraSlots} slot${dual.extraSlots === 1 ? "" : "s"} beyond the ${baseline}-card minimum`;
     return `
-    <p class="hint"><b>Best split of your current ${currentSpend} slots</b> (${groups.map((g) => escapeHtml(nameOf(g))).join(" + ")}):
+    <p class="hint"><b>Best split of your current ${currentSpend} slots</b> at turn ${state.adviseTurn}
+    (${groups.map((g) => escapeHtml(nameOf(g))).join(" + ")}):
     ${bestRow} \u2192 ${pct(alloc.bestP)}${alloc.exact ? "" : ' <span class="hint">(heuristic, not exhaustive)</span>'}</p>
-    <p class="hint"><b>Fewest slots for ${pct(state.target)}:</b> ${dualRow}</p>`;
+    <p class="hint"><b>Fewest slots for ${pct(state.target)} at turn ${state.adviseTurn}:</b> ${dualRow}</p>`;
   }
   function clearViews() {
     $("status").innerHTML = "";
@@ -1869,6 +1908,7 @@
     $("maxDraws").value = String(state.gridMaxDraws);
     $("openingHand").value = String(state.turnCfg.openingHand);
     $("mulligans").value = String(state.turnCfg.mulligans);
+    $("adviseTurn").value = String(state.adviseTurn);
     $("onThePlay").checked = state.turnCfg.onThePlay;
     $("deckSize").oninput = (e) => {
       const v = parseInt(e.target.value, 10);
@@ -1907,6 +1947,13 @@
       const v = parseInt(e.target.value, 10);
       if (Number.isFinite(v) && v >= 0) {
         state.turnCfg = { ...state.turnCfg, mulligans: v };
+        recompute();
+      }
+    };
+    $("adviseTurn").oninput = (e) => {
+      const v = parseInt(e.target.value, 10);
+      if (Number.isFinite(v) && v >= 0) {
+        state.adviseTurn = v;
         recompute();
       }
     };

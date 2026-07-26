@@ -9,7 +9,7 @@ import { normalize } from '../math/normalize';
 import { evaluate } from '../math/evaluate';
 import { analyze } from '../math/analyze';
 import {
-  turnForCardsSeen, effectiveOpeningHand, DEFAULT_TURN_CONFIG, type TurnConfig,
+  turnForCardsSeen, cardsSeenByTurn, effectiveOpeningHand, DEFAULT_TURN_CONFIG, type TurnConfig,
 } from '../model/turns';
 import { minimalVectors } from '../math/frontier';
 import { allocate, minSlotsForTarget } from '../math/allocate';
@@ -44,6 +44,8 @@ const state = {
   builder: null as FlatQuery | null,
   builderUnavailable: false,
   target: 0.9,
+  /** The turn the "path to target" advisor compares options against. */
+  adviseTurn: 4,
   turnCfg: { ...DEFAULT_TURN_CONFIG } as TurnConfig,
   gridGroup: 'g0',
   gridMaxDraws: 20,
@@ -503,12 +505,35 @@ function renderFrontier(
   }
 
   const N = state.deckSize;
-  const n = a.drawsNeeded ?? a.argmaxP;
+  const n = Math.min(N, cardsSeenByTurn(state.adviseTurn, state.turnCfg));
+  const already = a.curve[n]! >= state.target - 1e-12;
 
+  // The query's own box bounds each group's `hi` at its CURRENT count (an
+  // unbounded atom like "A>=1" normalizes to hi=K, the group's real size —
+  // correct for evaluating probability against today's deck, wrong as a
+  // search ceiling: it would make it impossible to ever suggest running
+  // MORE copies than you already have). The allocation search needs a
+  // separate box bounded by the deck's physical capacity instead; each
+  // function's own internal accounting (other groups' minimums, N itself)
+  // tightens it further from there.
+  const searchClause: Record<string, { lo: number; hi: number }> = {};
+  for (const gid of groups) searchClause[gid] = { lo: clause[gid]!.lo, hi: N };
+
+  // Path A: keep today's deck, just draw longer (or shorter, if already ahead).
+  const drawMoreHtml = already
+    ? `<p class="hint"><b>Already there:</b> today's deck reaches ${pct(a.curve[n]!)} by turn
+       ${state.adviseTurn} (n=${n}) — no change needed for this target.</p>`
+    : a.drawsNeeded !== null
+    ? `<p class="hint"><b>Draw longer:</b> same deck reaches ${pct(state.target)} at
+       n=${a.drawsNeeded}${turnSuffix(a.drawsNeeded)} instead of turn ${state.adviseTurn}.</p>`
+    : `<p class="hint flag"><b>Draw longer won't get there:</b> best is ${pct(a.maxP)} at
+       n=${a.argmaxP}, even drawing the whole deck.</p>`;
+
+  // Path B: keep the turn fixed, change the deck instead.
   let vectors: ReturnType<typeof minimalVectors>['vectors'] = [];
   let bestP = 0;
   try {
-    ({ vectors, bestP } = minimalVectors(clause, n, N, state.target));
+    ({ vectors, bestP } = minimalVectors(searchClause, n, N, state.target));
   } catch (e) {
     box.innerHTML = `<p class="hint bad">${escapeHtml(e instanceof Error ? e.message : String(e))}</p>`;
     return;
@@ -519,18 +544,21 @@ function renderFrontier(
     .map((v) => `<tr>${groups.map((g) => `<td>${v[g]}</td>`).join('')}</tr>`)
     .join('');
 
-  const vecPart = vectors.length === 0
-    ? `<p class="hint flag">Not reachable at ${n} cards drawn within the searched range
-       (best ${pct(bestP)}). Try a lower target or more draws.</p>`
-    : `<table class="num"><thead><tr>${groups.map((g) => `<th>${escapeHtml(nameOf(g))}</th>`).join('')}</tr></thead>
+  const copiesHtml = already
+    ? ''
+    : vectors.length === 0
+    ? `<p class="hint flag"><b>Adding copies won't get there</b> at turn ${state.adviseTurn} within
+       the searched range (best ${pct(bestP)}). Try a later turn or a lower target.</p>`
+    : `<p class="hint"><b>Or keep turn ${state.adviseTurn}, change the deck:</b></p>
+       <table class="num"><thead><tr>${groups.map((g) => `<th>${escapeHtml(nameOf(g))}</th>`).join('')}</tr></thead>
        <tbody>${rowsHtml}</tbody></table>
        <p class="hint">Each row is a minimal combination — none can be trimmed further without
        dropping below ${pct(state.target)}. All are genuine tradeoffs, not ranked.</p>`;
 
-  const allocPart = renderAllocation(clause, groups, n, N, sizes);
+  const allocPart = renderAllocation(searchClause, groups, n, N, sizes);
 
-  box.innerHTML = `<p class="hint">at n=${n} cards drawn${turnSuffix(n)}, target ${pct(state.target)}</p>
-    ${vecPart}<div style="margin-top:1rem">${allocPart}</div>`;
+  box.innerHTML = `<p class="hint">Target ${pct(state.target)} by turn ${state.adviseTurn} (n=${n} cards drawn):</p>
+    ${drawMoreHtml}${copiesHtml}<div style="margin-top:1rem">${allocPart}</div>`;
 }
 
 function renderAllocation(
@@ -554,9 +582,10 @@ function renderAllocation(
        — ${dual.extraSlots} slot${dual.extraSlots === 1 ? '' : 's'} beyond the ${baseline}-card minimum`;
 
   return `
-    <p class="hint"><b>Best split of your current ${currentSpend} slots</b> (${groups.map((g) => escapeHtml(nameOf(g))).join(' + ')}):
+    <p class="hint"><b>Best split of your current ${currentSpend} slots</b> at turn ${state.adviseTurn}
+    (${groups.map((g) => escapeHtml(nameOf(g))).join(' + ')}):
     ${bestRow} → ${pct(alloc.bestP)}${alloc.exact ? '' : ' <span class="hint">(heuristic, not exhaustive)</span>'}</p>
-    <p class="hint"><b>Fewest slots for ${pct(state.target)}:</b> ${dualRow}</p>`;
+    <p class="hint"><b>Fewest slots for ${pct(state.target)} at turn ${state.adviseTurn}:</b> ${dualRow}</p>`;
 }
 
 function clearViews(): void {
@@ -1045,6 +1074,7 @@ function init(): void {
   ($('maxDraws') as HTMLInputElement).value = String(state.gridMaxDraws);
   ($('openingHand') as HTMLInputElement).value = String(state.turnCfg.openingHand);
   ($('mulligans') as HTMLInputElement).value = String(state.turnCfg.mulligans);
+  ($('adviseTurn') as HTMLInputElement).value = String(state.adviseTurn);
   ($('onThePlay') as HTMLInputElement).checked = state.turnCfg.onThePlay;
 
   ($('deckSize') as HTMLInputElement).oninput = (e) => {
@@ -1075,6 +1105,10 @@ function init(): void {
       state.turnCfg = { ...state.turnCfg, mulligans: v };
       recompute();
     }
+  };
+  ($('adviseTurn') as HTMLInputElement).oninput = (e) => {
+    const v = parseInt((e.target as HTMLInputElement).value, 10);
+    if (Number.isFinite(v) && v >= 0) { state.adviseTurn = v; recompute(); }
   };
   ($('onThePlay') as HTMLInputElement).onchange = (e) => {
     state.turnCfg = { ...state.turnCfg, onThePlay: (e.target as HTMLInputElement).checked };
