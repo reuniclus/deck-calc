@@ -784,7 +784,14 @@ function renderGrid(): void {
   if (!g) { $('grid').innerHTML = '<p class="hint">No group selected.</p>'; return; }
 
   const fixed = state.groups.filter((x) => x.id !== g.id).reduce((s, x) => s + x.count, 0);
-  const kMax = Math.min(state.deckSize - fixed, 12);
+  const kPossible = state.deckSize - fixed; // most copies of this group the deck can physically hold
+  // A window of rows CENTERED on the current count — not always starting at 0.
+  // At A=37 in a 99-card deck, "rows 0..12" never shows the actual deck at all,
+  // which is exactly the bug this replaces: every displayed row was irrelevant.
+  const WINDOW = 12;
+  let kLo = Math.max(0, g.count - Math.floor(WINDOW / 2));
+  let kHi = Math.min(kPossible, kLo + WINDOW);
+  kLo = Math.max(0, kHi - WINDOW); // slide back down if the top cap was hit first
   const nMax = Math.min(state.deckSize, state.gridMaxDraws);
   const ast = state.ast;
   if (!ast) { $('grid').innerHTML = ''; return; }
@@ -795,16 +802,19 @@ function renderGrid(): void {
   }
   const nStart = effectiveOpeningHand(state.turnCfg);
 
-  // Compute every row's curve ONCE. dDraw reads adjacent entries of the same
-  // curve for free; dCopy reads the same column from the row above — neither
-  // needs extra DP calls beyond the kMax+1 we already needed for the values view.
-  const curves: Array<Float64Array | null> = [];
-  for (let k = 0; k <= kMax; k++) {
+  // Compute one row's curve per k ONCE. dDraw reads adjacent entries of the
+  // same curve for free; dCopy reads the same column from the row above —
+  // neither needs extra DP calls beyond what the values view already needed.
+  // One extra row below kLo is computed (not displayed) so the FIRST visible
+  // row still gets a real delta instead of an artificial "no row above" NA.
+  const computeFrom = Math.max(0, kLo - 1);
+  const curves = new Map<number, Float64Array | null>();
+  for (let k = computeFrom; k <= kHi; k++) {
     const groups = state.groups.map((x) => (x.id === g.id ? { ...x, count: k } : x));
     try {
       const sizes = sizesOf(groups);
-      curves.push(evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve);
-    } catch { curves.push(null); }
+      curves.set(k, evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve);
+    } catch { curves.set(k, null); }
   }
 
   const cols = range(nStart, nMax);
@@ -817,7 +827,7 @@ function renderGrid(): void {
   // is 3% renders as all-neutral against a scale built for 30% swings.
   let maxAbsDiff = 0;
   if (state.gridMode !== 'value') {
-    for (let k = 0; k <= kMax; k++) {
+    for (let k = kLo; k <= kHi; k++) {
       for (const n of cols) {
         const d = diffAt(curves, k, n, state.gridMode);
         if (d !== null) maxAbsDiff = Math.max(maxAbsDiff, Math.abs(d));
@@ -826,10 +836,10 @@ function renderGrid(): void {
   }
 
   const rows: string[] = [];
-  for (let k = 0; k <= kMax; k++) {
+  for (let k = kLo; k <= kHi; k++) {
     const cells = cols.map((n) => {
       if (state.gridMode === 'value') {
-        const curve = curves[k];
+        const curve = curves.get(k);
         if (!curve) return `<td class="na">—</td>`;
         const p = curve[n]!;
         return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn: ${pct(p)}">${(p * 100).toFixed(0)}</td>`;
@@ -878,25 +888,24 @@ function renderGrid(): void {
  * buys less than their separate gains would suggest.
  */
 function diffAt(
-  curves: Array<Float64Array | null>,
+  curves: Map<number, Float64Array | null>,
   k: number,
   n: number,
   mode: 'dCopy' | 'dDraw' | 'both',
 ): number | null {
   if (mode === 'dCopy') {
-    if (k === 0) return null;
-    const cur = curves[k], prev = curves[k - 1];
+    const cur = curves.get(k), prev = curves.get(k - 1);
     if (!cur || !prev) return null;
     return cur[n]! - prev[n]!;
   }
   if (mode === 'dDraw') {
-    const curve = curves[k];
+    const curve = curves.get(k);
     if (!curve || n === 0) return null;
     return curve[n]! - curve[n - 1]!;
   }
   // 'both': needs all four corners of the 2x2 neighborhood.
-  if (k === 0 || n === 0) return null;
-  const cur = curves[k], prev = curves[k - 1];
+  if (n === 0) return null;
+  const cur = curves.get(k), prev = curves.get(k - 1);
   if (!cur || !prev) return null;
   return (cur[n]! - cur[n - 1]!) - (prev[n]! - prev[n - 1]!);
 }

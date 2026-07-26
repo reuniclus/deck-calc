@@ -278,6 +278,23 @@ Confirmed with a real (not manufactured) case: the existing non-monotone smoke-t
 query's true global knee sits at card 1, which the fix correctly moved to card 8 once
 restricted to the visible range.
 
+### 3b2. [Fixed] Grid rows hardcoded to 0..12, ignoring the actual count
+
+The 2D grid's row range was `k = 0..min(deckSpace, 12)` unconditionally — fine when
+group counts are small, silently wrong once a count exceeds 12 (e.g. A=37 in a
+99-card deck): every displayed row was between 0 and 12 copies, nowhere near the
+actual 37, so the "current deck" marker never appeared and every cell showed a
+near-zero probability that had nothing to do with the real composition — while the
+per-draw table, using the real count directly, was correct. Fixed by centering a
+fixed-size window (12 rows) on the actual count instead of always starting at 0,
+sliding to stay within [0, physical max] near either edge, so the real composition
+is always inside the visible window. `curves` changed from an array indexed 0..kMax
+to a `Map<number, curve>` keyed by absolute copy count, since the window no longer
+starts at index 0. Verified: A=37/deck=99 now shows rows 31..43 (was 0..12) with a
+value matching the math layer directly (23.35% at n=7); edge cases confirmed at both
+the physical maximum (window slides down, still includes the cap) and near zero
+(clamps at 0, no negative rows).
+
 ### 3c. Mulligans (approximated)
 
 Modeled as a straight reduction of the effective opening hand

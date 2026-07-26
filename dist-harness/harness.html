@@ -1657,7 +1657,11 @@
       return;
     }
     const fixed = state.groups.filter((x) => x.id !== g.id).reduce((s, x) => s + x.count, 0);
-    const kMax = Math.min(state.deckSize - fixed, 12);
+    const kPossible = state.deckSize - fixed;
+    const WINDOW = 12;
+    let kLo = Math.max(0, g.count - Math.floor(WINDOW / 2));
+    let kHi = Math.min(kPossible, kLo + WINDOW);
+    kLo = Math.max(0, kHi - WINDOW);
     const nMax = Math.min(state.deckSize, state.gridMaxDraws);
     const ast = state.ast;
     if (!ast) {
@@ -1670,21 +1674,22 @@
       return;
     }
     const nStart = effectiveOpeningHand(state.turnCfg);
-    const curves = [];
-    for (let k = 0; k <= kMax; k++) {
+    const computeFrom = Math.max(0, kLo - 1);
+    const curves = /* @__PURE__ */ new Map();
+    for (let k = computeFrom; k <= kHi; k++) {
       const groups = state.groups.map((x) => x.id === g.id ? { ...x, count: k } : x);
       try {
         const sizes = sizesOf(groups);
-        curves.push(evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve);
+        curves.set(k, evaluate(state.deckSize, sizes, normalize(ast, sizes)).curve);
       } catch {
-        curves.push(null);
+        curves.set(k, null);
       }
     }
     const cols = range(nStart, nMax);
     const header = `<tr><th class="corner">copies \u2193 / drawn \u2192</th>${cols.map((n) => `<th>${n}</th>`).join("")}</tr>`;
     let maxAbsDiff = 0;
     if (state.gridMode !== "value") {
-      for (let k = 0; k <= kMax; k++) {
+      for (let k = kLo; k <= kHi; k++) {
         for (const n of cols) {
           const d = diffAt(curves, k, n, state.gridMode);
           if (d !== null) maxAbsDiff = Math.max(maxAbsDiff, Math.abs(d));
@@ -1692,10 +1697,10 @@
       }
     }
     const rows = [];
-    for (let k = 0; k <= kMax; k++) {
+    for (let k = kLo; k <= kHi; k++) {
       const cells = cols.map((n) => {
         if (state.gridMode === "value") {
-          const curve = curves[k];
+          const curve = curves.get(k);
           if (!curve) return `<td class="na">\u2014</td>`;
           const p = curve[n];
           return `<td style="background:${heat(p)}" title="${k} copies, ${n} drawn: ${pct(p)}">${(p * 100).toFixed(0)}</td>`;
@@ -1722,18 +1727,17 @@
   }
   function diffAt(curves, k, n, mode) {
     if (mode === "dCopy") {
-      if (k === 0) return null;
-      const cur2 = curves[k], prev2 = curves[k - 1];
+      const cur2 = curves.get(k), prev2 = curves.get(k - 1);
       if (!cur2 || !prev2) return null;
       return cur2[n] - prev2[n];
     }
     if (mode === "dDraw") {
-      const curve = curves[k];
+      const curve = curves.get(k);
       if (!curve || n === 0) return null;
       return curve[n] - curve[n - 1];
     }
-    if (k === 0 || n === 0) return null;
-    const cur = curves[k], prev = curves[k - 1];
+    if (n === 0) return null;
+    const cur = curves.get(k), prev = curves.get(k - 1);
     if (!cur || !prev) return null;
     return cur[n] - cur[n - 1] - (prev[n] - prev[n - 1]);
   }
