@@ -409,6 +409,57 @@ search 4-group case pinning that `allocate()`'s greedy heuristic found the true
 optimum for that instance specifically (m=4 remains a heuristic in general, per
 §5.2 — this only confirms one case, not the heuristic's general behavior).
 
+### 4e. "Path to target" bidirectional advisor, and a real bug it exposed
+
+Added a "by turn" input, separate from target %, so the Tradeoffs panel can compare
+two genuinely different paths to the same goal at a FIXED, chosen turn — instead of
+evaluating everything at n=drawsNeeded, which is circular (at that exact n your
+current deck already succeeds by definition, so "how many more copies do you need"
+trivially always answered zero). Now: "draw longer with today's deck" (reusing
+analyze()'s existing drawsNeeded) and "keep this turn, change the deck instead"
+(minimalVectors at the fixed n) are shown side by side as real alternatives.
+
+This surfaced two compounding bugs in `frontier.ts`'s `minimalVectors`, both
+invisible before because nothing had ever called it at an n where the search
+space's budget constraint (`kSum <= N`) actually bound:
+
+1. The search started its greedy descent from an unconditional "max corner" (each
+   group at its own independent max, ignoring the others) — which can trivially
+   violate `kSum <= N` on its own (e.g. two groups each maxed at 39 in a 40-card
+   deck sum to 78). When that starting corner was infeasible, the function gave up
+   and reported the target as unreachable, even when it plainly wasn't (real answer:
+   9/10 split, 99%+). Worse, no single corner CAN dominate the whole feasible
+   region once a budget cuts across the box — (20,5) and (5,20) can both be
+   feasible with neither dominating the other — so "pick a better single corner"
+   isn't a fix either. Replaced with a genuine 2D staircase walk (the O(range)
+   algorithm this file's own docstring always claimed, but never actually had):
+   for two free groups, walk one axis while the other's minimal-reaching value
+   only ever decreases (guaranteed by joint monotonicity), re-clamping to the
+   shrinking budget ceiling every step — the second bug was forgetting that
+   re-clamp, which let a stale, budget-violating value get permanently stuck.
+   Three or four groups: fix the extra ones via a bounded outer loop (cap
+   20,000 combinations), staircase the last two.
+2. `bestP` was computed by checking only "one group maxed, the rest at their bare
+   minimum" corners — missing that the true optimum is usually a BALANCE (20/20
+   beats 39/1 or 1/39 in the case above, 99.96% vs 25%). Fixed by reusing
+   `allocate.ts`'s already-correct, already-tested budget solver instead of
+   re-deriving the same optimization inconsistently in a second place.
+
+Verified against brute force at N up to 40 for 2 groups and N=18 for 3–4 groups,
+including cases specifically chosen so the budget binds (every prior test case
+had `hi` small enough relative to `N` that it never did — which is exactly why
+this shipped and stayed broken until a real "add copies at a fixed, earlier turn"
+question finally exercised it). 141 tests total (was 134).
+
+Also fixed the same root cause one layer up: `renderFrontier`/`renderAllocation`
+in the harness were passing the query's OWN box straight through, whose `hi` per
+group is bounded by that group's CURRENT count (an unbounded atom like "A>=1"
+normalizes to `hi=K`) — correct for evaluating probability, wrong as a search
+ceiling, since it made it structurally impossible to ever suggest running MORE
+copies than you already have. The harness now builds a separate search box with
+`hi=N` (deck capacity) before calling into `frontier.ts`/`allocate.ts`, leaving the
+original query box untouched for actual probability evaluation elsewhere.
+
 ### 5.3b Interaction term (grid "Δ both")
 
 `interaction(k,n) = P(k,n) - P(k,n-1) - P(k-1,n) + P(k-1,n-1)` — the discrete mixed
