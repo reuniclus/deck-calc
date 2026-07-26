@@ -166,6 +166,20 @@
     </p>
   </div>
 
+  <h2>Export / Import</h2>
+  <div class="panel">
+    <textarea id="ioBox" spellcheck="false" placeholder="Click Export to fill this in, or paste a previously exported blob here and click Import."></textarea>
+    <div class="row" style="margin-top:.5rem">
+      <button id="ioExport">Export</button>
+      <button id="ioCopy">Copy to clipboard</button>
+      <button id="ioImport">Import</button>
+    </div>
+    <p id="ioStatus" class="hint"></p>
+    <p class="hint" style="margin-bottom:0">
+      Covers deck size, groups, copies, and the query — not target %, turns, or grid settings.
+    </p>
+  </div>
+
   <div id="warn" class="warn"></div>
 
   <h2>Result</h2>
@@ -1777,6 +1791,81 @@
   }
   var escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
   var escapeAttr = (s) => escapeHtml(s).replace(/"/g, "&quot;");
+  function exportStateText() {
+    const payload = {
+      v: 1,
+      deckSize: state.deckSize,
+      groups: state.groups.map((g) => ({ name: g.name, count: g.count })),
+      query: state.query
+    };
+    return JSON.stringify(payload);
+  }
+  function importStateText(text) {
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      throw new Error("Not valid JSON.");
+    }
+    if (typeof payload !== "object" || payload === null) throw new Error("Expected a JSON object.");
+    const p = payload;
+    if (typeof p.deckSize !== "number" || !Number.isFinite(p.deckSize) || p.deckSize <= 0) {
+      throw new Error('"deckSize" must be a positive number.');
+    }
+    if (!Array.isArray(p.groups)) throw new Error('"groups" must be an array.');
+    const groups = p.groups.map((g, i) => {
+      if (typeof g !== "object" || g === null) throw new Error(`groups[${i}] is not an object.`);
+      const gg = g;
+      if (typeof gg.name !== "string" || gg.name.trim() === "") {
+        throw new Error(`groups[${i}].name must be a non-empty string.`);
+      }
+      if (typeof gg.count !== "number" || !Number.isFinite(gg.count) || gg.count < 0) {
+        throw new Error(`groups[${i}].count must be a non-negative number.`);
+      }
+      return { id: `g${seq++}`, name: gg.name, count: gg.count };
+    });
+    if (typeof p.query !== "string") throw new Error('"query" must be a string.');
+    state.deckSize = p.deckSize;
+    state.groups = groups;
+    $("deckSize").value = String(state.deckSize);
+    renderDeck();
+    renderGridPicker();
+    setQueryText(p.query);
+    $("query").value = state.query;
+    recompute();
+  }
+  function setIoStatus(msg, bad = false) {
+    const el = $("ioStatus");
+    el.textContent = msg;
+    el.className = bad ? "hint bad" : "hint ok";
+  }
+  function wireExportImport() {
+    const box = $("ioBox");
+    $("ioExport").addEventListener("click", () => {
+      box.value = exportStateText();
+      setIoStatus('Exported below \u2014 copy it, or use "Copy to clipboard".');
+    });
+    $("ioImport").addEventListener("click", () => {
+      try {
+        importStateText(box.value);
+        setIoStatus("Imported.");
+      } catch (e) {
+        setIoStatus(e instanceof Error ? e.message : String(e), true);
+      }
+    });
+    $("ioCopy").addEventListener("click", () => {
+      void (async () => {
+        try {
+          await navigator.clipboard.writeText(box.value);
+          setIoStatus("Copied to clipboard.");
+        } catch {
+          box.focus();
+          box.select();
+          setIoStatus("Couldn't copy automatically \u2014 text is selected, press Ctrl+C (Cmd+C on Mac).", true);
+        }
+      })();
+    });
+  }
   function init() {
     setQueryText(state.query);
     $("deckSize").value = String(state.deckSize);
@@ -1878,6 +1967,7 @@
         recompute();
       };
     });
+    wireExportImport();
     renderDeck();
     renderGridPicker();
     recompute();

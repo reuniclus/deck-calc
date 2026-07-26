@@ -22,7 +22,7 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/math/allocate.ts` | slot-budget optimizer: maximize P for a budget (primal), fewest slots for a target (dual) |
 | `src/math/expr.ts` (`pruneGroups`) | explicit, user-triggered removal of atoms mentioning a deleted group |
 | `src/math/builder.ts` | builder model: query = OR of combos, each combo a plain AND (no per-combo threshold — see PLAN §4c) |
-| `src/harness/main.ts` | plain-DOM dev harness — deck editor, combo query builder (OR of AND-combos, no threshold) + text, Result card (chart/table toggle, steepest-gain marker, starting-hand line, multi-group phantoms + hover/click-to-focus + tooltip), grid (values/Δboth interaction term; Δcopy/Δdraw kept in code, commented out of the UI), frontier |
+| `src/harness/main.ts` | plain-DOM dev harness — deck editor, combo query builder (OR of AND-combos, no threshold) + text, export/import (deck size, groups, copies, query as pasteable JSON + clipboard button), Result card (chart/table toggle, steepest-gain marker, starting-hand line, multi-group phantoms + hover/click-to-focus + tooltip), grid (values/Δboth interaction term; Δcopy/Δdraw kept in code, commented out of the UI), frontier |
 | `src/harness/harness.html` | harness template; `<!--BUNDLE-->` is replaced at build time |
 | `scripts/build-harness.mjs` | esbuild → one self-contained `dist-harness/harness.html` |
 | `scripts/smoke-harness.mjs` | boots the built harness in jsdom and asserts every view renders |

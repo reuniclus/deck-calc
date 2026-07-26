@@ -333,6 +333,36 @@ expansion `normalize.ts` already used internally (`expandAtLeastK`, now exported
 so nothing the math layer can produce becomes unparseable; the builder simply has
 no path to construct one anymore, which is the actual UI simplification requested.
 
+### 4d. Export / import
+
+A textarea + Export/Copy/Import buttons in the harness, covering exactly deck size,
+groups, copies, and the query — not target %, turns, or grid display settings (those
+are session/view preferences, not "the deck," and mixing them in would make an
+exported blob subtly different every time you'd changed an unrelated display
+toggle). Format is plain single-line JSON (`{v, deckSize, groups:[{name,count}],
+query}`), chosen over base64 for transparency — it's meant to be pasteable into a
+chat or notes file and glanced at, not treated as an opaque token.
+
+Groups get FRESH ids on import, never the exporter's ids. The query travels as TEXT,
+and import re-parses it through the normal name-based resolver — the exact same path
+a hand-typed query takes — so it reconnects to the new ids automatically with no
+special-casing. This is the same principle as renaming a group (PLAN.md §8): ids are
+the internal source of truth, text is what crosses any boundary (clipboard, and
+later, a URL).
+
+Import validates structurally (deckSize positive, count non-negative, groups an
+array, query a string) before touching state, with one message per failure. It does
+NOT pre-validate that the query resolves — a query naming a group absent from the
+import fails through the ordinary parse-error path afterward, same as typing it by
+hand, rather than being special-cased. Verified: duplicate imported names correctly
+trigger the existing dupe-name banner (no new codepath needed); a bad query doesn't
+prevent the deck/groups from being applied.
+
+Clipboard copy uses the async Clipboard API with a fallback (select the textarea +
+prompt for manual Ctrl+C) since `navigator.clipboard` isn't guaranteed available in
+every context (e.g. some sandboxed or file:// origins) — confirmed the fallback path
+itself in a headless environment with no real clipboard.
+
 ### 5.3b Interaction term (grid "Δ both")
 
 `interaction(k,n) = P(k,n) - P(k,n-1) - P(k-1,n) + P(k-1,n-1)` — the discrete mixed

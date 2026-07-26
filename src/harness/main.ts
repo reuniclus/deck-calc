@@ -950,6 +950,100 @@ const escapeHtml = (s: string) =>
 const escapeAttr = (s: string) => escapeHtml(s).replace(/"/g, '&quot;');
 
 // ── wiring ───────────────────────────────────────────────────────────────────
+// ── export / import ──────────────────────────────────────────────────────────
+interface ExportedState {
+  v: 1;
+  deckSize: number;
+  groups: Array<{ name: string; count: number }>;
+  query: string;
+}
+
+function exportStateText(): string {
+  const payload: ExportedState = {
+    v: 1,
+    deckSize: state.deckSize,
+    groups: state.groups.map((g) => ({ name: g.name, count: g.count })),
+    query: state.query,
+  };
+  return JSON.stringify(payload);
+}
+
+/**
+ * Groups are re-created with FRESH ids on import, not the ids from whoever
+ * exported them — the query is stored as text (§8 elsewhere: ids are the
+ * source of truth internally, but text is what crosses this boundary), so
+ * setQueryText's normal name-based resolver reconnects it to the new ids
+ * exactly the same way a hand-typed query would. No special-casing needed.
+ */
+function importStateText(text: string): void {
+  let payload: unknown;
+  try { payload = JSON.parse(text); } catch { throw new Error('Not valid JSON.'); }
+  if (typeof payload !== 'object' || payload === null) throw new Error('Expected a JSON object.');
+  const p = payload as Record<string, unknown>;
+
+  if (typeof p.deckSize !== 'number' || !Number.isFinite(p.deckSize) || p.deckSize <= 0) {
+    throw new Error('"deckSize" must be a positive number.');
+  }
+  if (!Array.isArray(p.groups)) throw new Error('"groups" must be an array.');
+  const groups: Group[] = p.groups.map((g: unknown, i: number) => {
+    if (typeof g !== 'object' || g === null) throw new Error(`groups[${i}] is not an object.`);
+    const gg = g as Record<string, unknown>;
+    if (typeof gg.name !== 'string' || gg.name.trim() === '') {
+      throw new Error(`groups[${i}].name must be a non-empty string.`);
+    }
+    if (typeof gg.count !== 'number' || !Number.isFinite(gg.count) || gg.count < 0) {
+      throw new Error(`groups[${i}].count must be a non-negative number.`);
+    }
+    return { id: `g${seq++}`, name: gg.name, count: gg.count };
+  });
+  if (typeof p.query !== 'string') throw new Error('"query" must be a string.');
+
+  state.deckSize = p.deckSize;
+  state.groups = groups;
+  ($('deckSize') as HTMLInputElement).value = String(state.deckSize);
+  renderDeck();
+  renderGridPicker();
+  setQueryText(p.query);
+  ($('query') as HTMLTextAreaElement).value = state.query;
+  recompute();
+}
+
+function setIoStatus(msg: string, bad = false): void {
+  const el = $('ioStatus');
+  el.textContent = msg;
+  el.className = bad ? 'hint bad' : 'hint ok';
+}
+
+function wireExportImport(): void {
+  const box = $('ioBox') as HTMLTextAreaElement;
+  $('ioExport').addEventListener('click', () => {
+    box.value = exportStateText();
+    setIoStatus('Exported below — copy it, or use "Copy to clipboard".');
+  });
+  $('ioImport').addEventListener('click', () => {
+    try {
+      importStateText(box.value);
+      setIoStatus('Imported.');
+    } catch (e) {
+      setIoStatus(e instanceof Error ? e.message : String(e), true);
+    }
+  });
+  $('ioCopy').addEventListener('click', () => {
+    void (async () => {
+      try {
+        await navigator.clipboard.writeText(box.value);
+        setIoStatus('Copied to clipboard.');
+      } catch {
+        // Clipboard API can be unavailable (e.g. some sandboxed/file:// contexts).
+        // Fall back to a manual copy the person can trigger themselves.
+        box.focus();
+        box.select();
+        setIoStatus('Couldn\'t copy automatically — text is selected, press Ctrl+C (Cmd+C on Mac).', true);
+      }
+    })();
+  });
+}
+
 function init(): void {
   setQueryText(state.query); // populate state.ast before the first recompute()
   ($('deckSize') as HTMLInputElement).value = String(state.deckSize);
@@ -1039,6 +1133,7 @@ function init(): void {
     };
   });
 
+  wireExportImport();
   renderDeck(); renderGridPicker(); recompute();
 }
 
