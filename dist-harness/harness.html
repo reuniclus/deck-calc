@@ -54,8 +54,6 @@
   svg .hand{stroke:var(--flag);stroke-dasharray:2 2;opacity:.6}
   svg .hand-lbl{fill:var(--flag);font-size:9px}
   svg .hit{fill:var(--ok)}
-  svg .knee{fill:none;stroke:var(--flag);stroke-width:2}
-  svg .knee-lbl{fill:var(--flag);font-size:9px}
   svg .lbl{fill:var(--dim);font-size:10px}
   svg .mid{text-anchor:middle}
   table.heat{font-size:.7rem;margin-top:.5rem}
@@ -1572,9 +1570,6 @@
     const hand = effectiveOpeningHand(state.turnCfg);
     const handLine = hand >= 0 && hand <= N ? `<line x1="${x(hand)}" x2="${x(hand)}" y1="8" y2="${H - PAD}" class="hand"/>
        <text x="${x(hand)}" y="10" class="lbl mid hand-lbl">hand</text>` : "";
-    const steepestN = visibleKnee(a) + 1;
-    const knee = steepestN >= 0 && steepestN <= N ? `<circle cx="${x(steepestN)}" cy="${y(a.curve[steepestN])}" r="4" class="knee"/>
-       <text x="${x(steepestN)}" y="${y(a.curve[steepestN]) - 8}" class="lbl mid knee-lbl">steepest</text>` : "";
     const phantoms = series.filter((s) => s.offset !== null).sort((p, q) => Math.abs(q.offset) - Math.abs(p.offset));
     const real = series.find((s) => s.offset === null);
     const keyOf = (s) => s.offset === null ? "real" : `${s.groupId}:${s.offset}`;
@@ -1595,7 +1590,7 @@
       (g) => `<span class="swatch"><i style="background:hsl(${hueFor(g.id)}deg 65% 58%)"></i>${escapeHtml(g.name)}</span>`
     ).join(" ");
     $("curve").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${vGridLines}${targetLine}${handLine}
-      ${phantomLines}${realLine}${marks}${knee}${ticks}
+      ${phantomLines}${realLine}${marks}${ticks}
       <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>
      <p class="hint">Faint lines: +-1/+-2 copies of each group, holding the rest fixed.
        Click a line to focus it (dims the rest); click again to release. ${legend}</p>

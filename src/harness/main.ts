@@ -663,13 +663,6 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
        <text x="${x(hand)}" y="10" class="lbl mid hand-lbl">hand</text>`
     : '';
 
-  // Steepest gain — same point the per-draw table marks with "◂ steepest".
-  const steepestN = visibleKnee(a) + 1;
-  const knee = steepestN >= 0 && steepestN <= N
-    ? `<circle cx="${x(steepestN)}" cy="${y(a.curve[steepestN]!)}" r="4" class="knee"/>
-       <text x="${x(steepestN)}" y="${y(a.curve[steepestN]!) - 8}" class="lbl mid knee-lbl">steepest</text>`
-    : '';
-
   // Phantoms first (so the real curve always draws on top), farthest offset
   // first so +-1 layers over +-2 within the same group's color.
   const phantoms = series.filter((s) => s.offset !== null)
@@ -705,7 +698,7 @@ function renderCurve(a: ReturnType<typeof analyze>, series: CurveSeries[]): void
 
   $('curve').innerHTML =
     `<svg viewBox="0 0 ${W} ${H}" width="100%">${gridLines}${vGridLines}${targetLine}${handLine}
-      ${phantomLines}${realLine}${marks}${knee}${ticks}
+      ${phantomLines}${realLine}${marks}${ticks}
       <text x="${W / 2}" y="${H - 8}" class="lbl mid dim">cards drawn</text></svg>
      <p class="hint">Faint lines: +-1/+-2 copies of each group, holding the rest fixed.
        Click a line to focus it (dims the rest); click again to release. ${legend}</p>
