@@ -1,3 +1,12 @@
+html {
+  /* Uniform 1.5x UI scale. zoom (not transform: scale) deliberately --
+     it recalculates actual layout at the scaled size (so containers/
+     scrollbars adjust correctly) and keeps getBoundingClientRect()/
+     clientX consistent with the scaled coordinates, so App.tsx's
+     pointer-drag rail-resize math needs no adjustment at all. */
+  zoom: 1.5;
+}
+
 :root {
   color-scheme: dark;
   font-family: ui-sans-serif, system-ui, sans-serif;
