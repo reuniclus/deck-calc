@@ -104,6 +104,19 @@ function ChartTab() {
         ))}
         <polyline points={points} className="curve-line" />
         {hover && <line x1={x(hover.n)} x2={x(hover.n)} y1={8} y2={H - PAD} className="hoverline" />}
+        {hover && (
+          <circle cx={x(hover.n)} cy={y(result.curve[hover.n]!)} r={3.5} className="hover-pip main" />
+        )}
+        {hover && suggestions.map((s, i) => (
+          <circle
+            key={`pip${i}`}
+            cx={x(hover.n)}
+            cy={y(s.curve[hover.n]!)}
+            r={3}
+            className="hover-pip suggest"
+            style={{ opacity: 0.85 - i * 0.18 }}
+          />
+        ))}
         {tickValues(N).map((n) => (
           <text key={`tick${n}`} x={x(n)} y={H - 8} className="lbl mid">{n}</text>
         ))}

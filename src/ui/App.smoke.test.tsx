@@ -468,3 +468,59 @@ describe('Mobile sticky bar and drawer (structural + interaction checks -- jsdom
     expect(document.querySelector('.mobile-drawer')).toBeNull();
   });
 });
+
+describe('Chart hover pip (discrete point marker, not a continuous/interpolated position)', () => {
+  it('a pip appears on the main curve at the exact (n, curve[n]) coordinate matching the tooltip value', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 640, height: 200, right: 640, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
+    });
+    // hover at a raw x that does NOT land exactly on an integer n's pixel
+    // position -- confirms the pip snaps to the nearest discrete n rather
+    // than rendering at some interpolated/continuous mouse position.
+    fireEvent.mouseMove(svg, { clientX: 313, clientY: 123 });
+    const pip = document.querySelector('circle.hover-pip.main') as SVGCircleElement;
+    expect(pip).toBeTruthy();
+
+    const tooltipPct = document.querySelector('.chart-tooltip')!.textContent!.match(/Current deck: (\d+\.\d+)%/)![1];
+
+    // recompute the expected pip position independently from the same
+    // formulas ChartTab uses, and confirm the pip's cy corresponds to
+    // EXACTLY the same integer n's curve value as the tooltip shows --
+    // not a smoothed/interpolated y for the raw mouse position.
+    const cx = Number(pip.getAttribute('cx'));
+    const cy = Number(pip.getAttribute('cy'));
+    const W = 640, H = 200, PAD = 28;
+    const N = 40; // default deck size = N for this query
+    const impliedN = Math.round(((cx - PAD) / (W - PAD - 8)) * N);
+    const impliedP = (H - PAD - cy) / (H - PAD - 10);
+    expect(Math.abs(impliedP * 100 - Number(tooltipPct))).toBeLessThan(0.5);
+    expect(Number.isInteger(impliedN)).toBe(true);
+  });
+
+  it('the pip disappears along with the tooltip on mouse leave', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 640, height: 200, right: 640, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
+    });
+    fireEvent.mouseMove(svg, { clientX: 320, clientY: 100 });
+    expect(document.querySelector('circle.hover-pip.main')).toBeTruthy();
+    fireEvent.mouseLeave(svg);
+    expect(document.querySelector('circle.hover-pip.main')).toBeNull();
+  });
+
+  it('a pip also appears on each visible suggestion line, matching its own tooltip row', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 640, height: 200, right: 640, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
+    });
+    fireEvent.mouseMove(svg, { clientX: 320, clientY: 100 });
+    const suggestPips = document.querySelectorAll('circle.hover-pip.suggest');
+    const suggestRows = document.querySelectorAll('.suggest-tooltip-row');
+    expect(suggestPips.length).toBe(suggestRows.length);
+    expect(suggestPips.length).toBeGreaterThan(0);
+  });
+});

@@ -112,6 +112,8 @@ svg .tgt { stroke: var(--ok); stroke-dasharray: 4 3; opacity: .7; }
 svg .hand { stroke: var(--flag); stroke-dasharray: 2 2; opacity: .6; }
 svg .turnline { stroke: var(--turnline); stroke-dasharray: 2 2; opacity: .7; }
 svg .hoverline { stroke: var(--fg); opacity: .35; }
+svg .hover-pip.main { fill: var(--accent); stroke: var(--bg); stroke-width: 1.5; }
+svg .hover-pip.suggest { fill: var(--flag); stroke: var(--bg); stroke-width: 1; }
 svg .curve-line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
 svg .suggest-line { fill: none; stroke: var(--flag); stroke-width: 1.5; stroke-dasharray: 4 3; }
 svg .lbl { fill: var(--dim); font-size: 10px; }
