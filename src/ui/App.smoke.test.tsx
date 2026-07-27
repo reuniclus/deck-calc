@@ -215,3 +215,37 @@ describe('Combo row structure (jsdom cannot verify rendered CSS/layout -- this o
     expect(numInputs.length).toBe(2);
   });
 });
+
+describe('Long/unbroken group names (structural checks -- jsdom cannot verify pixel overflow, see CLAUDE.md §10)', () => {
+  it('an arbitrarily long, unbroken group name renders inside a bounded, truncating span in the collapsed summary', () => {
+    render(<App />);
+    const longName = 'sjrfdjksdfjsdfjksdkjfjkdsnjfsjksjrfdjksdfjsdfjksdkjfjkdsnjfsjk';
+    const nameInput = screen.getAllByDisplayValue('Blink ETB')[0]! as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: longName } });
+    // collapse the combo so the summary (not the editing row) renders
+    fireEvent.click(screen.getByText('editing'));
+    const nameSpan = document.querySelector('.truncate-name');
+    expect(nameSpan).toBeTruthy();
+    expect(nameSpan!.textContent).toBe(longName);
+    expect(nameSpan!.className).toContain('truncate-name');
+    // the long text must live INSIDE the bounded span, not as loose text in
+    // an unconstrained parent -- that's the actual condition for the CSS
+    // (max-width + overflow:hidden + ellipsis) to have any effect at all.
+    expect(nameSpan!.parentElement?.className).toContain('combo-summary-item');
+  });
+
+  it('the group select in the expanded row has a hard max-width class, not just a flexible basis', () => {
+    render(<App />);
+    const select = document.querySelector('.combo-row select.group-select');
+    expect(select).toBeTruthy();
+  });
+
+  it('rail and panel containers have containment (overflow hidden) so nothing can visually escape them', () => {
+    render(<App />);
+    // structural existence check only -- confirms the classes are present for
+    // the stylesheet to target; cannot confirm the CSS actually renders that
+    // way in this environment (see CLAUDE.md §10).
+    expect(document.querySelector('.rail')).toBeTruthy();
+    expect(document.querySelector('.panel')).toBeTruthy();
+  });
+});

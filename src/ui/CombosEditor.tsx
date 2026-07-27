@@ -15,15 +15,17 @@ function cmpOf(r: Row): Cmp {
   return 'range';
 }
 
-function rowText(row: Row, nameOf: (id: string) => string): string {
+interface RowParts { name: string; rest: string }
+
+function rowParts(row: Row, nameOf: (id: string) => string): RowParts {
   const name = nameOf(row.g);
   const cmp = cmpOf(row);
-  const cond =
-    cmp === 'gte' ? `${name} \u2265 ${row.lo}`
-    : cmp === 'lte' ? `${name} \u2264 ${row.hi}`
-    : cmp === 'eq' ? `${name} = ${row.lo}`
-    : `${name} ${row.lo}\u2013${row.hi}`;
-  return row.neg ? `not ${cond}` : cond;
+  const rest =
+    cmp === 'gte' ? `\u2265 ${row.lo}`
+    : cmp === 'lte' ? `\u2264 ${row.hi}`
+    : cmp === 'eq' ? `= ${row.lo}`
+    : `${row.lo}\u2013${row.hi}`;
+  return { name, rest };
 }
 
 function QueryTextArea() {
@@ -169,14 +171,18 @@ export function CombosEditor() {
               <span className="chevron">{isOpen ? '\u25be' : '\u25b8'}</span>
               {isOpen ? <span className="hint">editing</span> : (
                 <span className="combo-summary">
-                  {clause.rows.map((r, ri) => (
-                    <span key={ri}>
-                      {ri > 0 && <span className="hint"> and </span>}
-                      {r.neg && <span className="hint">not </span>}
-                      <span className="dot inline" style={{ background: colorFor(r.g) }} />
-                      {rowText(r, nameOf).replace(/^not /, '')}
-                    </span>
-                  ))}
+                  {clause.rows.map((r, ri) => {
+                    const { name, rest } = rowParts(r, nameOf);
+                    return (
+                      <span className="combo-summary-item" key={ri}>
+                        {ri > 0 && <span className="hint"> and </span>}
+                        {r.neg && <span className="hint">not </span>}
+                        <span className="dot inline" style={{ background: colorFor(r.g) }} />
+                        <span className="truncate-name">{name}</span>
+                        <span className="hint"> {rest}</span>
+                      </span>
+                    );
+                  })}
                 </span>
               )}
             </button>

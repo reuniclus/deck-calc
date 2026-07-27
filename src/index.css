@@ -20,13 +20,13 @@ main { max-width: 72rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
 h1 { font-size: 1.25rem; margin: 0 0 1rem; }
 
 .app-grid { display: grid; gap: 0; align-items: start; }
-.rail { display: flex; flex-direction: column; gap: 14px; padding-right: 8px; min-width: 0; }
+.rail { display: flex; flex-direction: column; gap: 14px; padding-right: 8px; min-width: 0; overflow: hidden; }
 .main { min-width: 0; padding-left: 8px; }
 .resize-handle { cursor: col-resize; display: flex; justify-content: center; align-self: stretch; touch-action: none; }
 .resize-handle::before { content: ''; width: 3px; border-radius: 2px; background: var(--border); align-self: stretch; }
 .resize-handle:hover::before { background: var(--border-strong); }
 
-.panel { background: var(--surface); border-radius: 8px; padding: 12px; }
+.panel { background: var(--surface); border-radius: 8px; padding: 12px; min-width: 0; max-width: 100%; overflow: hidden; }
 
 .row-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .inline-field { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); }
@@ -57,16 +57,27 @@ button:hover { border-color: var(--accent); }
 .link-btn { border: none; background: none; color: var(--muted); font-size: 11px; padding: 2px 0; }
 .link-btn:hover { color: var(--accent); border: none; }
 
-.combo-box { border: 1px solid var(--border-strong); border-radius: 5px; padding: 8px 10px; margin-bottom: 8px; }
-.combo-toggle { display: flex; align-items: center; gap: 6px; border: none; background: none; width: 100%; text-align: left; padding: 0; font-size: 12px; }
-.combo-toggle .chevron { color: var(--muted); width: 10px; }
-.combo-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.combo-box { border: 1px solid var(--border-strong); border-radius: 5px; padding: 8px 10px; margin-bottom: 8px; max-width: 100%; overflow: hidden; }
+.combo-toggle { display: flex; align-items: center; gap: 6px; border: none; background: none; width: 100%; text-align: left; padding: 0; font-size: 12px; min-width: 0; }
+.combo-toggle .chevron { color: var(--muted); width: 10px; flex-shrink: 0; }
+.combo-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; max-width: 100%; }
+.combo-summary-item { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; }
+.truncate-name {
+  display: inline-block; max-width: 110px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
 .combo-rows { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-.combo-row { display: flex; align-items: center; gap: 6px; font-size: 12px; flex-wrap: wrap; }
+.combo-row { display: flex; align-items: center; gap: 6px; font-size: 12px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
 .combo-row .spacer { flex: 1 1 0; min-width: 4px; }
 .combo-row .dot { flex-shrink: 0; }
 .combo-row select.group-select {
-  flex: 1 1 40px; min-width: 0; max-width: 100%;
+  /* flex-basis alone is not a hard ceiling -- a <select> can still render
+     wider than its basis in some browsers, confirmed by an actual overflow
+     in testing. max-width is what actually prevents it from individually
+     exceeding the row -- flex-wrap can only rearrange MULTIPLE items across
+     lines, it can't shrink one item that's already wider than the container
+     on its own. */
+  flex: 0 1 90px; max-width: 90px; min-width: 30px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Comparator select and number inputs have short, KNOWN content (>=/<=/=/range,
@@ -74,7 +85,7 @@ button:hover { border-color: var(--accent); }
    browser's natural select sizing, which is what actually overflowed the row
    (an unstyled <select> renders far wider than its short option text needs,
    and flex-shrink:0 meant it never gave that space back). */
-.combo-row select.cmp-select { flex-shrink: 0; width: 46px; padding: 3px 2px; }
+.combo-row select.cmp-select { flex-shrink: 0; width: 44px; padding: 3px 2px; }
 .combo-row input.num-sm { flex-shrink: 0; width: 34px; }
 .combo-row .neg-toggle, .combo-row .icon-btn { flex-shrink: 0; }
 .neg-toggle { font-size: 10px; color: var(--muted); padding: 2px 5px; }
