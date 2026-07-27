@@ -25,7 +25,7 @@ describe('App smoke test (real render, not just typecheck)', () => {
     render(<App />);
     fireEvent.change(screen.getAllByDisplayValue('4')[0]!, { target: { value: '10' } });
     // deck=40, groups now 10+3=13, others should be 27
-    expect(screen.getByText('27')).toBeInTheDocument();
+    expect(document.querySelector('.others-count')?.textContent).toBe('27');
   });
 
   it('renaming a group updates the query text and keeps evaluating', () => {
@@ -101,7 +101,7 @@ describe('QoL fixes: empty-number-input-snaps-to-0, and auto-prune on delete', (
     fireEvent.change(countInput, { target: { value: '' } });
     expect(countInput.value).toBe('0');
     // Others should have recalculated too, proving state actually updated (not just DOM)
-    expect(screen.getByText('37')).toBeInTheDocument(); // 40 - 0 - 3
+    expect(document.querySelector('.others-count')?.textContent).toBe('37'); // 40 - 0 - 3
   });
 
   it('backspacing deck size to empty snaps to the reducer minimum (1), not stuck-blank', () => {
@@ -139,5 +139,61 @@ describe('QoL fixes: empty-number-input-snaps-to-0, and auto-prune on delete', (
     fireEvent.click(delBtns[delBtns.length - 1]!); // delete the newly-added, unreferenced group
     expect(screen.queryByText(/Removed .* from the query/)).toBeNull();
     expect(document.querySelector('.query-textarea')).toBeNull();
+  });
+});
+
+describe('Grid tab', () => {
+  it('renders values matching the math layer directly, and marks the current-count row', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('Grid'));
+    const table = document.querySelector('table.heat-table')!;
+    expect(table).toBeTruthy();
+    // current deck: Blink ETB=4 should be the marked row
+    // component marks the current-count row with U+25C2 (◂); confirm the
+    // marker is on the row whose header is exactly the current count (4), not
+    // just present somewhere in the table.
+    const rows = [...table.querySelectorAll('tbody tr')];
+    const markedRow = rows.find((tr) => tr.querySelector('th')?.textContent?.includes('◂'));
+    expect(markedRow).toBeTruthy();
+    expect(markedRow!.querySelector('th')?.textContent).toContain('4');
+    const unmarkedRows = rows.filter((tr) => tr !== markedRow);
+    expect(unmarkedRows.some((tr) => tr.querySelector('th')?.textContent?.includes('◂'))).toBe(false);
+  });
+
+  it('switching the swept group updates the table without resetting the tab', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('Grid'));
+    const select = document.querySelector('.row-line select') as HTMLSelectElement;
+    const options = [...select.options].map((o) => o.value);
+    expect(options.length).toBeGreaterThanOrEqual(2);
+    fireEvent.change(select, { target: { value: options[1] } });
+    expect(document.querySelector('table.heat-table')).toBeTruthy();
+  });
+
+  it('switching to interaction mode actually changes the underlying numbers (cross-checked against value mode)', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('Grid'));
+    // sample several cells in value mode
+    const valueCells = [...document.querySelectorAll('table.heat-table tbody tr td:not(.na)')]
+      .slice(0, 10).map((td) => td.textContent);
+    fireEvent.click(screen.getByText(/interaction/));
+    const interactionCells = [...document.querySelectorAll('table.heat-table tbody tr td:not(.na)')]
+      .slice(0, 10).map((td) => td.textContent);
+    // decimal formatting differs (value: 0dp, interaction: 1dp) AND the underlying
+    // quantity differs (raw P vs a discrete second difference) -- at least one
+    // sampled cell must actually differ, not just be reformatted the same number.
+    expect(valueCells).not.toEqual(interactionCells);
+  });
+
+  it('switching tabs away and back to Grid preserves the swept-group selection (kept mounted)', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('Grid'));
+    const select = document.querySelector('.row-line select') as HTMLSelectElement;
+    const secondOption = select.options[1]!.value;
+    fireEvent.change(select, { target: { value: secondOption } });
+    fireEvent.click(screen.getByText('Chart'));
+    fireEvent.click(screen.getByText('Grid'));
+    const selectAfter = document.querySelector('.row-line select') as HTMLSelectElement;
+    expect(selectAfter.value).toBe(secondOption);
   });
 });

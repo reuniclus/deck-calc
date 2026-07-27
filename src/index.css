@@ -92,3 +92,10 @@ table.num-table thead th { position: sticky; top: 0; background: var(--surface);
 table.num-table tr.hit td:nth-child(3) { color: var(--ok); }
 table.num-table tr.hit { background: rgba(104, 211, 145, .06); }
 .dim { color: var(--dim); }
+
+table.heat-table { font-size: 11px; border-collapse: collapse; }
+table.heat-table th, table.heat-table td { padding: 3px 6px; text-align: center; min-width: 1.8rem; border: 1px solid var(--bg); }
+table.heat-table th { color: var(--dim); font-weight: 500; border: none; white-space: nowrap; }
+table.heat-table th.corner { font-size: 10px; }
+table.heat-table td { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.7); }
+table.heat-table td.na { background: var(--surface-2); color: var(--muted); text-shadow: none; }

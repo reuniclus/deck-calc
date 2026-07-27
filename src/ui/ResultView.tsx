@@ -4,6 +4,7 @@ import { useQueryModelCtx } from '../state/useQueryModel';
 import { effectiveOpeningHand, turnForCardsSeen } from '../model/turns';
 import type { analyze } from '../math/analyze';
 import { parseNumOr0 } from './numberInput';
+import { GridTab } from './GridTab';
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(2)}%`;
@@ -97,7 +98,7 @@ export function ResultView() {
   const { turnCfg, target } = useAppState();
   const dispatch = useAppDispatch();
   const { error, result, analysis } = useQueryModelCtx();
-  const [tab, setTab] = useState<'chart' | 'table'>('chart');
+  const [tab, setTab] = useState<'chart' | 'table' | 'grid'>('chart');
 
   if (error) {
     return (
@@ -148,10 +149,19 @@ export function ResultView() {
       <div className="tab-strip">
         <button className={tab === 'chart' ? 'active' : ''} onClick={() => setTab('chart')}>Chart</button>
         <button className={tab === 'table' ? 'active' : ''} onClick={() => setTab('table')}>Table</button>
+        <button className={tab === 'grid' ? 'active' : ''} onClick={() => setTab('grid')}>Grid</button>
       </div>
-      {tab === 'chart'
-        ? <ChartTab result={result} hand={hand} target={target} />
-        : <TableTab result={result} analysis={analysis} hand={hand} turnCfg={turnCfg} />}
+      {/* All tabs stay mounted, toggled via display -- switching tabs must not
+          reset a tab's own local state (e.g. Grid's swept-group selection). */}
+      <div style={{ display: tab === 'chart' ? 'block' : 'none' }}>
+        <ChartTab result={result} hand={hand} target={target} />
+      </div>
+      <div style={{ display: tab === 'table' ? 'block' : 'none' }}>
+        <TableTab result={result} analysis={analysis} hand={hand} turnCfg={turnCfg} />
+      </div>
+      <div style={{ display: tab === 'grid' ? 'block' : 'none' }}>
+        <GridTab />
+      </div>
     </div>
   );
 }

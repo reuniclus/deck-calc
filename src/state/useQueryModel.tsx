@@ -5,7 +5,7 @@ import { normalize } from '../math/normalize';
 import { evaluate } from '../math/evaluate';
 import { analyze } from '../math/analyze';
 import { decompileFlat } from '../math/builder';
-import { QueryTooLargeError, UnknownGroupError, type Sizes } from '../math/expr';
+import { QueryTooLargeError, UnknownGroupError, type Sizes, type Expr } from '../math/expr';
 
 export function sizesOf(groups: Group[]): Sizes {
   const s: Record<string, number> = {};
@@ -33,6 +33,9 @@ export interface QueryModel {
   sizes: Sizes;
   /** Set only when parsing/evaluation failed; every other field is null in that case. */
   error: string | null;
+  /** Exposed so panels needing to re-evaluate at DIFFERENT counts (Grid, Suggestions)
+   * don't have to re-parse the text themselves. Never mutated; treat as read-only. */
+  ast: Expr | null;
   dnf: ReturnType<typeof normalize> | null;
   result: ReturnType<typeof evaluate> | null;
   analysis: ReturnType<typeof analyze> | null;
@@ -53,9 +56,9 @@ function computeQueryModel(query: string, groups: Group[], deckSize: number, tar
     const result = evaluate(deckSize, sizes, dnf);
     const analysis = analyze(result.curve, target, result.monotone);
     const flat = decompileFlat(ast);
-    return { sizes, error: null, dnf, result, analysis, flat };
+    return { sizes, error: null, ast, dnf, result, analysis, flat };
   } catch (e) {
-    return { sizes, error: describeError(e), dnf: null, result: null, analysis: null, flat: null };
+    return { sizes, error: describeError(e), ast: null, dnf: null, result: null, analysis: null, flat: null };
   }
 }
 
