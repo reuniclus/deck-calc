@@ -6,6 +6,8 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 
 | path | purpose |
 |---|---|
+| `PLAN.md` | math/architecture plan — algorithms, watch-outs, resolved bugs |
+| `UI_DESIGN.md` | real product IA/mockup decisions (layout, combos card, advisor, curve/grid) — not yet built |
 | `src/math/lnfact.ts` | lazily-grown log-factorial table; `lnC`, `binom` |
 | `src/math/hyper.ts` | univariate hypergeometric: `support`, `pmf`, `cdf`, `sfAtLeast`, `between` |
 | `src/math/exact.ts` | **test-only** BigInt exact oracle |
