@@ -4,6 +4,7 @@ import { colorFor } from './DeckEditor';
 import { parseNumOr0 } from './numberInput';
 import { collectGroups } from '../math/expr';
 import { useSuggestionsCtx } from '../state/useSuggestions';
+import { useMulliganStrategyCtx } from '../state/useMulliganStrategy';
 
 function pct(p: number): string {
   return `${Math.round(p * 100)}%`;
@@ -25,6 +26,27 @@ function closestToCurrent(
   }, vectors[0]!);
 }
 
+/** For the common single-tracked-group case, tries to describe the optimal
+ * strategy as a plain threshold ("keep hands with >= K of X") -- only when
+ * the strategy genuinely IS a threshold (shouldKeep monotone in that
+ * group's count). Multi-group or non-monotone strategies don't reduce to a
+ * single sentence, so this returns null rather than force a misleading
+ * simplification; callers fall back to pointing at the full breakdown. */
+export function describeAsThreshold(
+  strategy: Array<{ hand: Record<string, number>; shouldKeep: boolean }>,
+  groupIds: string[],
+  nameOf: (g: string) => string,
+): string | null {
+  if (groupIds.length !== 1) return null;
+  const g = groupIds[0]!;
+  const sorted = [...strategy].sort((a, b) => a.hand[g]! - b.hand[g]!);
+  const firstKeepIdx = sorted.findIndex((r) => r.shouldKeep);
+  if (firstKeepIdx === -1) return `Mulligan every hand (never reaches the goal reliably enough to keep).`;
+  const isThreshold = sorted.every((r, i) => r.shouldKeep === (i >= firstKeepIdx));
+  if (!isThreshold) return null;
+  return `Keep any hand with \u2265${sorted[firstKeepIdx]!.hand[g]} ${nameOf(g)}, mulligan otherwise.`;
+}
+
 /**
  * Persistent above the curve, visible regardless of which tab is active --
  * the advisor's whole value is being the "so what do I do" answer, which
@@ -40,6 +62,7 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
   const dispatch = useAppDispatch();
   const { dnf, result, analysis, ast } = useQueryModelCtx();
   const { n, vectors, searchTooLarge } = useSuggestionsCtx();
+  const { result: mulliganResult, tooLarge: mulliganTooLarge } = useMulliganStrategyCtx();
   const nameOf = nameOfFactory(groups);
   const currentOf = (g: string) => groups.find((x) => x.id === g)?.count ?? 0;
 
@@ -105,6 +128,21 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
         {' '}
         <button className="link-btn" onClick={onSeeSuggestions}>See suggestions &rarr;</button>
       </p>
+      {turnCfg.mulligans > 0 && (
+        <p className="hint mulligan-strategy-line" style={{ marginTop: 4 }}>
+          {mulliganTooLarge
+            ? `Optimal mulligan strategy unavailable: ${mulliganTooLarge}`
+            : mulliganResult
+            ? <>
+                With up to {turnCfg.mulligans} mulligan{turnCfg.mulligans === 1 ? '' : 's'}, optimal play reaches{' '}
+                <b>{pct(mulliganResult.bestP)}</b> by turn {adviseTurn} (vs <b>{pct(mulliganResult.neverMulliganP)}</b> never
+                mulliganing).{' '}
+                {describeAsThreshold(mulliganResult.strategy, groupIdsUsed, nameOf)
+                  ?? 'The optimal keep/mulligan decision isn\u2019t a simple threshold here \u2014 see the Suggestions tab for the full hand-by-hand breakdown.'}
+              </>
+            : null}
+        </p>
+      )}
     </div>
   );
 }

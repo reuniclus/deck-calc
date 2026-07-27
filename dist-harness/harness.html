@@ -815,7 +815,7 @@
     mulligans: 0
   };
   function effectiveOpeningHand(cfg) {
-    return Math.max(0, cfg.openingHand - cfg.mulligans);
+    return Math.max(0, cfg.openingHand);
   }
   function cardsSeenByTurn(turn, cfg) {
     const hand = effectiveOpeningHand(cfg);

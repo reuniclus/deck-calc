@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useAppState } from '../state/AppState';
 import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
 import { useSuggestionsCtx } from '../state/useSuggestions';
+import { useMulliganStrategyCtx } from '../state/useMulliganStrategy';
 import { colorFor } from './DeckEditor';
 import { allocate, minSlotsForTarget } from '../math/allocate';
 import { collectGroups } from '../math/expr';
@@ -26,9 +27,10 @@ function pct(p: number): string {
  * (allocate.ts, not the search), so still computed locally here.
  */
 export function SuggestionsTab() {
-  const { groups, deckSize, target, adviseTurn } = useAppState();
+  const { groups, deckSize, target, adviseTurn, turnCfg } = useAppState();
   const { dnf, ast, error } = useQueryModelCtx();
   const { n, vectors, bestP, usedGeneralPath, searchTooLarge } = useSuggestionsCtx();
+  const { result: mulliganResult, tooLarge: mulliganTooLarge } = useMulliganStrategyCtx();
   const nameOf = nameOfFactory(groups);
 
   const groupIds = useMemo(() => (ast ? [...collectGroups(ast)] : []), [ast]);
@@ -110,6 +112,51 @@ export function SuggestionsTab() {
           &quot;Best split&quot; and &quot;fewest slots&quot; aren&apos;t shown for OR/NOT queries &mdash; those
           specifically assume more copies never hurts, which isn&apos;t true once something can be negated.
         </p>
+      )}
+
+      {turnCfg.mulligans > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <p className="hint">
+            <b>Optimal mulligan strategy</b> (up to {turnCfg.mulligans} mulligan{turnCfg.mulligans === 1 ? '' : 's'},
+            each a fresh {turnCfg.openingHand}-card look &mdash; see the &quot;Mull.&quot; note for exactly what this
+            does and doesn&apos;t model):
+          </p>
+          {mulliganTooLarge ? (
+            <p className="hint flag">{mulliganTooLarge}</p>
+          ) : mulliganResult ? (
+            <>
+              <p className="hint">
+                Optimal play reaches <b>{pct(mulliganResult.bestP)}</b> by turn {adviseTurn}, vs{' '}
+                <b>{pct(mulliganResult.neverMulliganP)}</b> if you never mulligan.
+              </p>
+              <table className="num-table">
+                <thead>
+                  <tr>
+                    {groupIds.map((g) => <th key={g} style={{ color: colorFor(g) }}>{nameOf(g)}</th>)}
+                    <th>P(this hand)</th>
+                    <th>keep</th>
+                    <th>mulligan</th>
+                    <th>verdict</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mulliganResult.strategy
+                    .slice()
+                    .sort((a, b) => groupIds.reduce((s, g) => s + a.hand[g]! - b.hand[g]!, 0))
+                    .map((row, i) => (
+                      <tr key={i} className={row.shouldKeep ? 'hit' : ''}>
+                        {groupIds.map((g) => <td key={g}>{row.hand[g]}</td>)}
+                        <td>{(row.probability * 100).toFixed(2)}%</td>
+                        <td>{pct(row.keepP)}</td>
+                        <td>{pct(row.mulliganP)}</td>
+                        <td>{row.shouldKeep ? 'keep' : 'mulligan'}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </>
+          ) : null}
+        </div>
       )}
     </div>
   );

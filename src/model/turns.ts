@@ -19,18 +19,19 @@ export interface TurnConfig {
    */
   firstTurnDraw: boolean;
   /**
-   * Number of London-style mulligans taken. APPROXIMATION: modeled as a
-   * straight reduction of the effective opening hand (openingHand - mulligans),
-   * i.e. as if you'd simply been dealt a smaller hand. The actual rule — draw
-   * a fresh 7, then keep whichever (7-mulligans) cards you choose, bottoming
-   * the rest — is a "best subset" optimization: you'd keep more copies of
-   * your relevant cards than a same-size random hand would have, because you
-   * get to pick. That's an order-statistic problem over which cards to keep,
-   * and for a multi-group boolean query "best subset" isn't even well-defined
-   * without knowing which combination you're optimizing for — so it's a real
-   * math project, not a parameter tweak. This flat reduction is deliberately
-   * the CONSERVATIVE direction: real mulligan hands are never worse than this
-   * model says, only better. See PLAN.md for the exact model as a future item.
+   * Number of mulligans to consider for the DEDICATED optimal-mulligan-
+   * strategy analysis (see src/math/mulligan.ts) -- NOT a hand-size
+   * reduction here. The old model approximated a mulligan as simply
+   * "openingHand - mulligans," as if you'd been dealt a smaller hand
+   * directly; that was wrong in a specific, checkable way (a mulliganed
+   * hand is never worse than a same-size random hand, since you choose
+   * which cards to bottom) and it never touched the main curve at all,
+   * only a reference marker's position -- reported directly, see chat
+   * history. The kept hand under mulligan.ts's model is ALWAYS full-size
+   * (this codebase's agreed simplification: draw a fresh full hand each
+   * attempt, bottom a whole rejected hand, rather than real London rules'
+   * shrinking keep) -- so this field no longer changes `effectiveOpeningHand`
+   * at all. It only feeds the separate optimal-strategy computation.
    */
   mulligans: number;
 }
@@ -42,9 +43,11 @@ export const DEFAULT_TURN_CONFIG: TurnConfig = {
   mulligans: 0,
 };
 
-/** openingHand after the (approximated) effect of mulligans, never negative. */
+/** The kept opening hand is always full-size -- mulligans no longer shrink
+ * it (see the `mulligans` field's own comment). Kept for callers that used
+ * to reach through this function; it's now just `cfg.openingHand`. */
 export function effectiveOpeningHand(cfg: TurnConfig): number {
-  return Math.max(0, cfg.openingHand - cfg.mulligans);
+  return Math.max(0, cfg.openingHand);
 }
 
 /** Cards seen by the end of a given turn (turn 0 = opening hand only, before turn 1). */

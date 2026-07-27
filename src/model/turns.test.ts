@@ -48,36 +48,23 @@ describe('turns model', () => {
   });
 });
 
-describe('mulligans (approximated as a smaller effective hand)', () => {
-  it('reduces the effective opening hand by the mulligan count', () => {
+describe('mulligans (no longer approximated here -- see src/math/mulligan.ts for the exact model)', () => {
+  it('effectiveOpeningHand ignores mulligans entirely -- the kept hand is always full-size under the new exact model', () => {
     expect(effectiveOpeningHand(D)).toBe(7);
-    expect(effectiveOpeningHand({ ...D, mulligans: 1 })).toBe(6);
-    expect(effectiveOpeningHand({ ...D, mulligans: 3 })).toBe(4);
+    expect(effectiveOpeningHand({ ...D, mulligans: 1 })).toBe(7);
+    expect(effectiveOpeningHand({ ...D, mulligans: 3 })).toBe(7);
+    expect(effectiveOpeningHand({ ...D, mulligans: 99 })).toBe(7);
   });
 
-  it('never goes negative even with more mulligans than the opening hand', () => {
-    expect(effectiveOpeningHand({ ...D, mulligans: 99 })).toBe(0);
-  });
-
-  it('shifts cardsSeenByTurn by exactly the mulligan count, turn structure unchanged', () => {
-    const cfg = { ...D, mulligans: 2 };
-    expect(cardsSeenByTurn(0, cfg)).toBe(5);
-    expect(cardsSeenByTurn(1, cfg)).toBe(5); // firstTurnDraw false: still no draw on turn 1
-    expect(cardsSeenByTurn(2, cfg)).toBe(6);
-    expect(cardsSeenByTurn(3, cfg)).toBe(7);
-  });
-
-  it('shifts turnForCardsSeen consistently with cardsSeenByTurn', () => {
-    const cfg = { ...D, mulligans: 2 };
-    for (let turn = 1; turn <= 8; turn++) {
-      expect(turnForCardsSeen(cardsSeenByTurn(turn, cfg), cfg)).toBe(turn);
-    }
-    expect(turnForCardsSeen(4, cfg)).toBeNull(); // below the reduced hand of 5
-  });
-
-  it('zero mulligans is exactly the pre-mulligan behavior (default, non-breaking)', () => {
-    for (let turn = 0; turn <= 8; turn++) {
-      expect(cardsSeenByTurn(turn, { ...D, mulligans: 0 })).toBe(cardsSeenByTurn(turn, D));
+  it('cardsSeenByTurn and turnForCardsSeen are completely unaffected by mulligans now (by design -- the old flat-subtraction approximation used to shift these, which was itself part of what was wrong: it changed a MARKER POSITION without ever touching the actual probability)', () => {
+    for (const mulligans of [0, 1, 2, 3]) {
+      const cfg = { ...D, mulligans };
+      for (let turn = 0; turn <= 8; turn++) {
+        expect(cardsSeenByTurn(turn, cfg)).toBe(cardsSeenByTurn(turn, D));
+      }
+      for (let n = 0; n <= 15; n++) {
+        expect(turnForCardsSeen(n, cfg)).toBe(turnForCardsSeen(n, D));
+      }
     }
   });
 });

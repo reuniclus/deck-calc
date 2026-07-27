@@ -609,3 +609,57 @@ describe('URL sharing (real end-to-end through the actual app, not just the pure
     expect(await screen.findByText('Copied!')).toBeInTheDocument();
   });
 });
+
+describe('Mulligan strategy (real end-to-end: exact recursive model, not the old flat-hand-size approximation)', () => {
+  function setMulligans(n: number) {
+    const label = screen.getByText('Mull.').closest('label')!;
+    const input = label.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: String(n) } });
+  }
+
+  it('with 0 mulligans (default), no mulligan strategy line appears anywhere', () => {
+    render(<App />);
+    expect(document.querySelector('.mulligan-strategy-line')).toBeNull();
+  });
+
+  it('setting 1 mulligan shows the strategy line with real numbers, and optimal play is never worse than never-mulliganing', () => {
+    render(<App />);
+    setMulligans(1);
+    const line = document.querySelector('.mulligan-strategy-line');
+    expect(line).toBeTruthy();
+    expect(line!.textContent).toMatch(/With up to 1 mulligan, optimal play reaches/);
+    const percents = line!.textContent!.match(/(\d+)%/g)!.map((s) => Number(s.replace('%', '')));
+    expect(percents.length).toBeGreaterThanOrEqual(2);
+    const [bestP, neverP] = percents;
+    expect(bestP!).toBeGreaterThanOrEqual(neverP!);
+  });
+
+  it('the default single-group-equivalent query (2 groups here) does NOT force a misleading single-group threshold description', () => {
+    render(<App />);
+    setMulligans(1);
+    const line = document.querySelector('.mulligan-strategy-line')!;
+    // default query references 2 groups (Blink ETB, Blink Spell) -> describeAsThreshold
+    // returns null for multi-group -> the generic fallback message should show
+    expect(line.textContent).toMatch(/isn.t a simple threshold|see the Suggestions tab/);
+  });
+
+  it('the Suggestions tab shows the full per-hand breakdown table when mulligans > 0', () => {
+    render(<App />);
+    setMulligans(1);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Suggestions')!);
+    expect(screen.getByText('Optimal mulligan strategy', { exact: false })).toBeInTheDocument();
+    const tables = document.querySelectorAll('.tab-panel-suggestions .num-table');
+    // second num-table (after the minimal-vectors one) is the mulligan breakdown
+    expect(tables.length).toBeGreaterThanOrEqual(2);
+    const mulliganTable = tables[tables.length - 1]!;
+    expect(mulliganTable.textContent).toMatch(/keep|mulligan/);
+  });
+
+  it('going back to 0 mulligans removes the strategy line again (not stuck showing stale data)', () => {
+    render(<App />);
+    setMulligans(2);
+    expect(document.querySelector('.mulligan-strategy-line')).toBeTruthy();
+    setMulligans(0);
+    expect(document.querySelector('.mulligan-strategy-line')).toBeNull();
+  });
+});
