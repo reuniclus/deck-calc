@@ -33,6 +33,7 @@ React 19 · TypeScript 7 · Vite 8 · Vitest 4 · Node 22
 6. **Queries reference groups by stable `id`, never by name or array index.** The AST is the source of truth; display text is regenerated via `printExpr` with current names. Renaming a group must not change any result; deleting a referenced group must surface an explicit error, never silently different numbers.
 7. **`vite.config.ts` `base` must match the repo name** (`/deck-calc/`) or the Pages build serves a blank page.
 8. **The harness is generated, never hand-edited.** `src/harness/` is the source; the single-file HTML is a build artifact. It imports the real `src/math` modules so it cannot drift from tested code.
+9. **The real UI (`src/ui/`, `src/state/`) needs a real render test, not just `tsc`.** Typecheck passing does not mean the wiring works — this session alone, a real React Testing Library render caught two bugs (an unparseable seed query; a rename that silently broke the query instead of re-deriving it) that `tsc -b` and `vite build` both missed. Every new interactive piece gets at least one test that actually renders it and fires the events a user would.
 9. Every new math function gets a test against either the BigInt oracle or brute-force enumeration before it gets a UI.
 
 ## Style

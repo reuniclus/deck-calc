@@ -2,15 +2,76 @@
   color-scheme: dark;
   font-family: ui-sans-serif, system-ui, sans-serif;
   --bg: #0e1013;
+  --surface: #161a20;
+  --surface-2: #1e232b;
+  --border: #242a33;
+  --border-strong: #3c4452;
   --fg: #e6e6e6;
   --dim: #8b9199;
+  --muted: #6e7480;
   --accent: #7aa2f7;
+  --ok: #68d391;
+  --bad: #f87171;
+  --flag: #fbbf24;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); }
-main { max-width: 40rem; margin: 0 auto; padding: 3rem 1.25rem; }
-h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
-code { color: var(--accent); }
-table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
-th, td { text-align: right; padding: .2rem .6rem; border-bottom: 1px solid #21252b; }
-th:first-child, td:first-child { text-align: left; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-size: 14px; }
+main { max-width: 72rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+
+.app-grid { display: grid; grid-template-columns: 230px 1fr; gap: 20px; align-items: start; }
+.rail { display: flex; flex-direction: column; gap: 14px; }
+.main { min-width: 0; }
+
+.panel { background: var(--surface); border-radius: 8px; padding: 12px; }
+
+.row-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.inline-field { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); }
+
+input, select, textarea, button {
+  font: inherit; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border-strong); border-radius: 4px;
+}
+input[type="number"] { width: 44px; padding: 3px 5px; }
+input.num-sm { width: 44px; }
+select { padding: 3px 4px; }
+button { cursor: pointer; padding: 3px 6px; }
+button:hover { border-color: var(--accent); }
+
+.group-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.group-row { display: flex; align-items: center; font-size: 12px; }
+.group-row .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-right: 6px; }
+.group-row .dot.inline { width: 6px; height: 6px; margin: 0 3px 0 0; display: inline-block; }
+.group-name { margin-right: 8px; width: 84px; padding: 2px 4px; }
+.group-count { width: 44px; }
+.group-row .spacer { flex: 1; }
+.group-row.others { color: var(--muted); }
+.group-row.others.bad { color: var(--bad); }
+.others-count { padding-right: 2px; }
+.icon-btn { color: var(--muted); border: none; background: none; padding: 2px 4px; }
+.icon-btn:hover { color: var(--bad); border: none; }
+
+.section-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.link-btn { border: none; background: none; color: var(--muted); font-size: 11px; padding: 2px 0; }
+.link-btn:hover { color: var(--accent); border: none; }
+
+.combo-box { border: 1px solid var(--border-strong); border-radius: 5px; padding: 8px 10px; margin-bottom: 8px; }
+.combo-toggle { display: flex; align-items: center; gap: 6px; border: none; background: none; width: 100%; text-align: left; padding: 0; font-size: 12px; }
+.combo-toggle .chevron { color: var(--muted); width: 10px; }
+.combo-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.combo-rows { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.combo-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.combo-row .spacer { flex: 1; }
+.neg-toggle { font-size: 10px; color: var(--muted); padding: 2px 5px; }
+.neg-toggle.on { color: var(--bad); border-color: var(--bad); }
+
+.query-textarea { width: 100%; min-height: 4rem; resize: vertical; font-family: ui-monospace, monospace; padding: 6px; margin-bottom: 6px; }
+
+.hint { color: var(--dim); font-size: 12px; margin: 4px 0; }
+.hint.bad { color: var(--bad); }
+.hint.flag { color: var(--flag); }
+
+svg .ax { stroke: var(--border); }
+svg .tgt { stroke: var(--ok); stroke-dasharray: 4 3; opacity: .7; }
+svg .hand { stroke: var(--flag); stroke-dasharray: 2 2; opacity: .6; }
+svg .curve-line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
