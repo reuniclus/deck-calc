@@ -9,10 +9,10 @@
  * vectors like (9,10) and (10,9) -- caught and corrected once already this
  * project when an earlier mockup wrongly drew those as different lines.
  */
-import { minimalVectors } from '../math/frontier';
+import { suggestVectors } from '../math/suggestSearch';
 import { normalize } from '../math/normalize';
 import { evaluate } from '../math/evaluate';
-import type { Box, GroupId, Sizes } from '../math/expr';
+import type { Dnf, GroupId, Sizes } from '../math/expr';
 import type { Expr } from '../math/expr';
 
 export interface SuggestionCurve {
@@ -30,29 +30,26 @@ function curvesEqual(a: Float64Array, b: Float64Array): boolean {
 }
 
 /**
- * `clause` should be the query's OWN box (used for each group's `lo`); the
- * search itself always uses `hi = deckSize`, not the query's own `hi` --
- * that distinction is a real, once-confirmed bug (see PLAN.md/UI_DESIGN.md):
- * without it, the search could never suggest running MORE copies than the
- * deck currently has.
+ * Dispatches through suggestSearch.ts (fast staircase or general brute-force,
+ * whichever the query shape needs) -- NOT hard-restricted to the monotone
+ * single-clause case. That restriction used to live here directly, and once
+ * the advisor/Suggestions tab gained general-path support, this function's
+ * copy of the same check was never updated to match: phantom lines silently
+ * stopped appearing for any OR/non-monotone query, even though the rest of
+ * the app correctly showed suggestions for it. Confirmed and fixed directly,
+ * not just patched around.
  */
 export function computeSuggestionCurves(
   ast: Expr,
-  clause: Box,
+  dnf: Dnf,
   deckSize: number,
   n: number,
   target: number,
   baseSizes: Sizes,
 ): SuggestionCurve[] {
-  const groupIds = Object.keys(clause);
-  if (groupIds.length === 0 || groupIds.length > 4) return [];
-
-  const searchClause: Record<GroupId, { lo: number; hi: number }> = {};
-  for (const g of groupIds) searchClause[g] = { lo: clause[g]!.lo, hi: deckSize };
-
   let vectors: Array<Record<GroupId, number>>;
   try {
-    ({ vectors } = minimalVectors(searchClause, n, deckSize, target));
+    ({ vectors } = suggestVectors(ast, dnf, deckSize, n, target));
   } catch {
     return [];
   }

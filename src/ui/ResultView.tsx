@@ -50,9 +50,8 @@ function ChartTab() {
   const nameOf = nameOfFactory(groups);
 
   const suggestions = useMemo(() => {
-    if (!ast || !dnf || !result || !dnf.monotone || dnf.clauses.length !== 1) return [];
-    const clause = dnf.clauses[0]!;
-    return computeSuggestionCurves(ast, clause, deckSize, turnN, target, sizesOf(groups));
+    if (!ast || !dnf || !result) return [];
+    return computeSuggestionCurves(ast, dnf, deckSize, turnN, target, sizesOf(groups));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ast, dnf, result, deckSize, turnN, target, groups]);
 

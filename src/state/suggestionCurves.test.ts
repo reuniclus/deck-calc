@@ -3,13 +3,15 @@ import { computeSuggestionCurves } from './suggestionCurves';
 import { parseQuery } from '../math/parse';
 import { normalize } from '../math/normalize';
 
-const resolve = (n: string) => ({ blinketb: 'g0', blinkspell: 'g1' }[n.toLowerCase().replace(/\s/g, '')] ?? null);
+const resolve = (n: string) => ({
+  blinketb: 'g0', blinkspell: 'g1', land: 'g0', ramp: 'g1',
+}[n.toLowerCase().replace(/\s/g, '')] ?? null);
 
 describe('computeSuggestionCurves', () => {
   it('dedupes symmetric swapped vectors into ONE curve (real math bug caught earlier this project)', () => {
     const ast = parseQuery('"Blink ETB">=1 & "Blink Spell">=1', resolve);
-    const clause = normalize(ast, { g0: 4, g1: 3 }).clauses[0]!;
-    const out = computeSuggestionCurves(ast, clause, 40, 10, 0.9, { g0: 4, g1: 3 });
+    const dnf = normalize(ast, { g0: 4, g1: 3 });
+    const out = computeSuggestionCurves(ast, dnf, 40, 10, 0.9, { g0: 4, g1: 3 });
     // known from earlier this session: minimalVectors returns (8,11)/(9,10)/(10,9)/(11,8);
     // by symmetry (8,11)~(11,8) and (9,10)~(10,9) are curve-identical -> 2 distinct curves.
     expect(out.length).toBe(2);
@@ -21,8 +23,8 @@ describe('computeSuggestionCurves', () => {
 
   it('every returned curve actually reaches target at n, and none below n-1 does (minimality holds)', () => {
     const ast = parseQuery('"Blink ETB">=1 & "Blink Spell">=1', resolve);
-    const clause = normalize(ast, { g0: 4, g1: 3 }).clauses[0]!;
-    const out = computeSuggestionCurves(ast, clause, 40, 10, 0.9, { g0: 4, g1: 3 });
+    const dnf = normalize(ast, { g0: 4, g1: 3 });
+    const out = computeSuggestionCurves(ast, dnf, 40, 10, 0.9, { g0: 4, g1: 3 });
     for (const { curve } of out) {
       expect(curve[10]!).toBeGreaterThanOrEqual(0.9 - 1e-9);
     }
@@ -34,14 +36,24 @@ describe('computeSuggestionCurves', () => {
       (n) => ({ a: 'g0', b: 'g1', c: 'g2', d: 'g3', e: 'g4' }[n.toLowerCase()] ?? null),
     );
     const sizes = { g0: 2, g1: 2, g2: 2, g3: 2, g4: 2 };
-    const clause = normalize(ast, sizes).clauses[0]!;
-    expect(computeSuggestionCurves(ast, clause, 40, 10, 0.5, sizes)).toEqual([]);
+    const dnf = normalize(ast, sizes);
+    expect(computeSuggestionCurves(ast, dnf, 40, 10, 0.5, sizes)).toEqual([]);
   });
 
   it('returns empty (not throws) when the target is genuinely unreachable (n=0 can never satisfy >=1)', () => {
     const ast = parseQuery('"Blink ETB">=1', resolve);
-    const clause = normalize(ast, { g0: 1, g1: 3 }).clauses[0]!;
-    const out = computeSuggestionCurves(ast, clause, 40, 0, 0.5, { g0: 1, g1: 3 });
+    const dnf = normalize(ast, { g0: 1, g1: 3 });
+    const out = computeSuggestionCurves(ast, dnf, 40, 0, 0.5, { g0: 1, g1: 3 });
     expect(out).toEqual([]);
+  });
+
+  it('THE ACTUAL REGRESSION: an OR/negated query (mana flood avoidance) now produces real phantom curves, not an empty list', () => {
+    const ast = parseQuery('!land>=4 | (!land>=3 & !ramp>=1)', resolve);
+    const sizes = { g0: 38, g1: 6 };
+    const dnf = normalize(ast, sizes);
+    expect(dnf.monotone).toBe(false); // confirms this genuinely exercises the general path
+    const out = computeSuggestionCurves(ast, dnf, 99, 13, 0.9, sizes);
+    expect(out.length).toBeGreaterThan(0);
+    for (const { curve } of out) expect(curve[13]!).toBeGreaterThanOrEqual(0.9 - 1e-9);
   });
 });

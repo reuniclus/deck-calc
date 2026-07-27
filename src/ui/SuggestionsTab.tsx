@@ -3,9 +3,8 @@ import { useAppState } from '../state/AppState';
 import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
 import { cardsSeenByTurn } from '../model/turns';
 import { colorFor } from './DeckEditor';
-import { minimalVectors } from '../math/frontier';
 import { allocate, minSlotsForTarget } from '../math/allocate';
-import { generalMinimalVectors, SearchTooLargeError } from '../math/generalSuggest';
+import { suggestVectors, SearchTooLargeError } from '../math/suggestSearch';
 import { collectGroups } from '../math/expr';
 import type { Box } from '../math/expr';
 
@@ -52,13 +51,11 @@ export function SuggestionsTab() {
         const clause: Box = dnf.clauses[0]!;
         const searchClause: Record<string, { lo: number; hi: number }> = {};
         for (const gid of groupIds) searchClause[gid] = { lo: clause[gid]?.lo ?? 0, hi: deckSize };
-        frontier = minimalVectors(searchClause, n, deckSize, target);
         alloc = groupIds.length >= 2 ? allocate(searchClause, n, deckSize, currentSpend) : null;
         dual = groupIds.length >= 2 ? minSlotsForTarget(searchClause, n, deckSize, target) : null;
         baseline = groupIds.reduce((s, g) => s + (clause[g]?.lo ?? 0), 0);
-      } else {
-        frontier = generalMinimalVectors(ast, groupIds, deckSize, n, target, {});
       }
+      frontier = suggestVectors(ast, dnf, deckSize, n, target);
       return { kind: 'ok' as const, fastPath, groupIds, frontier, alloc, dual, baseline, currentSpend };
     } catch (e) {
       if (e instanceof SearchTooLargeError) return { kind: 'too-large' as const, message: e.message };

@@ -3,10 +3,8 @@ import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
 import { cardsSeenByTurn } from '../model/turns';
 import { colorFor } from './DeckEditor';
 import { parseNumOr0 } from './numberInput';
-import { minimalVectors } from '../math/frontier';
-import { generalMinimalVectors, SearchTooLargeError } from '../math/generalSuggest';
+import { suggestVectors, SearchTooLargeError } from '../math/suggestSearch';
 import { collectGroups } from '../math/expr';
-import type { Box } from '../math/expr';
 
 function pct(p: number): string {
   return `${Math.round(p * 100)}%`;
@@ -66,18 +64,7 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
   let searchFailed: string | null = null;
   if (!already) {
     try {
-      if (dnf.monotone && dnf.clauses.length === 1) {
-        const clause: Box = dnf.clauses[0]!;
-        const groupIds = Object.keys(clause);
-        if (groupIds.length > 0 && groupIds.length <= 4) {
-          const searchClause: Record<string, { lo: number; hi: number }> = {};
-          for (const gid of groupIds) searchClause[gid] = { lo: clause[gid]!.lo, hi: deckSize };
-          ({ vectors } = minimalVectors(searchClause, n, deckSize, target));
-        }
-      } else {
-        const groupIds = [...collectGroups(ast)];
-        ({ vectors } = generalMinimalVectors(ast, groupIds, deckSize, n, target, {}));
-      }
+      ({ vectors } = suggestVectors(ast, dnf, deckSize, n, target));
     } catch (e) {
       searchFailed = e instanceof SearchTooLargeError ? e.message : null;
     }

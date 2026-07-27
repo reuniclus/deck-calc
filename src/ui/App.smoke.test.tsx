@@ -437,13 +437,19 @@ describe('Chart: turn-T line, hover tooltip, suggestion curves', () => {
     expect(tooltip.querySelectorAll('div').length).toBe(2); // cards-drawn line + the one data line
   });
 
-  it('no suggestion lines for a non-monotone or multi-clause query (advisor unavailable case)', () => {
+  it('suggestion lines NOW correctly appear for a non-monotone/multi-clause query too (this was the exact bug just fixed)', () => {
     render(<App />);
     fireEvent.click(screen.getByText('Edit as text'));
     const textarea = document.querySelector('.query-textarea') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: '"Blink ETB">=1 & "Blink Spell">=1 | "Blink ETB">=3' } });
     const svg = document.querySelector('svg[aria-label="probability curve"]')!;
-    expect(svg.querySelectorAll('polyline.suggest-line').length).toBe(0);
+    const lines = svg.querySelectorAll('polyline.suggest-line');
+    expect(lines.length).toBeGreaterThan(0);
+    // sanity: each line's rendered points actually exist and aren't degenerate
+    for (const line of lines) {
+      const pts = line.getAttribute('points')!.split(' ');
+      expect(pts.length).toBeGreaterThan(1);
+    }
   });
 });
 
