@@ -13,6 +13,7 @@
   --ok: #68d391;
   --bad: #f87171;
   --flag: #fbbf24;
+  --turnline: #c77dff;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-size: 14px; }
@@ -109,10 +110,21 @@ svg .vax { stroke: var(--border); opacity: .25; }
 svg .vax5 { stroke: var(--border); opacity: .55; }
 svg .tgt { stroke: var(--ok); stroke-dasharray: 4 3; opacity: .7; }
 svg .hand { stroke: var(--flag); stroke-dasharray: 2 2; opacity: .6; }
+svg .turnline { stroke: var(--turnline); stroke-dasharray: 2 2; opacity: .7; }
+svg .hoverline { stroke: var(--fg); opacity: .35; }
 svg .curve-line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+svg .suggest-line { fill: none; stroke: var(--flag); stroke-width: 1.5; stroke-dasharray: 4 3; }
 svg .lbl { fill: var(--dim); font-size: 10px; }
 svg .lbl.mid { text-anchor: middle; }
 svg .lbl.dim-lbl { fill: var(--muted); }
+
+.chart-tooltip {
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 5px;
+  padding: 6px 8px; font-size: 11px; pointer-events: none; z-index: 20;
+  transform: translate(10px, 10px); max-width: 220px;
+}
+.chart-tooltip .hint { margin: 0 0 3px; }
+.suggest-tooltip-row { color: var(--flag); }
 
 .tab-strip { display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin: 10px 0; flex-wrap: wrap; }
 .tab-strip button { border: none; background: none; color: var(--dim); font-size: 13px; padding: 4px 10px; border-radius: 4px; }
@@ -134,3 +146,6 @@ table.heat-table th { color: var(--dim); font-weight: 500; border: none; white-s
 table.heat-table th.corner { font-size: 10px; }
 table.heat-table td { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.7); }
 table.heat-table td.na { background: var(--surface-2); color: var(--muted); text-shadow: none; }
+table.heat-table tr.active-row th, table.heat-table tr.active-row td {
+  border-top: 1px solid var(--accent); border-bottom: 1px solid var(--accent);
+}

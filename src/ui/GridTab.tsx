@@ -144,7 +144,7 @@ export function GridTab() {
           </thead>
           <tbody>
             {Array.from({ length: kHi - kLo + 1 }, (_, i) => kLo + i).map((k) => (
-              <tr key={k}>
+              <tr key={k} className={k === g.count ? 'active-row' : ''}>
                 <th>
                   {k}{k === g.count && <span style={{ color: colorFor(g.id) }}> &#9666;</span>}
                 </th>

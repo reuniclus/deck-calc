@@ -366,3 +366,62 @@ describe('Advisor strip and Suggestions tab', () => {
     expect(screen.getByText(/Only available for a single AND-clause/)).toBeInTheDocument();
   });
 });
+
+describe('Chart: turn-T line, hover tooltip, suggestion curves', () => {
+  it('renders a turnline distinct from the hand line', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]')!;
+    expect(svg.querySelector('line.turnline')).toBeTruthy();
+    expect(svg.querySelector('line.hand')).toBeTruthy();
+  });
+
+  it('hovering the chart shows a tooltip with cards drawn, turn, and success %', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
+    // jsdom returns a zero-size rect by default; mock a realistic one so the
+    // hover-position math (which divides by rect.width) doesn't divide by zero.
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 640, height: 200, right: 640, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
+    });
+    fireEvent.mouseMove(svg, { clientX: 320, clientY: 100 });
+    const tooltip = document.querySelector('.chart-tooltip');
+    expect(tooltip).toBeTruthy();
+    expect(tooltip!.textContent).toMatch(/cards drawn/);
+    expect(tooltip!.textContent).toMatch(/turn \d+/);
+    expect(tooltip!.textContent).toContain('Current deck:');
+  });
+
+  it('the tooltip disappears on mouse leave', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 640, height: 200, right: 640, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
+    });
+    fireEvent.mouseMove(svg, { clientX: 320, clientY: 100 });
+    expect(document.querySelector('.chart-tooltip')).toBeTruthy();
+    fireEvent.mouseLeave(svg);
+    expect(document.querySelector('.chart-tooltip')).toBeNull();
+  });
+
+  it('renders suggestion lines for the default single-clause monotone query, and the tooltip lists their compositions', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
+    expect(svg.querySelectorAll('polyline.suggest-line').length).toBeGreaterThan(0);
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 640, height: 200, right: 640, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
+    });
+    fireEvent.mouseMove(svg, { clientX: 320, clientY: 100 });
+    const suggestRows = document.querySelectorAll('.suggest-tooltip-row');
+    expect(suggestRows.length).toBeGreaterThan(0);
+    expect(suggestRows[0]!.textContent).toMatch(/Blink (ETB|Spell)/);
+  });
+
+  it('no suggestion lines for a non-monotone or multi-clause query (advisor unavailable case)', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('Edit as text'));
+    const textarea = document.querySelector('.query-textarea') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '"Blink ETB">=1 & "Blink Spell">=1 | "Blink ETB">=3' } });
+    const svg = document.querySelector('svg[aria-label="probability curve"]')!;
+    expect(svg.querySelectorAll('polyline.suggest-line').length).toBe(0);
+  });
+});

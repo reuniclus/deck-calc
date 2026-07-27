@@ -1,7 +1,9 @@
+import { useMemo, useRef, useState } from 'react';
 import { useAppState } from '../state/AppState';
-import { useQueryModelCtx } from '../state/useQueryModel';
-import { effectiveOpeningHand, turnForCardsSeen } from '../model/turns';
+import { useQueryModelCtx, nameOfFactory, sizesOf } from '../state/useQueryModel';
+import { effectiveOpeningHand, turnForCardsSeen, cardsSeenByTurn } from '../model/turns';
 import type { analyze } from '../math/analyze';
+import { computeSuggestionCurves } from '../state/suggestionCurves';
 import { GridTab } from './GridTab';
 import { SuggestionsTab } from './SuggestionsTab';
 
@@ -35,38 +37,96 @@ function tickValues(N: number): number[] {
   return out;
 }
 
-function ChartTab({
-  result, hand, target,
-}: {
-  result: NonNullable<ReturnType<typeof useQueryModelCtx>['result']>;
-  hand: number;
-  target: number;
-}) {
-  const N = result.curve.length - 1;
+function ChartTab() {
+  const { groups, deckSize, turnCfg, target, adviseTurn } = useAppState();
+  const { dnf, result, ast } = useQueryModelCtx();
+  const [hover, setHover] = useState<{ n: number; clientX: number; clientY: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const hand = effectiveOpeningHand(turnCfg);
+  const N = result ? result.curve.length - 1 : 0;
+  const turnN = Math.min(N, cardsSeenByTurn(adviseTurn, turnCfg));
+  const nameOf = nameOfFactory(groups);
+
+  const suggestions = useMemo(() => {
+    if (!ast || !dnf || !result || !dnf.monotone || dnf.clauses.length !== 1) return [];
+    const clause = dnf.clauses[0]!;
+    return computeSuggestionCurves(ast, clause, deckSize, turnN, target, sizesOf(groups));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ast, dnf, result, deckSize, turnN, target, groups]);
+
+  if (!result) return null;
+
   const W = 640, H = 200, PAD = 28;
   const x = (n: number) => PAD + (n / N) * (W - PAD - 8);
   const y = (p: number) => H - PAD - p * (H - PAD - 10);
   const points = Array.from(result.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
+  const suggestPoints = suggestions.map((s) => Array.from(s.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' '));
+
+  function handleMove(e: React.MouseEvent<SVGSVGElement>): void {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const n = Math.round(((svgX - PAD) / (W - PAD - 8)) * N);
+    setHover(n >= 0 && n <= N ? { n, clientX: e.clientX, clientY: e.clientY } : null);
+  }
+
+  const vectorLabel = (v: Record<string, number>): string =>
+    Object.entries(v).map(([g, c]) => `${c} ${nameOf(g)}`).join(', ');
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="probability curve">
-      {Array.from({ length: N + 1 }, (_, n) => n).map((n) => (
-        <line key={`v${n}`} x1={x(n)} x2={x(n)} y1={8} y2={H - PAD} className={n % 5 === 0 ? 'vax5' : 'vax'} />
-      ))}
-      {[0.25, 0.5, 0.75, 1].map((p) => (
-        <line key={p} x1={PAD} x2={W - 8} y1={y(p)} y2={y(p)} className="ax" />
-      ))}
-      {[0.25, 0.5, 0.75, 1].map((p) => (
-        <text key={`lbl${p}`} x={2} y={y(p) + 4} className="lbl">{Math.round(p * 100)}%</text>
-      ))}
-      <line x1={PAD} x2={W - 8} y1={y(target)} y2={y(target)} className="tgt" />
-      {hand >= 0 && hand <= N && <line x1={x(hand)} x2={x(hand)} y1={8} y2={H - PAD} className="hand" />}
-      <polyline points={points} className="curve-line" />
-      {tickValues(N).map((n) => (
-        <text key={`tick${n}`} x={x(n)} y={H - 8} className="lbl mid">{n}</text>
-      ))}
-      <text x={W / 2} y={H - 8} className="lbl mid dim-lbl">cards drawn</text>
-    </svg>
+    <div style={{ position: 'relative' }}>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        role="img"
+        aria-label="probability curve"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHover(null)}
+      >
+        {Array.from({ length: N + 1 }, (_, n) => n).map((n) => (
+          <line key={`v${n}`} x1={x(n)} x2={x(n)} y1={8} y2={H - PAD} className={n % 5 === 0 ? 'vax5' : 'vax'} />
+        ))}
+        {[0.25, 0.5, 0.75, 1].map((p) => (
+          <line key={p} x1={PAD} x2={W - 8} y1={y(p)} y2={y(p)} className="ax" />
+        ))}
+        {[0.25, 0.5, 0.75, 1].map((p) => (
+          <text key={`lbl${p}`} x={2} y={y(p) + 4} className="lbl">{Math.round(p * 100)}%</text>
+        ))}
+        <line x1={PAD} x2={W - 8} y1={y(target)} y2={y(target)} className="tgt" />
+        {hand >= 0 && hand <= N && <line x1={x(hand)} x2={x(hand)} y1={8} y2={H - PAD} className="hand" />}
+        {turnN >= 0 && turnN <= N && turnN !== hand && (
+          <line x1={x(turnN)} x2={x(turnN)} y1={8} y2={H - PAD} className="turnline" />
+        )}
+        {suggestPoints.map((pts, i) => (
+          <polyline key={i} points={pts} className="suggest-line" style={{ opacity: 0.85 - i * 0.18 }} />
+        ))}
+        <polyline points={points} className="curve-line" />
+        {hover && <line x1={x(hover.n)} x2={x(hover.n)} y1={8} y2={H - PAD} className="hoverline" />}
+        {tickValues(N).map((n) => (
+          <text key={`tick${n}`} x={x(n)} y={H - 8} className="lbl mid">{n}</text>
+        ))}
+        <text x={W / 2} y={H - 8} className="lbl mid dim-lbl">cards drawn</text>
+      </svg>
+      {hover && (
+        <div
+          className="chart-tooltip"
+          style={{ position: 'fixed', left: hover.clientX, top: hover.clientY }}
+        >
+          <div className="hint">
+            {hover.n} cards drawn{turnForCardsSeen(hover.n, turnCfg) !== null ? ` (turn ${turnForCardsSeen(hover.n, turnCfg)})` : ''}
+          </div>
+          <div>Current deck: <b>{pct(result.curve[hover.n]!)}</b></div>
+          {suggestions.map((s, i) => (
+            <div key={i} className="suggest-tooltip-row">
+              {vectorLabel(s.vectors[0]!)}
+              {s.vectors.length > 1 ? ` (or ${s.vectors.length - 1} more tied)` : ''}: <b>{pct(s.curve[hover.n]!)}</b>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -155,7 +215,7 @@ export function ResultView({ tab, setTab }: { tab: ResultTab; setTab: (t: Result
       {/* All tabs stay mounted, toggled via display -- switching tabs must not
           reset a tab's own local state (e.g. Grid's swept-group selection). */}
       <div className="tab-panel-chart" style={{ display: tab === 'chart' ? 'block' : 'none' }}>
-        <ChartTab result={result} hand={hand} target={target} />
+        <ChartTab />
       </div>
       <div className="tab-panel-table" style={{ display: tab === 'table' ? 'block' : 'none' }}>
         <TableTab result={result} analysis={analysis} hand={hand} turnCfg={turnCfg} />
