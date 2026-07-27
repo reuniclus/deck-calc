@@ -1,10 +1,10 @@
 import { useAppDispatch, useAppState } from '../state/AppState';
 import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
-import { cardsSeenByTurn } from '../model/turns';
 import { colorFor } from './DeckEditor';
 import { parseNumOr0 } from './numberInput';
-import { suggestVectors, SearchTooLargeError } from '../math/suggestSearch';
+import { useDebouncedCommit } from './useDebouncedCommit';
 import { collectGroups } from '../math/expr';
+import { useSuggestionsCtx } from '../state/useSuggestions';
 
 function pct(p: number): string {
   return `${Math.round(p * 100)}%`;
@@ -37,13 +37,25 @@ function closestToCurrent(
  * queries -- NOT the same algorithm silently reused past its assumptions.
  */
 export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => void }) {
-  const { groups, deckSize, turnCfg, target, adviseTurn } = useAppState();
+  const { groups, turnCfg, target, adviseTurn } = useAppState();
   const dispatch = useAppDispatch();
   const { dnf, result, analysis, ast } = useQueryModelCtx();
+  const { n, vectors, searchTooLarge } = useSuggestionsCtx();
   const nameOf = nameOfFactory(groups);
   const currentOf = (g: string) => groups.find((x) => x.id === g)?.count ?? 0;
 
-  const n = Math.min(deckSize, cardsSeenByTurn(adviseTurn, turnCfg));
+  // Hooks must run unconditionally on every render -- these were briefly
+  // placed after the early-return below, which would violate React's Rules
+  // of Hooks the moment the query becomes invalid (a real bug caught before
+  // shipping, not a style nit).
+  const [localTargetPct, setTargetPct] = useDebouncedCommit(
+    Math.round(target * 100),
+    (v) => dispatch({ type: 'setTarget', target: v / 100 }),
+  );
+  const [localAdviseTurn, setAdviseTurn] = useDebouncedCommit(
+    adviseTurn,
+    (v) => dispatch({ type: 'setAdviseTurn', adviseTurn: v }),
+  );
 
   if (!result || !analysis || !dnf || !ast) {
     return (
@@ -60,16 +72,6 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
     ? `Draw ${analysis.drawsNeeded} cards (${analysis.drawsNeeded - n} more).`
     : `Won\u2019t reach it by drawing alone (best ${pct(analysis.maxP)}).`;
 
-  let vectors: Array<Record<string, number>> = [];
-  let searchFailed: string | null = null;
-  if (!already) {
-    try {
-      ({ vectors } = suggestVectors(ast, dnf, deckSize, n, target));
-    } catch (e) {
-      searchFailed = e instanceof SearchTooLargeError ? e.message : null;
-    }
-  }
-
   const groupIdsUsed = [...collectGroups(ast)];
   const copyPart = already || vectors.length === 0 ? null : (() => {
     const v = closestToCurrent(vectors, groupIdsUsed, currentOf);
@@ -85,15 +87,15 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
         <input
           className="advisor-inline"
           type="number" min={1} max={100}
-          value={Math.round(target * 100)}
-          onChange={(e) => dispatch({ type: 'setTarget', target: parseNumOr0(e.target.value) / 100 })}
+          value={localTargetPct}
+          onChange={(e) => setTargetPct(parseNumOr0(e.target.value))}
         />
         <span className="hint">success rate by turn</span>
         <input
           className="advisor-inline"
           type="number" min={0} max={60}
-          value={adviseTurn}
-          onChange={(e) => dispatch({ type: 'setAdviseTurn', adviseTurn: parseNumOr0(e.target.value) })}
+          value={localAdviseTurn}
+          onChange={(e) => setAdviseTurn(parseNumOr0(e.target.value))}
         />
         <label className="inline-field" style={{ marginLeft: 6 }}>
           <input
@@ -107,7 +109,7 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
       <p style={{ margin: 0 }}>
         {drawPart}
         {copyPart && copyPart.length > 0 && <> Or add{copyPart}.</>}
-        {searchFailed && <span className="hint"> (copy suggestions unavailable: {searchFailed})</span>}
+        {searchTooLarge && <span className="hint"> (copy suggestions unavailable: {searchTooLarge})</span>}
         {' '}
         <button className="link-btn" onClick={onSeeSuggestions}>See suggestions &rarr;</button>
       </p>

@@ -3,7 +3,8 @@ import { useAppState } from '../state/AppState';
 import { useQueryModelCtx, nameOfFactory, sizesOf } from '../state/useQueryModel';
 import { effectiveOpeningHand, turnForCardsSeen, cardsSeenByTurn } from '../model/turns';
 import type { analyze } from '../math/analyze';
-import { computeSuggestionCurves } from '../state/suggestionCurves';
+import { curvesForVectors } from '../state/suggestionCurves';
+import { useSuggestionsCtx } from '../state/useSuggestions';
 import { evaluate } from '../math/evaluate';
 import { GridTab } from './GridTab';
 import { SuggestionsTab } from './SuggestionsTab';
@@ -49,11 +50,12 @@ function ChartTab() {
   const turnN = Math.min(N, cardsSeenByTurn(adviseTurn, turnCfg));
   const nameOf = nameOfFactory(groups);
 
+  const { vectors: suggestedVectors } = useSuggestionsCtx();
   const suggestions = useMemo(() => {
-    if (!ast || !dnf || !result) return [];
-    return computeSuggestionCurves(ast, dnf, deckSize, turnN, target, sizesOf(groups));
+    if (!ast || !result || suggestedVectors.length === 0) return [];
+    return curvesForVectors(ast, suggestedVectors, deckSize, sizesOf(groups));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ast, dnf, result, deckSize, turnN, target, groups]);
+  }, [ast, result, suggestedVectors, deckSize, groups]);
 
   // Each clause's OWN curve, as if it were the only requirement -- this is
   // ALWAYS computable regardless of monotonicity or clause count (a single

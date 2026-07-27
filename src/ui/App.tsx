@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppStateProvider } from '../state/AppState';
 import { QueryModelProvider } from '../state/useQueryModel';
+import { SuggestionsProvider } from '../state/useSuggestions';
 import { DeckEditor } from './DeckEditor';
 import { CombosEditor } from './CombosEditor';
 import { ResultView, type ResultTab } from './ResultView';
@@ -79,10 +80,12 @@ export function App() {
   return (
     <AppStateProvider>
       <QueryModelProvider>
-        <main>
-          <h1>deck-calc</h1>
-          <Layout />
-        </main>
+        <SuggestionsProvider>
+          <main>
+            <h1>deck-calc</h1>
+            <Layout />
+          </main>
+        </SuggestionsProvider>
       </QueryModelProvider>
     </AppStateProvider>
   );

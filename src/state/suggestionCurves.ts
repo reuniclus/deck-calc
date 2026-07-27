@@ -8,11 +8,16 @@
  * distinguishing them) genuinely produces IDENTICAL curves for swapped
  * vectors like (9,10) and (10,9) -- caught and corrected once already this
  * project when an earlier mockup wrongly drew those as different lines.
+ *
+ * Takes ALREADY-COMPUTED vectors (from the shared useSuggestionsCtx()) --
+ * does NOT run its own search. It used to call suggestVectors() internally,
+ * which meant the same expensive search ran redundantly here AND in
+ * AdvisorStrip AND in SuggestionsTab on every goal change; consolidated to
+ * one shared computation (see useSuggestions.tsx).
  */
-import { suggestVectors } from '../math/suggestSearch';
 import { normalize } from '../math/normalize';
 import { evaluate } from '../math/evaluate';
-import type { Dnf, GroupId, Sizes } from '../math/expr';
+import type { GroupId, Sizes } from '../math/expr';
 import type { Expr } from '../math/expr';
 
 export interface SuggestionCurve {
@@ -29,31 +34,12 @@ function curvesEqual(a: Float64Array, b: Float64Array): boolean {
   return true;
 }
 
-/**
- * Dispatches through suggestSearch.ts (fast staircase or general brute-force,
- * whichever the query shape needs) -- NOT hard-restricted to the monotone
- * single-clause case. That restriction used to live here directly, and once
- * the advisor/Suggestions tab gained general-path support, this function's
- * copy of the same check was never updated to match: phantom lines silently
- * stopped appearing for any OR/non-monotone query, even though the rest of
- * the app correctly showed suggestions for it. Confirmed and fixed directly,
- * not just patched around.
- */
-export function computeSuggestionCurves(
+export function curvesForVectors(
   ast: Expr,
-  dnf: Dnf,
+  vectors: Array<Record<GroupId, number>>,
   deckSize: number,
-  n: number,
-  target: number,
   baseSizes: Sizes,
 ): SuggestionCurve[] {
-  let vectors: Array<Record<GroupId, number>>;
-  try {
-    ({ vectors } = suggestVectors(ast, dnf, deckSize, n, target));
-  } catch {
-    return [];
-  }
-
   const out: SuggestionCurve[] = [];
   for (const v of vectors) {
     const sizes: Sizes = { ...baseSizes, ...v };

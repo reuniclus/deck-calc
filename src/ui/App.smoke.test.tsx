@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { App } from './App';
 import { AppStateProvider } from '../state/AppState';
 import { QueryModelProvider } from '../state/useQueryModel';
@@ -82,14 +82,17 @@ describe('Table tab and resize handle', () => {
     expect(firstDataCell.textContent).toBe('7');
   });
 
-  it('changing the target % updates the summary live', () => {
+  it('changing the target % updates the summary live (after the debounce window elapses)', () => {
+    vi.useFakeTimers();
     render(<App />);
     const before = screen.getByText(/Reaches \d+\.\d+% at/).textContent;
     const targetInput = screen.getByDisplayValue('90');
     fireEvent.change(targetInput, { target: { value: '50' } });
+    act(() => { vi.advanceTimersByTime(350); });
     const after = screen.getByText(/Reaches \d+\.\d+% at/).textContent;
     expect(after).not.toBe(before);
     expect(after).toContain('50.00%');
+    vi.useRealTimers();
   });
 
   it('the resize handle exists with the correct ARIA role', () => {
@@ -339,13 +342,16 @@ describe('Advisor strip and Suggestions tab', () => {
     expect(rows.some((row) => row.every((v, i) => v === impliedVector[i]))).toBe(true);
   });
 
-  it('changing the goal turn updates BOTH the advisor line and the Suggestions tab consistently', () => {
+  it('changing the goal turn updates BOTH the advisor line and the Suggestions tab consistently (after debounce)', () => {
+    vi.useFakeTimers();
     render(<App />);
     const turnInputs = document.querySelectorAll('.advisor-inline');
     const turnInput = turnInputs[1] as HTMLInputElement; // [0]=target%, [1]=turn
     fireEvent.change(turnInput, { target: { value: '10' } });
+    act(() => { vi.advanceTimersByTime(350); });
     fireEvent.click(screen.getByText(/See suggestions/));
     expect(screen.getByText(/Target 90.00% by turn 10/)).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it('a genuinely non-subsuming OR query now gets REAL advice via the general search path (not "not available")', () => {
