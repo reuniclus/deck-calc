@@ -93,6 +93,17 @@ export function DeckEditor() {
             onChange={(e) => dispatch({ type: 'setDeckSize', deckSize: parseNumOr0(e.target.value) })}
           />
         </label>
+        <div className="preset-chips">
+          {[40, 60, 99].map((n) => (
+            <button
+              key={n}
+              className={deckSize === n ? 'active' : ''}
+              onClick={() => dispatch({ type: 'setDeckSize', deckSize: n })}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
         <label className="inline-field">
           <span>Hand</span>
           <input
@@ -152,8 +163,9 @@ export function DeckEditor() {
         <div className={`group-row others ${others < 0 ? 'bad' : ''}`}>
           <span className="dot" style={{ background: 'var(--text-muted)' }} />
           <span className="others-label">Others</span>
-          <span className="spacer" />
           <span className="others-count">{others}</span>
+          <span className="spacer" />
+          <span className="others-placeholder" aria-hidden="true" />
         </div>
       </div>
       {others < 0 && (

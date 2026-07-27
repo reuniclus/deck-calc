@@ -1,10 +1,9 @@
-import { useState } from 'react';
-import { useAppDispatch, useAppState } from '../state/AppState';
+import { useAppState } from '../state/AppState';
 import { useQueryModelCtx } from '../state/useQueryModel';
 import { effectiveOpeningHand, turnForCardsSeen } from '../model/turns';
 import type { analyze } from '../math/analyze';
-import { parseNumOr0 } from './numberInput';
 import { GridTab } from './GridTab';
+import { SuggestionsTab } from './SuggestionsTab';
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(2)}%`;
@@ -29,6 +28,13 @@ function visibleKnee(a: ReturnType<typeof analyze>, start: number): number {
   return knee;
 }
 
+function tickValues(N: number): number[] {
+  const step = N <= 20 ? 5 : N <= 60 ? 10 : 25;
+  const out: number[] = [];
+  for (let n = 0; n <= N; n += step) out.push(n);
+  return out;
+}
+
 function ChartTab({
   result, hand, target,
 }: {
@@ -44,12 +50,22 @@ function ChartTab({
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="probability curve">
+      {Array.from({ length: N + 1 }, (_, n) => n).map((n) => (
+        <line key={`v${n}`} x1={x(n)} x2={x(n)} y1={8} y2={H - PAD} className={n % 5 === 0 ? 'vax5' : 'vax'} />
+      ))}
       {[0.25, 0.5, 0.75, 1].map((p) => (
         <line key={p} x1={PAD} x2={W - 8} y1={y(p)} y2={y(p)} className="ax" />
+      ))}
+      {[0.25, 0.5, 0.75, 1].map((p) => (
+        <text key={`lbl${p}`} x={2} y={y(p) + 4} className="lbl">{Math.round(p * 100)}%</text>
       ))}
       <line x1={PAD} x2={W - 8} y1={y(target)} y2={y(target)} className="tgt" />
       {hand >= 0 && hand <= N && <line x1={x(hand)} x2={x(hand)} y1={8} y2={H - PAD} className="hand" />}
       <polyline points={points} className="curve-line" />
+      {tickValues(N).map((n) => (
+        <text key={`tick${n}`} x={x(n)} y={H - 8} className="lbl mid">{n}</text>
+      ))}
+      <text x={W / 2} y={H - 8} className="lbl mid dim-lbl">cards drawn</text>
     </svg>
   );
 }
@@ -94,11 +110,11 @@ function TableTab({
   );
 }
 
-export function ResultView() {
+export type ResultTab = 'chart' | 'table' | 'grid' | 'suggestions';
+
+export function ResultView({ tab, setTab }: { tab: ResultTab; setTab: (t: ResultTab) => void }) {
   const { turnCfg, target } = useAppState();
-  const dispatch = useAppDispatch();
   const { error, result, analysis } = useQueryModelCtx();
-  const [tab, setTab] = useState<'chart' | 'table' | 'grid'>('chart');
 
   if (error) {
     return (
@@ -117,50 +133,38 @@ export function ResultView() {
   } else if (analysis.monotone) {
     summary = `Reaches ${pct(target)} at ${analysis.drawsNeeded} cards drawn, and stays there.`;
   } else {
-    const w = analysis.windows.map(([s, e]) => (s === e ? `${s}` : `${s}\u2013${e}`)).join(', ');
-    summary = `P \u2265 ${pct(target)} only for n \u2208 {${w}} \u2014 a bounded window, because the query is capped above.`;
+    const w = analysis.windows.map(([s, e]) => (s === e ? `${s}` : `${s}–${e}`)).join(', ');
+    summary = `P ≥ ${pct(target)} only for n ∈ {${w}} — a bounded window, because the query is capped above.`;
   }
 
   return (
     <div className="panel">
-      <div className="row-line">
-        <p className="hint" style={{ margin: 0 }}>
-          {result.clauses} clause{result.clauses === 1 ? '' : 's'} &middot;{' '}
-          {result.terms} term{result.terms === 1 ? '' : 's'} &middot;{' '}
-          {result.monotone ? 'monotone' : 'non-monotone'} &middot; peak {pct(analysis.maxP)} at n={analysis.argmaxP}
-        </p>
-        <label className="inline-field" style={{ marginLeft: 'auto' }}>
-          <span>Target</span>
-          <input
-            type="number"
-            min={1}
-            max={100}
-            value={Math.round(target * 100)}
-            onChange={(e) => {
-              const v = parseNumOr0(e.target.value);
-              dispatch({ type: 'setTarget', target: v / 100 });
-            }}
-          />
-          <span>%</span>
-        </label>
-      </div>
+      <p className="hint" style={{ margin: 0 }}>
+        {result.clauses} clause{result.clauses === 1 ? '' : 's'} &middot;{' '}
+        {result.terms} term{result.terms === 1 ? '' : 's'} &middot;{' '}
+        {result.monotone ? 'monotone' : 'non-monotone'} &middot; peak {pct(analysis.maxP)} at n={analysis.argmaxP}
+      </p>
       <p>{summary}</p>
 
       <div className="tab-strip">
         <button className={tab === 'chart' ? 'active' : ''} onClick={() => setTab('chart')}>Chart</button>
         <button className={tab === 'table' ? 'active' : ''} onClick={() => setTab('table')}>Table</button>
         <button className={tab === 'grid' ? 'active' : ''} onClick={() => setTab('grid')}>Grid</button>
+        <button className={tab === 'suggestions' ? 'active' : ''} onClick={() => setTab('suggestions')}>Suggestions</button>
       </div>
       {/* All tabs stay mounted, toggled via display -- switching tabs must not
           reset a tab's own local state (e.g. Grid's swept-group selection). */}
-      <div style={{ display: tab === 'chart' ? 'block' : 'none' }}>
+      <div className="tab-panel-chart" style={{ display: tab === 'chart' ? 'block' : 'none' }}>
         <ChartTab result={result} hand={hand} target={target} />
       </div>
-      <div style={{ display: tab === 'table' ? 'block' : 'none' }}>
+      <div className="tab-panel-table" style={{ display: tab === 'table' ? 'block' : 'none' }}>
         <TableTab result={result} analysis={analysis} hand={hand} turnCfg={turnCfg} />
       </div>
-      <div style={{ display: tab === 'grid' ? 'block' : 'none' }}>
+      <div className="tab-panel-grid" style={{ display: tab === 'grid' ? 'block' : 'none' }}>
         <GridTab />
+      </div>
+      <div className="tab-panel-suggestions" style={{ display: tab === 'suggestions' ? 'block' : 'none' }}>
+        <SuggestionsTab />
       </div>
     </div>
   );

@@ -72,7 +72,7 @@ describe('Table tab and resize handle', () => {
     render(<App />);
     // default hand size 7 -> table's first row should be n=7, not n=0
     fireEvent.click(screen.getByText('Table'));
-    const table = document.querySelector('table.num-table')!;
+    const table = document.querySelector('.tab-panel-table table.num-table')!;
     expect(table).toBeTruthy();
     const firstDataCell = table.querySelector('tbody tr td')!;
     expect(firstDataCell.textContent).toBe('7');
@@ -247,5 +247,122 @@ describe('Long/unbroken group names (structural checks -- jsdom cannot verify pi
     // way in this environment (see CLAUDE.md §10).
     expect(document.querySelector('.rail')).toBeTruthy();
     expect(document.querySelector('.panel')).toBeTruthy();
+  });
+});
+
+describe('Deck size presets, others alignment, chart axis labels/gridlines', () => {
+  it('deck size preset buttons exist and clicking one updates the deck size', () => {
+    render(<App />);
+    const preset60 = [...document.querySelectorAll('.preset-chips button')].find((b) => b.textContent === '60')!;
+    fireEvent.click(preset60);
+    expect((screen.getByDisplayValue('60') as HTMLInputElement).value).toBe('60');
+  });
+
+  it('the active preset gets the active class when it matches the current deck size', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('99'));
+    const preset99 = [...document.querySelectorAll('.preset-chips button')].find((b) => b.textContent === '99');
+    expect(preset99?.className).toContain('active');
+  });
+
+  it('Others row has a dedicated count element and placeholder distinct from the label', () => {
+    render(<App />);
+    expect(document.querySelector('.others-count')).toBeTruthy();
+    expect(document.querySelector('.others-placeholder')).toBeTruthy();
+    expect(document.querySelector('.others-label')?.textContent).toBe('Others');
+  });
+
+  it('the chart renders vertical per-card gridlines and percentage/axis labels', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]')!;
+    expect(svg.querySelectorAll('line.vax, line.vax5').length).toBeGreaterThan(30); // one per card, N=40
+    expect(svg.querySelectorAll('text.lbl').length).toBeGreaterThan(0);
+    expect([...svg.querySelectorAll('text.lbl')].some((t) => t.textContent === 'cards drawn')).toBe(true);
+    expect([...svg.querySelectorAll('text.lbl')].some((t) => t.textContent === '100%')).toBe(true);
+  });
+});
+
+describe('Advisor strip and Suggestions tab', () => {
+  it('the advisor strip shows a goal, turn, and first-turn-draw checkbox, always live', () => {
+    render(<App />);
+    const strip = document.querySelector('.advisor-strip')!;
+    expect(strip.textContent).toContain('Goal:');
+    expect(strip.textContent).toContain('by turn');
+    expect(strip.textContent).toContain('first turn draw');
+  });
+
+  it('the advisor gives real advice for the default (single-clause, monotone) query', () => {
+    render(<App />);
+    const strip = document.querySelector('.advisor-strip')!;
+    expect(strip.textContent).not.toContain('Not available');
+    expect(strip.textContent).toMatch(/Draw \d+ cards|Already there/);
+  });
+
+  it('clicking "See suggestions" switches to the Suggestions tab and shows real tradeoff data', () => {
+    render(<App />);
+    const seeLink = screen.getByText(/See suggestions/);
+    fireEvent.click(seeLink);
+    const suggestionsBtn = [...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Suggestions')!;
+    expect(suggestionsBtn.className).toContain('active');
+    expect(screen.getByText(/Target 90/)).toBeInTheDocument();
+    // default query (2 groups, AND) should produce a real minimal-vector table
+    expect(document.querySelector('.num-table')).toBeTruthy();
+  });
+
+  it('the advisor and Suggestions tab agree with each other (same underlying math, cross-checked numerically)', () => {
+    render(<App />);
+    const stripText = document.querySelector('.advisor-strip')!.textContent!;
+    // advisor line looks like "...Or add 4 Blink ETB, 3 Blink Spell...";
+    // extract the suggested counts it names.
+    const stripCounts: Record<string, number> = {};
+    for (const m of stripText.matchAll(/(\d+) (Blink ETB|Blink Spell)/g)) {
+      stripCounts[m[2]!] = Number(m[1]);
+    }
+    expect(Object.keys(stripCounts).length).toBeGreaterThan(0); // the test itself must exercise a real suggestion
+
+    fireEvent.click(screen.getByText(/See suggestions/));
+    const table = document.querySelector('.tab-panel-suggestions .num-table')!;
+    const headers = [...table.querySelectorAll('th')].map((th) => th.textContent);
+    const rows = [...table.querySelectorAll('tbody tr')].map((tr) =>
+      [...tr.querySelectorAll('td')].map((td) => Number(td.textContent)));
+
+    // the advisor's suggestion is "add N more" on top of the CURRENT count,
+    // so reconstruct the absolute vector it implies and confirm that exact
+    // vector is one of the rows in the Suggestions table -- not just that
+    // some row exists, but that the SAME composition appears in both places.
+    const current: Record<string, number> = { 'Blink ETB': 4, 'Blink Spell': 3 };
+    const impliedVector = headers.map((h) => (current[h!] ?? 0) + (stripCounts[h!] ?? 0));
+    expect(rows.some((row) => row.every((v, i) => v === impliedVector[i]))).toBe(true);
+  });
+
+  it('changing the goal turn updates BOTH the advisor line and the Suggestions tab consistently', () => {
+    render(<App />);
+    const turnInputs = document.querySelectorAll('.advisor-inline');
+    const turnInput = turnInputs[1] as HTMLInputElement; // [0]=target%, [1]=turn
+    fireEvent.change(turnInput, { target: { value: '10' } });
+    fireEvent.click(screen.getByText(/See suggestions/));
+    expect(screen.getByText(/Target 90.00% by turn 10/)).toBeInTheDocument();
+  });
+
+  it('a genuinely non-subsuming OR query correctly disables the advisor advice (still shows inputs) and the Suggestions tab', () => {
+    render(<App />);
+    // '+ add combo' with the default row (bare Blink ETB>=1) actually COLLAPSES
+    // back to 1 clause via normalize()'s (correct, intentional) subsumption --
+    // confirmed directly against the math layer before writing this test.
+    // Use 'Edit as text' to set a query that genuinely doesn't subsume: neither
+    // branch's box is weaker-or-equal than the other on every dimension.
+    fireEvent.click(screen.getByText('Edit as text'));
+    const textarea = document.querySelector('.query-textarea') as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: '"Blink ETB">=1 & "Blink Spell">=1 | "Blink ETB">=3' },
+    });
+    const strip = document.querySelector('.advisor-strip')!;
+    expect(strip.textContent).toContain('Not available');
+    // inputs must still be present and interactive even though advice is unavailable
+    expect(document.querySelectorAll('.advisor-inline').length).toBe(2);
+    // the advisor's own "See suggestions" link correctly doesn't render when
+    // there's no advice to summarize -- use the tab strip directly instead.
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Suggestions')!);
+    expect(screen.getByText(/Only available for a single AND-clause/)).toBeInTheDocument();
   });
 });

@@ -175,11 +175,11 @@ export function CombosEditor() {
                     const { name, rest } = rowParts(r, nameOf);
                     return (
                       <span className="combo-summary-item" key={ri}>
-                        {ri > 0 && <span className="hint"> and </span>}
-                        {r.neg && <span className="hint">not </span>}
+                        {ri > 0 && <span className="hint">and</span>}
+                        {r.neg && <span className="hint">not</span>}
                         <span className="dot inline" style={{ background: colorFor(r.g) }} />
                         <span className="truncate-name">{name}</span>
-                        <span className="hint"> {rest}</span>
+                        <span className="hint">{rest}</span>
                       </span>
                     );
                   })}

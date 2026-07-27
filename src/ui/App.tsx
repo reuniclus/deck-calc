@@ -3,7 +3,8 @@ import { AppStateProvider } from '../state/AppState';
 import { QueryModelProvider } from '../state/useQueryModel';
 import { DeckEditor } from './DeckEditor';
 import { CombosEditor } from './CombosEditor';
-import { ResultView } from './ResultView';
+import { ResultView, type ResultTab } from './ResultView';
+import { AdvisorStrip } from './AdvisorStrip';
 
 const RAIL_MIN = 180, RAIL_MAX = 450, RAIL_DEFAULT = 230;
 
@@ -21,6 +22,7 @@ function useRailWidth(): [number, (w: number) => void] {
 
 function Layout() {
   const [railWidth, setRailWidth] = useRailWidth();
+  const [tab, setTab] = useState<ResultTab>('chart');
   const gridRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
@@ -53,7 +55,8 @@ function Layout() {
         onPointerDown={() => { dragging.current = true; }}
       />
       <div className="main">
-        <ResultView />
+        <AdvisorStrip onSeeSuggestions={() => setTab('suggestions')} />
+        <ResultView tab={tab} setTab={setTab} />
       </div>
     </div>
   );

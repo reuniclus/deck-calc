@@ -27,8 +27,13 @@ h1 { font-size: 1.25rem; margin: 0 0 1rem; }
 .resize-handle:hover::before { background: var(--border-strong); }
 
 .panel { background: var(--surface); border-radius: 8px; padding: 12px; min-width: 0; max-width: 100%; overflow: hidden; }
+.advisor-strip { margin-bottom: 12px; }
+.advisor-inline { width: 40px; border: none; border-bottom: 1px dashed var(--border-strong); background: none; text-align: center; padding: 1px 2px; border-radius: 0; }
 
 .row-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.preset-chips { display: flex; gap: 4px; }
+.preset-chips button { font-size: 11px; padding: 3px 7px; color: var(--dim); }
+.preset-chips button.active { background: var(--surface-2); color: var(--fg); border-color: var(--border-strong); }
 .inline-field { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); }
 
 input, select, textarea, button {
@@ -49,7 +54,9 @@ button:hover { border-color: var(--accent); }
 .group-row .spacer { flex: 1; }
 .group-row.others { color: var(--muted); }
 .group-row.others.bad { color: var(--bad); }
-.others-count { padding-right: 2px; }
+.others-label { margin-right: 8px; width: 84px; padding: 2px 4px; }
+.others-count { width: 44px; padding: 2px 4px; text-align: right; }
+.others-placeholder { width: 18px; flex-shrink: 0; }
 .icon-btn { color: var(--muted); border: none; background: none; padding: 2px 4px; }
 .icon-btn:hover { color: var(--bad); border: none; }
 
@@ -60,8 +67,8 @@ button:hover { border-color: var(--accent); }
 .combo-box { border: 1px solid var(--border-strong); border-radius: 5px; padding: 8px 10px; margin-bottom: 8px; max-width: 100%; overflow: hidden; }
 .combo-toggle { display: flex; align-items: center; gap: 6px; border: none; background: none; width: 100%; text-align: left; padding: 0; font-size: 12px; min-width: 0; }
 .combo-toggle .chevron { color: var(--muted); width: 10px; flex-shrink: 0; }
-.combo-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; max-width: 100%; }
-.combo-summary-item { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; }
+.combo-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.combo-summary-item { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; }
 .truncate-name {
   display: inline-block; max-width: 110px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
@@ -98,9 +105,14 @@ button:hover { border-color: var(--accent); }
 .hint.flag { color: var(--flag); }
 
 svg .ax { stroke: var(--border); }
+svg .vax { stroke: var(--border); opacity: .25; }
+svg .vax5 { stroke: var(--border); opacity: .55; }
 svg .tgt { stroke: var(--ok); stroke-dasharray: 4 3; opacity: .7; }
 svg .hand { stroke: var(--flag); stroke-dasharray: 2 2; opacity: .6; }
 svg .curve-line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+svg .lbl { fill: var(--dim); font-size: 10px; }
+svg .lbl.mid { text-anchor: middle; }
+svg .lbl.dim-lbl { fill: var(--muted); }
 
 .tab-strip { display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin: 10px 0; flex-wrap: wrap; }
 .tab-strip button { border: none; background: none; color: var(--dim); font-size: 13px; padding: 4px 10px; border-radius: 4px; }
