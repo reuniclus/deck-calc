@@ -2,7 +2,6 @@ import { useAppDispatch, useAppState } from '../state/AppState';
 import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
 import { colorFor } from './DeckEditor';
 import { parseNumOr0 } from './numberInput';
-import { useDebouncedCommit } from './useDebouncedCommit';
 import { collectGroups } from '../math/expr';
 import { useSuggestionsCtx } from '../state/useSuggestions';
 
@@ -44,19 +43,12 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
   const nameOf = nameOfFactory(groups);
   const currentOf = (g: string) => groups.find((x) => x.id === g)?.count ?? 0;
 
-  // Hooks must run unconditionally on every render -- these were briefly
-  // placed after the early-return below, which would violate React's Rules
-  // of Hooks the moment the query becomes invalid (a real bug caught before
-  // shipping, not a style nit).
-  const [localTargetPct, setTargetPct] = useDebouncedCommit(
-    Math.round(target * 100),
-    (v) => dispatch({ type: 'setTarget', target: v / 100 }),
-  );
-  const [localAdviseTurn, setAdviseTurn] = useDebouncedCommit(
-    adviseTurn,
-    (v) => dispatch({ type: 'setAdviseTurn', adviseTurn: v }),
-  );
-
+  // Direct dispatch on every keystroke -- the underlying recompute is cheap
+  // now (see useQueryModel.tsx/useSuggestions.tsx: target no longer re-runs
+  // the expensive base pipeline, and the general search's enumeration is
+  // cached across goal changes on the same deck+query), so there's no
+  // longer a real cost to debounce against. A debounce was only ever a
+  // workaround for expensive recomputation, not a goal in itself.
   if (!result || !analysis || !dnf || !ast) {
     return (
       <div className="panel advisor-strip">
@@ -87,15 +79,15 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
         <input
           className="advisor-inline"
           type="number" min={1} max={100}
-          value={localTargetPct}
-          onChange={(e) => setTargetPct(parseNumOr0(e.target.value))}
+          value={Math.round(target * 100)}
+          onChange={(e) => dispatch({ type: 'setTarget', target: parseNumOr0(e.target.value) / 100 })}
         />
         <span className="hint">success rate by turn</span>
         <input
           className="advisor-inline"
           type="number" min={0} max={60}
-          value={localAdviseTurn}
-          onChange={(e) => setAdviseTurn(parseNumOr0(e.target.value))}
+          value={adviseTurn}
+          onChange={(e) => dispatch({ type: 'setAdviseTurn', adviseTurn: parseNumOr0(e.target.value) })}
         />
         <label className="inline-field" style={{ marginLeft: 6 }}>
           <input
