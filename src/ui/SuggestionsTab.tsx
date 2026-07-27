@@ -30,7 +30,7 @@ export function SuggestionsTab() {
   const { groups, deckSize, target, adviseTurn, turnCfg } = useAppState();
   const { dnf, ast, error } = useQueryModelCtx();
   const { n, vectors, bestP, usedGeneralPath, searchTooLarge } = useSuggestionsCtx();
-  const { result: mulliganResult, tooLarge: mulliganTooLarge } = useMulliganStrategyCtx();
+  const { result: mulliganResult, tooLarge: mulliganTooLarge, loading: mulliganLoading } = useMulliganStrategyCtx();
   const nameOf = nameOfFactory(groups);
 
   const groupIds = useMemo(() => (ast ? [...collectGroups(ast)] : []), [ast]);
@@ -128,6 +128,7 @@ export function SuggestionsTab() {
               <p className="hint">
                 Optimal play reaches <b>{pct(mulliganResult.bestP)}</b> by turn {adviseTurn}, vs{' '}
                 <b>{pct(mulliganResult.neverMulliganP)}</b> if you never mulligan.
+                {mulliganLoading && <span className="mulligan-loading"> (recomputing…)</span>}
               </p>
               <table className="num-table">
                 <thead>
@@ -155,6 +156,8 @@ export function SuggestionsTab() {
                 </tbody>
               </table>
             </>
+          ) : mulliganLoading ? (
+            <p className="hint mulligan-loading">Computing optimal mulligan strategy…</p>
           ) : null}
         </div>
       )}

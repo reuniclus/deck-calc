@@ -1,52 +1,71 @@
 /**
- * Shares the optimal-mulligan-strategy computation (src/math/mulligan.ts)
- * the same way useSuggestions.tsx shares the suggestion search -- computed
- * once per relevant state change, not independently re-run by every
- * component that wants to show it.
+ * Shares the optimal-mulligan-strategy computation, now run through a Web
+ * Worker (or a same-shape synchronous fallback -- see mulliganWorkerClient.ts)
+ * instead of blocking the main thread directly. Measured directly before
+ * this change: ~0.5s for 1 mulligan, several seconds for 2 -- genuinely
+ * long enough to freeze the page, not a minor jank. Wrapping a synchronous
+ * call in a Promise does NOT fix this (JS is single-threaded; the executor
+ * still runs on the same thread) -- only a real separate thread does, which
+ * is what a Worker actually is.
  */
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { useMemo, createContext, useContext, useRef, type ReactNode } from 'react';
 import { useAppState } from './AppState';
 import { useQueryModelCtx } from './useQueryModel';
 import { cardsSeenByTurn } from '../model/turns';
-import {
-  optimalMulliganStrategy, optimalMulliganCurve, MulliganTooLargeError,
-  type MulliganResult, type MulliganCurveResult,
-} from '../math/mulligan';
+import { useWorkerRequest, type WorkerLike } from './useWorkerRequest';
+import { getMulliganWorker } from './mulliganWorkerClient';
+import type { MulliganComputeRequest, MulliganComputeResponse } from '../workers/mulliganProtocol';
+import type { MulliganResult, MulliganCurveResult } from '../math/mulligan';
 import type { Curve } from '../math/boxdp';
 
 export interface MulliganStrategyState {
-  /** null when mulligans=0 (nothing to compute/show) or the query is invalid. */
+  /** null when mulligans=0, the query is invalid, or a result hasn't
+   * arrived yet. Deliberately kept from a PREVIOUS response while `loading`
+   * is true (see useWorkerRequest's own doc comment) -- never blanked out
+   * just because a new computation started. */
   result: MulliganResult | null;
-  /** Whole-curve version, for the chart/table/grid -- indexed by extraDraws
-   * (see MulliganCurveResult's own doc); null under the same conditions as
-   * `result`. Computed alongside `result` (same recursion shape, aggregated
-   * differently), not derived from it -- `result` needs the per-hand
-   * breakdown the curve version aggregates away. */
   curves: MulliganCurveResult | null;
   tooLarge: string | null;
+  /** True while a request is in flight (real Worker: genuinely non-
+   * blocking; fallback: still resolves via a microtask, so this is
+   * momentarily true either way). Show a "computing..." indicator, but
+   * keep showing whatever `result`/`curves` already have. */
+  loading: boolean;
 }
 
 const MulliganCtx = createContext<MulliganStrategyState | null>(null);
+
+interface WorkerData { strategy: MulliganResult; curves: { bestCurve: Curve; neverMulliganCurve: Curve } }
 
 export function MulliganStrategyProvider({ children }: { children: ReactNode }) {
   const { deckSize, turnCfg, target, adviseTurn } = useAppState();
   const { dnf, result: queryResult, sizes } = useQueryModelCtx();
 
-  const value = useMemo<MulliganStrategyState>(() => {
-    if (turnCfg.mulligans <= 0 || !dnf || !queryResult) return { result: null, curves: null, tooLarge: null };
+  const workerRef = useRef<WorkerLike | null>(null);
+  if (!workerRef.current) workerRef.current = getMulliganWorker();
+
+  const request = useMemo<Omit<MulliganComputeRequest, 'id'> | null>(() => {
+    if (turnCfg.mulligans <= 0 || !dnf || !queryResult) return null;
     const handSize = turnCfg.openingHand;
     const totalSeen = Math.min(deckSize, cardsSeenByTurn(adviseTurn, turnCfg));
-    const extraDraws = Math.max(0, totalSeen - handSize);
-    try {
-      const r = optimalMulliganStrategy(dnf, sizes, deckSize, handSize, extraDraws, turnCfg.mulligans);
-      const c = optimalMulliganCurve(dnf, sizes, deckSize, handSize, turnCfg.mulligans);
-      return { result: r, curves: c, tooLarge: null };
-    } catch (e) {
-      const message = e instanceof MulliganTooLargeError ? e.message : (e instanceof Error ? e.message : String(e));
-      return { result: null, curves: null, tooLarge: message };
-    }
+    const extraDrawsForT = Math.max(0, totalSeen - handSize);
+    return { dnf, sizes, deckSize, handSize, extraDrawsForT, maxMulligans: turnCfg.mulligans };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dnf, queryResult, sizes, deckSize, turnCfg, adviseTurn, target]);
+
+  const { data, loading, error } = useWorkerRequest<Omit<MulliganComputeRequest, 'id'>, MulliganComputeResponse>(
+    workerRef.current,
+    request,
+    (r) => (r.ok ? { strategy: r.strategy, curves: r.curves } : null),
+  );
+
+  const typedData = data as WorkerData | null;
+  const value: MulliganStrategyState = {
+    result: typedData?.strategy ?? null,
+    curves: typedData?.curves ?? null,
+    tooLarge: error,
+    loading,
+  };
 
   return <MulliganCtx.Provider value={value}>{children}</MulliganCtx.Provider>;
 }

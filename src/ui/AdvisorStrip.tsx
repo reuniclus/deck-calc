@@ -62,7 +62,7 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
   const dispatch = useAppDispatch();
   const { dnf, result, analysis, ast } = useQueryModelCtx();
   const { n, vectors, searchTooLarge } = useSuggestionsCtx();
-  const { result: mulliganResult, tooLarge: mulliganTooLarge } = useMulliganStrategyCtx();
+  const { result: mulliganResult, tooLarge: mulliganTooLarge, loading: mulliganLoading } = useMulliganStrategyCtx();
   const nameOf = nameOfFactory(groups);
   const currentOf = (g: string) => groups.find((x) => x.id === g)?.count ?? 0;
 
@@ -139,7 +139,10 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
                 mulliganing).{' '}
                 {describeAsThreshold(mulliganResult.strategy, groupIdsUsed, nameOf)
                   ?? 'The optimal keep/mulligan decision isn\u2019t a simple threshold here \u2014 see the Suggestions tab for the full hand-by-hand breakdown.'}
+                {mulliganLoading && <span className="mulligan-loading"> (recomputing…)</span>}
               </>
+            : mulliganLoading
+            ? <span className="mulligan-loading">Computing optimal mulligan strategy…</span>
             : null}
         </p>
       )}

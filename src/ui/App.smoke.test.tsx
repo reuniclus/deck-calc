@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { App } from './App';
 import { AppStateProvider } from '../state/AppState';
 import { QueryModelProvider } from '../state/useQueryModel';
@@ -622,45 +622,52 @@ describe('Mulligan strategy (real end-to-end: exact recursive model, not the old
     expect(document.querySelector('.mulligan-strategy-line')).toBeNull();
   });
 
-  it('setting 1 mulligan shows the strategy line with real numbers, and optimal play is never worse than never-mulliganing', () => {
+  it('setting 1 mulligan shows the strategy line with real numbers, and optimal play is never worse than never-mulliganing', async () => {
     render(<App />);
     setMulligans(1);
-    const line = document.querySelector('.mulligan-strategy-line');
-    expect(line).toBeTruthy();
-    expect(line!.textContent).toMatch(/With up to 1 mulligan, optimal play reaches/);
-    const percents = line!.textContent!.match(/(\d+)%/g)!.map((s) => Number(s.replace('%', '')));
+    const line = await waitFor(() => {
+      const el = document.querySelector('.mulligan-strategy-line');
+      if (!el || !el.textContent) throw new Error('not ready');
+      return el;
+    });
+    expect(line.textContent).toMatch(/With up to 1 mulligan, optimal play reaches/);
+    const percents = line.textContent!.match(/(\d+)%/g)!.map((s) => Number(s.replace('%', '')));
     expect(percents.length).toBeGreaterThanOrEqual(2);
     const [bestP, neverP] = percents;
     expect(bestP!).toBeGreaterThanOrEqual(neverP!);
   });
 
-  it('the default single-group-equivalent query (2 groups here) does NOT force a misleading single-group threshold description', () => {
+  it('the default single-group-equivalent query (2 groups here) does NOT force a misleading single-group threshold description', async () => {
     render(<App />);
     setMulligans(1);
-    const line = document.querySelector('.mulligan-strategy-line')!;
     // default query references 2 groups (Blink ETB, Blink Spell) -> describeAsThreshold
     // returns null for multi-group -> the generic fallback message should show
-    expect(line.textContent).toMatch(/isn.t a simple threshold|see the Suggestions tab/);
+    await waitFor(() => {
+      expect(document.querySelector('.mulligan-strategy-line')!.textContent)
+        .toMatch(/isn.t a simple threshold|see the Suggestions tab/);
+    });
   });
 
-  it('the Suggestions tab shows the full per-hand breakdown table when mulligans > 0', () => {
+  it('the Suggestions tab shows the full per-hand breakdown table when mulligans > 0', async () => {
     render(<App />);
     setMulligans(1);
     fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Suggestions')!);
-    expect(screen.getByText('Optimal mulligan strategy', { exact: false })).toBeInTheDocument();
-    const tables = document.querySelectorAll('.tab-panel-suggestions .num-table');
-    // second num-table (after the minimal-vectors one) is the mulligan breakdown
-    expect(tables.length).toBeGreaterThanOrEqual(2);
-    const mulliganTable = tables[tables.length - 1]!;
-    expect(mulliganTable.textContent).toMatch(/keep|mulligan/);
+    expect(await screen.findByText('Optimal mulligan strategy', { exact: false })).toBeInTheDocument();
+    await waitFor(() => {
+      const tables = document.querySelectorAll('.tab-panel-suggestions .num-table');
+      // second num-table (after the minimal-vectors one) is the mulligan breakdown
+      expect(tables.length).toBeGreaterThanOrEqual(2);
+      const mulliganTable = tables[tables.length - 1]!;
+      expect(mulliganTable.textContent).toMatch(/keep|mulligan/);
+    });
   });
 
-  it('going back to 0 mulligans removes the strategy line again (not stuck showing stale data)', () => {
+  it('going back to 0 mulligans removes the strategy line again (not stuck showing stale data)', async () => {
     render(<App />);
     setMulligans(2);
-    expect(document.querySelector('.mulligan-strategy-line')).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.mulligan-strategy-line')).toBeTruthy());
     setMulligans(0);
-    expect(document.querySelector('.mulligan-strategy-line')).toBeNull();
+    await waitFor(() => expect(document.querySelector('.mulligan-strategy-line')).toBeNull());
   });
 });
 
@@ -671,16 +678,18 @@ describe('Mulligan-adjusted values in the chart, table, and grid (not just the a
     fireEvent.change(input, { target: { value: String(n) } });
   }
 
-  it('the chart main curve value at the opening hand point CHANGES when mulligans go from 0 to 1 (the actual reported jump)', () => {
+  it('the chart main curve value at the opening hand point CHANGES when mulligans go from 0 to 1 (the actual reported jump)', async () => {
     render(<App />);
     const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
     const mainLineBefore = svg.querySelector('polyline.curve-line')!.getAttribute('points')!;
     setMulligans(1);
-    const mainLineAfter = document.querySelector('svg[aria-label="probability curve"] polyline.curve-line')!.getAttribute('points')!;
-    expect(mainLineAfter).not.toBe(mainLineBefore);
+    await waitFor(() => {
+      const after = document.querySelector('svg[aria-label="probability curve"] polyline.curve-line')!.getAttribute('points')!;
+      expect(after).not.toBe(mainLineBefore);
+    });
   });
 
-  it('the table shows a HIGHER value at the opening-hand row with 1 mulligan than with 0 (mulliganing can only help or be neutral)', () => {
+  it('the table shows a HIGHER value at the opening-hand row with 1 mulligan than with 0 (mulliganing can only help or be neutral)', async () => {
     render(<App />);
     fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Table')!);
     const getFirstRowPct = () => {
@@ -689,29 +698,82 @@ describe('Mulligan-adjusted values in the chart, table, and grid (not just the a
     };
     const before = getFirstRowPct();
     setMulligans(1);
-    const after = getFirstRowPct();
-    expect(after).toBeGreaterThanOrEqual(before);
+    await waitFor(() => {
+      const after = getFirstRowPct();
+      expect(after).toBeGreaterThan(before); // strict: this query's mulligan genuinely changes the value
+    });
   });
 
-  it('the grid shows mulligan-adjusted values too, and flags when it falls back to raw values for a too-large case', () => {
+  it('the grid shows mulligan-adjusted values too, and flags when it falls back to raw values for a too-large case', async () => {
     render(<App />);
     fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Grid')!);
     const cellBefore = document.querySelector('.tab-panel-grid table.heat-table tr.active-row td')!.textContent;
     setMulligans(1);
-    const cellAfter = document.querySelector('.tab-panel-grid table.heat-table tr.active-row td')!.textContent;
-    // grid's leftmost data column is at n=hand (the opening hand point) --
-    // should reflect the SAME jump the chart/table show.
-    expect(cellAfter).not.toBe(cellBefore);
+    await waitFor(() => {
+      const cellAfter = document.querySelector('.tab-panel-grid table.heat-table tr.active-row td')!.textContent;
+      // grid's leftmost data column is at n=hand (the opening hand point) --
+      // should reflect the SAME jump the chart/table show.
+      expect(cellAfter).not.toBe(cellBefore);
+    });
   });
 
-  it('at 0 mulligans, the displayed curve is UNCHANGED from before this whole feature existed (exact passthrough, not just "close")', () => {
+  it('at 0 mulligans, the displayed curve is UNCHANGED from before this whole feature existed (exact passthrough, not just "close")', async () => {
     render(<App />);
     const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
     const points1 = svg.querySelector('polyline.curve-line')!.getAttribute('points');
     // toggle mulligans on then back to 0 -- should return to the exact same curve
     setMulligans(2);
+    await waitFor(() => {
+      const changed = document.querySelector('svg[aria-label="probability curve"] polyline.curve-line')!.getAttribute('points');
+      expect(changed).not.toBe(points1);
+    });
     setMulligans(0);
-    const points2 = document.querySelector('svg[aria-label="probability curve"] polyline.curve-line')!.getAttribute('points');
-    expect(points2).toBe(points1);
+    await waitFor(() => {
+      const points2 = document.querySelector('svg[aria-label="probability curve"] polyline.curve-line')!.getAttribute('points');
+      expect(points2).toBe(points1);
+    });
+  });
+});
+
+describe('Mulligan computation loading state (the actual point: never freeze, always show progress)', () => {
+  function setMulligans(n: number) {
+    const label = screen.getByText('Mull.').closest('label')!;
+    const input = label.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: String(n) } });
+  }
+
+  it('shows a "computing" indicator immediately after setting mulligans, before the result resolves', async () => {
+    render(<App />);
+    setMulligans(1);
+    // the loading state should already be true synchronously (the effect
+    // that sets it runs within the same act() flush as the input change),
+    // BEFORE the async response has had a chance to resolve.
+    expect(document.querySelector('.mulligan-loading')).toBeTruthy();
+    await waitFor(() => {
+      expect(document.querySelector('.mulligan-strategy-line')!.textContent)
+        .toMatch(/With up to 1 mulligan/);
+    });
+    // once resolved, the loading indicator goes away
+    expect(document.querySelector('.mulligan-loading')).toBeNull();
+  });
+
+  it('a new (superseding) mulligan count eventually replaces the old result, going through a loading state in between', async () => {
+    render(<App />);
+    setMulligans(1);
+    await waitFor(() => {
+      expect(document.querySelector('.mulligan-strategy-line')!.textContent).toMatch(/With up to 1 mulligan/);
+    });
+    const firstResultText = document.querySelector('.mulligan-strategy-line')!.textContent!;
+
+    setMulligans(2); // supersedes -- a new computation starts
+    await waitFor(() => {
+      expect(document.querySelector('.mulligan-strategy-line')!.textContent).toMatch(/With up to 2 mulligans/);
+    });
+    expect(document.querySelector('.mulligan-strategy-line')!.textContent).not.toBe(firstResultText);
+    // "old data stays visible while a newer request is loading" is proven
+    // directly, without a race, in useWorkerRequest.test.ts using a fake
+    // worker with full control over response timing -- not re-attempted
+    // here against the sync fallback's near-instant microtask resolution,
+    // which is too fast a window to assert against reliably end-to-end.
   });
 });
