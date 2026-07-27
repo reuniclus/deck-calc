@@ -7,6 +7,11 @@ covers the math and harness, this covers the actual UI that will eventually repl
 the harness. Palette/type deliberately deferred — everything below is CSS-variable
 driven so color/type is a late, independent decision (see §7).
 
+Reference renders of the settled layout: `design-mockups/deckcalc_desktop.png`,
+`design-mockups/deckcalc_mobile_top.png` (page top, before scrolling),
+`design-mockups/deckcalc_mobile_scrolled.png` (sticky bar active). Colors/fonts in
+these are placeholder (dark neutral + functional group hues) — see §7.
+
 ## 0. The job of the page
 
 *Tell me how likely I am to draw what I need, and what to change if I'm not likely
@@ -53,8 +58,8 @@ Draggable divider between the rail and main content.
 - Hit target ~8px even though the visible bar is ~3px; brightens on hover
   (`--border` → `--border-strong`) so it's discoverable without being a visible
   line down the page at rest.
-- **Desktop only.** Mobile collapses the rail into a drawer regardless (§8, not
-  yet designed), so there's no rail to drag there.
+- **Desktop only.** Mobile collapses the rail into a top section + sticky
+  shortcut instead (§8), so there's no rail to drag there.
 - **Persisted to `localStorage`, not part of the shareable/exported state.** This
   is a "how I like to look at it" preference, same bucket as target %, turn
   config, and grid display mode — none of which belong in the export/URL hash
@@ -62,6 +67,23 @@ Draggable divider between the rail and main content.
 - Default rail width tested at ~220–240px with realistic multi-word names
   (`Blink ETB`, `Blink Spell`, `Hand Traps`) fitting on one line without needing
   the handle; 200px was too tight. Ship the default around there, not narrower.
+
+### Row layout bug, caught in mockup review
+Group rows (`[dot] name [count input] [delete]`) had `flex:1` on the *name*,
+which stretches it to fill the row and shoves the count input all the way to
+the right — right next to delete, and visually disconnected from the name it
+edits. Fix: put the flexible spacer *between* the input and delete instead, so
+name+input read as one tight unit and delete sits alone, isolated from
+accidental taps: `[dot] name [input] ⋯⋯⋯spacer⋯⋯⋯ [delete]`. Applies everywhere
+this row shape appears (desktop rail, mobile drawer/top-of-page block).
+
+### Deck size + turns share one line
+`Deck [40]  Hand [7]  Mull. [0]` on one row, both desktop and mobile — no
+reason mobile gets the compact version and desktop doesn't. Wraps via
+`flex-wrap` if a screen is too narrow to fit all three (safety net, not the
+intended normal case). "Mulligans" abbreviates to "Mull." at desktop rail width
+specifically to fit the line — a real (small) legibility cost, accepted rather
+than wrapping the row, but worth revisiting if it reads as unclear in practice.
 
 ## 2. Combos card
 
@@ -142,23 +164,61 @@ Table / Grid) is active — not a tab itself. Earlier design had this as a 4th t
 ("Path to target"); moved out once it was clear the advisor's whole value is
 being the "so what do I do" answer, which shouldn't require a click to see.
 
-Condensed copy, not the full breakdown:
+Condensed copy, revised twice for tone — settled form:
 ```
-Goal: 90% success rate by turn 4
+Goal: 90% success rate by turn 4          [ ] first turn draw
 Draw 23 cards (13 more). Or add 2 Blink ETB, 2 Blink Spell.
-See all options →
+See suggestions →
 ```
-- "Goal: X% by turn T" states the target plainly, no preamble.
+- "Goal: X% success rate by turn T" states the target plainly, no preamble.
 - "(N more)" is *drawsNeeded minus the cards already drawn by the chosen turn*,
-  not drawsNeeded restated — the number that's actually actionable ("13 more
-  than you'd already have") rather than a repeat of the raw total.
+  not drawsNeeded restated — the actionable number ("13 more than you'd already
+  have"), not a repeat of the raw total.
 - Multiple copy suggestions are joined inline with their group's color dot next
   to the name — avoids the ambiguity of a slash-separated "X/Y/Z copies of
   A/B/C" list where pairing numbers to names isn't visually obvious.
-- "See all options" is its own **tab** ("All options"), not an inline expand —
-  the full breakdown (every minimal vector, best split of current slots, fewest
+- The turn number and target % are themselves editable inline (dashed
+  underline, same "tap to edit" affordance used everywhere a value is directly
+  editable — sticky-bar chip numbers on mobile use the identical treatment, so
+  there's one visual signal for "this number responds to a tap," not several).
+- "See suggestions" (renamed from "See all options" — shorter, and matches the
+  tab it points to, see below) is its own **tab**, not an inline expand — the
+  full breakdown (every minimal vector, best split of current slots, fewest
   slots for target) is substantial enough content that it deserves the same
   treatment as Grid, not a section that pushes the curve down when opened.
+
+### "First turn draw" checkbox
+Originally lived in the deck/turns setup card as "on the play" — renamed and
+relocated after review:
+- **Renamed** because "on the play" is TCG jargon (real, standard, but jargon)
+  for "you go first"; "first turn draw" states the actual mechanical effect
+  being toggled (does turn 1 include a draw) without requiring the term.
+- **Relocated to the advisor strip**, next to the turn-number input, not the
+  setup card — because it's fundamentally about *how a turn number gets
+  interpreted*, not about deck composition or opening hand size (which the
+  setup card is genuinely for). The advisor's "by turn T" input is the one
+  place in the app where a turn number is something being actively set, not
+  just displayed (e.g. the table's turn column is an output, not an input) —
+  so this is the place the two belong together.
+- **Polarity flipped, not just relabeled.** "On the play" checked meant *no*
+  draw on turn 1 (going first skips it). A checkbox labeled "first turn draw"
+  has to mean the opposite when checked — "yes, turn 1 includes a draw" —
+  otherwise a box literally labeled "first turn draw" would read as checked
+  while meaning you don't get one. Default state flips too: today's default
+  (going first, no turn-1 draw) is **unchecked** under the new label.
+  **Implementation note:** the underlying field is currently
+  `onThePlay: boolean` in `model/turns.ts`; this needs to become something like
+  `firstTurnDraw: boolean` with inverted polarity when built, not the old field
+  name with a manually-inverted checkbox binding grafted on top.
+- **The advisor's inputs (target %, turn, first turn draw) are always live**,
+  independent of whether the advisor can currently compute anything from them.
+  Only the *output* (the advice sentence, "See suggestions") needs a
+  disabled/muted state — for a non-monotone query or one with an OR (outside
+  the advisor's current scope, §4/§5), the inputs stay fully interactive and
+  the advice line is replaced with a muted "not available for this query
+  shape" note instead. Editing the inputs is harmless even when nothing can be
+  computed from them yet, and doing so means they're already correct once the
+  query simplifies back into something the advisor supports.
 
 ## 4. Curve: suggested-composition lines replace blind ±1/±2
 
@@ -201,7 +261,7 @@ as much as I'm worried about the info being useless."
   isn't a single monotone AND-clause so the advisor tools don't apply), revert to
   the old blind ±1/±2 fan rather than showing nothing.
 
-## 5. "All options" tab / table
+## 5. "Suggestions" tab / table
 
 Gets the same dedup treatment as the curve, for the same reason (a table row
 per vector is just as redundant as a graph line per vector, once two vectors are
@@ -242,10 +302,61 @@ with it. A distinct accent (considered: brass/amber, "instrument panel" framing)
 for UI chrome, separate from the data hues. Not decided; revisit deliberately,
 not by drifting into a default while building something else.
 
-## 8. Mobile — not yet designed
+## 8. Mobile
 
-Open question, next up. Rail becomes *something* other than a fixed-width
-sidebar (drawer? accordion? bottom sheet?) — not decided.
+Settled, after testing three real options (not just "drawer vs. accordion" as a
+shallow choice):
+1. Everything as one continuous scroll (deck → combos → advisor → curve →
+   tabs) — simplest, but reintroduces the exact long-scroll problem the desktop
+   hero-curve layout was built to avoid.
+2. A bottom sheet for deck+combos, curve+tabs always visible above it — keeps
+   the curve genuinely primary at all times, but real interaction work (drag
+   gesture, snap points) for a first pass.
+3. A collapsible top drawer, reusing the accordion primitive already built for
+   combos.
+
+**Chosen: a hybrid of 1 and 3**, not any single one of the three — the actual
+insight (from the person building this, not an assumption I made): editing a
+copy count is the single highest-frequency action in the whole tool, while
+restructuring combos or adding a group is comparatively rare. Those two
+shouldn't cost the same friction.
+
+### The real content lives at the top of the page (option 1), always
+Full Deck+Turns card and full Combos accordion sit inline at the very top,
+before any scrolling — same content as the desktop rail, just stacked
+vertically instead of beside the curve. **This is the only home for that
+content** — there is no separate "drawer version" with its own state; the
+drawer (below) is a shortcut back to this exact section, not alternate
+storage. Caught and corrected mid-design: an earlier version of this mockup
+put the sticky bar at the very top of the page with no full section above it,
+which would have made the drawer the *only* place to reach several of these
+controls — wrong, since the goal was a shortcut, not a second surface.
+
+### Once scrolled past that section, a sticky bar takes over
+Pinned to the top of the viewport: one horizontally-scrollable chip per
+tracked group (`Blink ETB  −  4  +`), the count itself tappable for direct
+entry (not just `−`/`+`, which only handles single-unit nudges — going from 4
+to 12 copies, a real scenario tested earlier this session, would mean 8 taps
+otherwise), and an "Edit" button. Deck size and combos structure don't get
+chips here — "one and done" settings, not per-second adjustments — they're
+reached via Edit instead.
+
+### "Edit" opens an overlay, not a push-down panel
+Same content as the top-of-page section (deck size, groups, combos, turns),
+shown as a dimmed overlay rather than pushing the curve down in place.
+Deliberate: if it pushed content down instead, scrolling while the drawer's
+open would leave you at a different scroll offset than where you started once
+you close it. An overlay guarantees you land back exactly where you were —
+right for something opened to tweak one thing and close again. Dismissible by
+the × or by tapping the dimmed backdrop.
+
+### Every setup field is a real input, not styled text
+Deck size, each group's count, hand size, mulligans are all actual number
+inputs; on-the-play (now "first turn draw," §3) is a real checkbox. Caught in
+review: an early version of this drawer showed some of these as plain text
+labels (e.g. "Hand 7 · 0 mulligans" as one static line) that only *looked*
+like a settings summary — every field the person can actually change needs to
+look changeable.
 
 ## Backlog (raised during this pass, not resolved — do not "fix" silently later)
 
@@ -260,12 +371,20 @@ sidebar (drawer? accordion? bottom sheet?) — not decided.
    of the univariate hypergeometric, but for a general multi-group boolean query
    "best subset" isn't well-defined without knowing which combination is being
    optimized for. Real math project, not a parameter tweak — see PLAN.md §3c.
-2. **Turn 0 vs turn 1 collapse under "on the play."** `cardsSeenByTurn(0)` and
-   `cardsSeenByTurn(1)` currently return the *same* value whenever "on the play"
-   is checked, because turn 1 on the play skips its draw — correct per the rule,
-   but means the advisor's "by turn" input can't distinguish turn 0 from turn 1
-   in that state, which reads as a bug even though the underlying rule is right.
-   Decide: should "turn 1" always mean hand+1 regardless of the on-the-play
-   toggle (treating "skip the draw" as an orthogonal flag rather than something
-   that collapses two turn numbers together), or should turn 0 stop being an
-   offered input when on the play? Not resolved.
+2. **Turn 0 vs turn 1 collapse under "first turn draw" unchecked (formerly "on
+   the play").** `cardsSeenByTurn(0)` and `cardsSeenByTurn(1)` currently return
+   the *same* value whenever the box is unchecked, because turn 1 then skips its
+   draw — correct per the rule, but means the advisor's "by turn" input can't
+   distinguish turn 0 from turn 1 in that state, which reads as a bug even
+   though the underlying rule is right. Decide: should "turn 1" always mean
+   hand+1 regardless of the checkbox (treating "skip the draw" as an orthogonal
+   flag rather than something that collapses two turn numbers together), or
+   should turn 0 stop being an offered input in that state? Not resolved.
+
+## Methodology note
+
+Mockups for this pass were built with Claude's `visualize` widget tool
+(interactive HTML/CSS) for rapid iteration, then re-rendered as static PNGs
+(a small local Pillow script) once it became clear the widget tool doesn't
+reliably render on mobile clients — worth knowing if resuming this pass
+elsewhere, since the two aren't interchangeable for review on every device.
