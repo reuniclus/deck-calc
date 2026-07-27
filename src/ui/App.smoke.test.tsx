@@ -347,26 +347,34 @@ describe('Advisor strip and Suggestions tab', () => {
     expect(screen.getByText(/Target 90.00% by turn 10/)).toBeInTheDocument();
   });
 
-  it('a genuinely non-subsuming OR query correctly disables the advisor advice (still shows inputs) and the Suggestions tab', () => {
+  it('a genuinely non-subsuming OR query now gets REAL advice via the general search path (not "not available")', () => {
     render(<App />);
-    // '+ add combo' with the default row (bare Blink ETB>=1) actually COLLAPSES
-    // back to 1 clause via normalize()'s (correct, intentional) subsumption --
-    // confirmed directly against the math layer before writing this test.
-    // Use 'Edit as text' to set a query that genuinely doesn't subsume: neither
-    // branch's box is weaker-or-equal than the other on every dimension.
     fireEvent.click(screen.getByText('Edit as text'));
     const textarea = document.querySelector('.query-textarea') as HTMLTextAreaElement;
     fireEvent.change(textarea, {
       target: { value: '"Blink ETB">=1 & "Blink Spell">=1 | "Blink ETB">=3' },
     });
     const strip = document.querySelector('.advisor-strip')!;
-    expect(strip.textContent).toContain('Not available');
-    // inputs must still be present and interactive even though advice is unavailable
-    expect(document.querySelectorAll('.advisor-inline').length).toBe(2);
-    // the advisor's own "See suggestions" link correctly doesn't render when
-    // there's no advice to summarize -- use the tab strip directly instead.
+    expect(strip.textContent).not.toContain('Not available');
+    expect(strip.textContent).toMatch(/Draw \d+ cards|Already there/);
     fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Suggestions')!);
-    expect(screen.getByText(/Only available for a single AND-clause/)).toBeInTheDocument();
+    // the general path's own explanatory note, not the old blanket refusal
+    expect(screen.getByText(/no shortcut search available/)).toBeInTheDocument();
+    expect(document.querySelector('.num-table')).toBeTruthy();
+    expect(screen.queryByText(/Only available for a single AND-clause/)).toBeNull();
+  });
+
+  it('the exact reported non-monotone OR case (mana flood avoidance, both clauses negated) gets real Suggestions', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('Edit as text'));
+    const textarea = document.querySelector('.query-textarea') as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: { value: '!"Blink ETB">=4 | (!"Blink ETB">=3 & !"Blink Spell">=1)' },
+    });
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Suggestions')!);
+    expect(screen.getByText(/no shortcut search available/)).toBeInTheDocument();
+    // "best split"/"fewest slots" honestly omitted (not silently, explicitly) for OR/NOT
+    expect(screen.getByText(/aren.t shown for OR\/NOT queries/)).toBeInTheDocument();
   });
 });
 
@@ -391,7 +399,7 @@ describe('Chart: turn-T line, hover tooltip, suggestion curves', () => {
     expect(tooltip).toBeTruthy();
     expect(tooltip!.textContent).toMatch(/cards drawn/);
     expect(tooltip!.textContent).toMatch(/turn \d+/);
-    expect(tooltip!.textContent).toContain('Current deck:');
+    expect(tooltip!.textContent).toContain('Current deck (any combo):');
   });
 
   it('the tooltip disappears on mouse leave', () => {
@@ -483,7 +491,7 @@ describe('Chart hover pip (discrete point marker, not a continuous/interpolated 
     const pip = document.querySelector('circle.hover-pip.main') as SVGCircleElement;
     expect(pip).toBeTruthy();
 
-    const tooltipPct = document.querySelector('.chart-tooltip')!.textContent!.match(/Current deck: (\d+\.\d+)%/)![1];
+    const tooltipPct = document.querySelector('.chart-tooltip')!.textContent!.match(/Current deck \(any combo\): (\d+\.\d+)%/)![1];
 
     // recompute the expected pip position independently from the same
     // formulas ChartTab uses, and confirm the pip's cy corresponds to

@@ -4,6 +4,7 @@ import { useQueryModelCtx, nameOfFactory, sizesOf } from '../state/useQueryModel
 import { effectiveOpeningHand, turnForCardsSeen, cardsSeenByTurn } from '../model/turns';
 import type { analyze } from '../math/analyze';
 import { computeSuggestionCurves } from '../state/suggestionCurves';
+import { evaluate } from '../math/evaluate';
 import { GridTab } from './GridTab';
 import { SuggestionsTab } from './SuggestionsTab';
 
@@ -55,6 +56,24 @@ function ChartTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ast, dnf, result, deckSize, turnN, target, groups]);
 
+  // Each clause's OWN curve, as if it were the only requirement -- this is
+  // ALWAYS computable regardless of monotonicity or clause count (a single
+  // box is just evaluate() with a one-clause DNF, no inclusion-exclusion
+  // needed), unlike the suggestion search above which needs the monotone/
+  // single-clause fast path.
+  const clauseCurves = useMemo(() => {
+    if (!dnf || dnf.clauses.length <= 1) return [];
+    const sizes = sizesOf(groups);
+    return dnf.clauses.map((clause) => {
+      try {
+        return evaluate(deckSize, sizes, { clauses: [clause], monotone: true }).curve;
+      } catch {
+        return null;
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dnf, deckSize, groups]);
+
   if (!result) return null;
 
   const W = 640, H = 200, PAD = 28;
@@ -99,11 +118,21 @@ function ChartTab() {
         {turnN >= 0 && turnN <= N && turnN !== hand && (
           <line x1={x(turnN)} x2={x(turnN)} y1={8} y2={H - PAD} className="turnline" />
         )}
+        {clauseCurves.map((curve, i) => curve && (
+          <polyline
+            key={`clause${i}`}
+            points={Array.from(curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ')}
+            className="clause-line"
+          />
+        ))}
         {suggestPoints.map((pts, i) => (
           <polyline key={i} points={pts} className="suggest-line" style={{ opacity: 0.85 - i * 0.18 }} />
         ))}
         <polyline points={points} className="curve-line" />
         {hover && <line x1={x(hover.n)} x2={x(hover.n)} y1={8} y2={H - PAD} className="hoverline" />}
+        {hover && clauseCurves.map((curve, i) => curve && (
+          <circle key={`cpip${i}`} cx={x(hover.n)} cy={y(curve[hover.n]!)} r={3} className="hover-pip clause" />
+        ))}
         {hover && (
           <circle cx={x(hover.n)} cy={y(result.curve[hover.n]!)} r={3.5} className="hover-pip main" />
         )}
@@ -130,7 +159,10 @@ function ChartTab() {
           <div className="hint">
             {hover.n} cards drawn{turnForCardsSeen(hover.n, turnCfg) !== null ? ` (turn ${turnForCardsSeen(hover.n, turnCfg)})` : ''}
           </div>
-          <div>Current deck: <b>{pct(result.curve[hover.n]!)}</b></div>
+          <div>Current deck (any combo): <b>{pct(result.curve[hover.n]!)}</b></div>
+          {clauseCurves.map((curve, i) => curve && (
+            <div key={`crow${i}`} className="clause-tooltip-row">Combo {i + 1}: <b>{pct(curve[hover.n]!)}</b></div>
+          ))}
           {suggestions.map((s, i) => (
             <div key={i} className="suggest-tooltip-row">
               {vectorLabel(s.vectors[0]!)}
