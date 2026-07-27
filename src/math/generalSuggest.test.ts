@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generalMinimalVectors, SearchTooLargeError } from './generalSuggest';
+import { generalMinimalVectors, enumerateCompositionCurves, pickMinimalVectors, SearchTooLargeError } from './generalSuggest';
 import { parseQuery } from './parse';
 import { normalize } from './normalize';
 import { evaluate } from './evaluate';
@@ -91,5 +91,56 @@ describe('generalMinimalVectors (non-monotone / multi-clause, no staircase short
   it('returns bestP=1, empty vectors for no referenced groups', () => {
     const ast = parseQuery('true', resolve);
     expect(generalMinimalVectors(ast, [], 40, 7, 0.5, {})).toEqual({ bestP: 1, vectors: [] });
+  });
+});
+
+describe('enumerateCompositionCurves + pickMinimalVectors (split, cacheable)', () => {
+  it('combined, produce IDENTICAL results to the monolithic generalMinimalVectors', () => {
+    const ast = parseQuery('!land>=4 | (!land>=3 & !ramp>=1)', resolve);
+    const groupIds = ['g0', 'g1'];
+    const deckSize = 99, n = 13, target = 0.9, sizes = { g0: 38, g1: 6 };
+
+    const monolithic = generalMinimalVectors(ast, groupIds, deckSize, n, target, sizes);
+    const curves = enumerateCompositionCurves(ast, groupIds, deckSize, sizes);
+    const split = pickMinimalVectors(curves, groupIds, n, target);
+
+    expect(split.bestP).toBeCloseTo(monolithic.bestP, 10);
+    const norm = (vs: typeof split.vectors) => vs.map((v) => groupIds.map((g) => v[g]).join(',')).sort();
+    expect(norm(split.vectors)).toEqual(norm(monolithic.vectors));
+  });
+
+  it('the SAME cached curves correctly answer DIFFERENT target/n queries without re-enumerating', () => {
+    const ast = parseQuery('land>=1 & ramp>=1', resolve);
+    const groupIds = ['g0', 'g1'];
+    const sizes = { g0: 4, g1: 3 };
+    const curves = enumerateCompositionCurves(ast, groupIds, 40, sizes);
+
+    const at90 = pickMinimalVectors(curves, groupIds, 10, 0.9);
+    const at50 = pickMinimalVectors(curves, groupIds, 10, 0.5);
+    const atTurn5 = pickMinimalVectors(curves, groupIds, 5, 0.9);
+
+    // cross-check each against the monolithic function to confirm the cached
+    // curves genuinely support arbitrary re-querying, not just the first case
+    expect(at90.bestP).toBeCloseTo(generalMinimalVectors(ast, groupIds, 40, 10, 0.9, sizes).bestP, 10);
+    expect(at50.vectors.length).toBeGreaterThan(0);
+    expect(atTurn5.bestP).toBeCloseTo(generalMinimalVectors(ast, groupIds, 40, 5, 0.9, sizes).bestP, 10);
+  });
+
+  it('enumerateCompositionCurves throws the same SearchTooLargeError cases as the monolithic function', () => {
+    const ast = parseQuery('!land>=4', resolve);
+    expect(() => enumerateCompositionCurves(ast, ['g0', 'g1'], 1000, { g0: 100, g1: 100 }))
+      .toThrow(SearchTooLargeError);
+  });
+
+  it('pickMinimalVectors never calls evaluate() -- pure array scan (structural: no Expr/Sizes params at all)', () => {
+    // enforced by the type signature itself (no ast/baseSizes parameters),
+    // but assert it runs fast even for a large pre-computed curve set as a
+    // sanity check that nothing sneaks in expensive work.
+    const ast = parseQuery('land>=1 & ramp>=1', resolve);
+    const groupIds = ['g0', 'g1'];
+    const curves = enumerateCompositionCurves(ast, groupIds, 40, { g0: 4, g1: 3 });
+    const start = performance.now();
+    for (let i = 0; i < 50; i++) pickMinimalVectors(curves, groupIds, 10, 0.5 + i * 0.001);
+    expect(performance.now() - start).toBeLessThan(50); // 50 re-queries, should be near-instant
   });
 });

@@ -43,22 +43,23 @@ export interface QueryModel {
   flat: ReturnType<typeof decompileFlat> | null;
 }
 
-/**
- * The one pipeline every panel derives from. Deliberately re-parses from
- * `state.query` (the single source of truth) rather than caching an AST in
- * app state — see AppState.tsx's comment on why text stays authoritative.
- */
-function computeQueryModel(query: string, groups: Group[], deckSize: number, target: number): QueryModel {
+/** Everything that does NOT depend on target: parse, normalize, the actual
+ * DP (evaluate), decompileFlat. This is the expensive part -- re-running it
+ * just because target changed was pure waste, since nothing here reads
+ * target at all. Only analyze() (a cheap linear scan of an already-computed
+ * curve) needs it. */
+type BaseModel = Omit<QueryModel, 'analysis'>;
+
+function computeBaseModel(query: string, groups: Group[], deckSize: number): BaseModel {
   const sizes = sizesOf(groups);
   try {
     const ast = parseQuery(query, resolverFor(groups));
     const dnf = normalize(ast, sizes);
     const result = evaluate(deckSize, sizes, dnf);
-    const analysis = analyze(result.curve, target, result.monotone);
     const flat = decompileFlat(ast);
-    return { sizes, error: null, ast, dnf, result, analysis, flat };
+    return { sizes, error: null, ast, dnf, result, flat };
   } catch (e) {
-    return { sizes, error: describeError(e), ast: null, dnf: null, result: null, analysis: null, flat: null };
+    return { sizes, error: describeError(e), ast: null, dnf: null, result: null, flat: null };
   }
 }
 
@@ -67,13 +68,16 @@ const QueryModelCtx = createContext<QueryModel | null>(null);
 /** Computes the pipeline ONCE per relevant state change; every consumer reads
  * the same result via useQueryModelCtx() instead of each re-running parse/
  * normalize/evaluate/analyze independently (useMemo does not share cache
- * across separate call sites/components). */
+ * across separate call sites/components). Nested memos: the expensive base
+ * (parse/normalize/evaluate) only re-runs on query/groups/deckSize; target
+ * changes only re-run the cheap analyze() step on top of it. */
 export function QueryModelProvider({ children }: { children: ReactNode }) {
   const { query, groups, deckSize, target } = useAppState();
-  const model = useMemo(
-    () => computeQueryModel(query, groups, deckSize, target),
-    [query, groups, deckSize, target],
-  );
+  const base = useMemo(() => computeBaseModel(query, groups, deckSize), [query, groups, deckSize]);
+  const model = useMemo<QueryModel>(() => {
+    if (base.error || !base.result) return { ...base, analysis: null };
+    return { ...base, analysis: analyze(base.result.curve, target, base.result.monotone) };
+  }, [base, target]);
   return <QueryModelCtx.Provider value={model}>{children}</QueryModelCtx.Provider>;
 }
 
