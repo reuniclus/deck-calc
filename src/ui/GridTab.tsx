@@ -3,6 +3,8 @@ import { useAppState, type Group } from '../state/AppState';
 import { useQueryModelCtx } from '../state/useQueryModel';
 import { evaluate } from '../math/evaluate';
 import { normalize } from '../math/normalize';
+import { optimalMulliganCurve, MulliganTooLargeError } from '../math/mulligan';
+import { buildDisplayCurve } from '../state/useMulliganStrategy';
 import { effectiveOpeningHand } from '../model/turns';
 import { colorFor } from './DeckEditor';
 import { parseNumOr0 } from './numberInput';
@@ -73,19 +75,36 @@ export function GridTab() {
     const computeFrom = Math.max(0, kLo - 1); // one extra row so dCopy/interaction never fake-NA at the edge
 
     const curves = new Map<number, Float64Array | null>();
+    let mulliganTooLarge: string | null = null;
     for (let k = computeFrom; k <= kHi; k++) {
       const trialGroups = groups.map((x) => (x.id === g.id ? { ...x, count: k } : x));
       const sizes: Record<string, number> = {};
       for (const x of trialGroups) sizes[x.id] = x.count;
       try {
-        curves.set(k, evaluate(deckSize, sizes, normalize(ast, sizes)).curve);
+        const dnf = normalize(ast, sizes);
+        const rawCurve = evaluate(deckSize, sizes, dnf).curve;
+        if (turnCfg.mulligans > 0 && !mulliganTooLarge) {
+          try {
+            const mc = optimalMulliganCurve(dnf, sizes, deckSize, turnCfg.openingHand, turnCfg.mulligans);
+            curves.set(k, buildDisplayCurve(rawCurve, mc, turnCfg.openingHand));
+          } catch (e) {
+            // The size cap doesn't depend on the swept count, only on group
+            // count/handSize/mulligans -- if one row is too large, EVERY row
+            // would be, so fall back to the raw (non-mulligan) curve for the
+            // whole grid rather than a confusing row-by-row mix.
+            mulliganTooLarge = e instanceof MulliganTooLargeError ? e.message : String(e);
+            curves.set(k, rawCurve);
+          }
+        } else {
+          curves.set(k, rawCurve);
+        }
       } catch {
         curves.set(k, null);
       }
     }
-    return { curves, kLo, kHi };
+    return { curves, kLo, kHi, mulliganTooLarge };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ast, g?.id, g?.count, groups, deckSize]);
+  }, [ast, g?.id, g?.count, groups, deckSize, turnCfg]);
 
   if (error) return <p className="hint bad">{error}</p>;
   if (!g) return <p className="hint">Add a group first.</p>;
@@ -98,7 +117,7 @@ export function GridTab() {
     );
   }
 
-  const { curves, kLo, kHi } = computed;
+  const { curves, kLo, kHi, mulliganTooLarge } = computed;
   const cols: number[] = [];
   for (let n = hand; n <= nMax; n++) cols.push(n);
 
@@ -182,6 +201,11 @@ export function GridTab() {
           : <>Interaction between an extra copy of <b>{g.name}</b> and an extra card drawn &mdash; positive (cool) means
             they compound, negative (warm) means they overlap/substitute.</>}
       </p>
+      {mulliganTooLarge && (
+        <p className="hint flag">
+          Showing raw (non-mulligan) values &mdash; optimal-mulligan search was too large for this grid: {mulliganTooLarge}
+        </p>
+      )}
     </div>
   );
 }

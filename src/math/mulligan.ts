@@ -37,6 +37,7 @@
  * the opening hand) is a substantially bigger problem, out of scope here.
  */
 import { evaluate } from './evaluate';
+import type { Curve } from './boxdp';
 import type { Box, Dnf, GroupId, Interval, Sizes } from './expr';
 
 export class MulliganTooLargeError extends Error {}
@@ -177,6 +178,133 @@ function optimalValue(
   return total;
 }
 
+/** Whole-curve version of keepValue: same shifted-DNF-on-the-smaller-deck
+ * trick, but returns evaluate()'s FULL curve (indexed by extraDraws, i.e.
+ * additional cards drawn after this hand) instead of one point from it.
+ * evaluate() computes the whole curve internally regardless -- the scalar
+ * version was simply discarding everything except one index. */
+function keepCurve(
+  dnf: Dnf, groupIds: GroupId[], state: DeckState,
+  hand: Record<GroupId, number>, handSize: number,
+): Curve {
+  const shiftedClauses = dnf.clauses
+    .map((c) => shiftBox(c, hand))
+    .filter((c): c is Box => c !== null);
+  const shifted: Dnf = { clauses: shiftedClauses, monotone: dnf.monotone };
+  const remSizes = remainingSizes(state, groupIds, hand);
+  const remDeckSize = state.deckSize - handSize;
+  return evaluate(remDeckSize, remSizes, shifted).curve;
+}
+
+/** Pointwise max of two curves over the SAME "extraDraws" axis, even though
+ * they have different lengths (a curve after one more mulligan is shorter,
+ * since that branch's remaining deck is smaller by one more handSize) --
+ * `shorter`'s value is held at its last (maximum-n) entry for any index
+ * beyond its own length, matching the scalar version's Math.min(extraDraws,
+ * remDeckSize) clamp, just applied pointwise across a whole array now. */
+function pointwiseMaxExtend(longer: Curve, shorter: Curve): Curve {
+  const out = new Float64Array(longer.length);
+  const lastShorter = shorter[shorter.length - 1]!;
+  for (let i = 0; i < longer.length; i++) {
+    const shortVal = i < shorter.length ? shorter[i]! : lastShorter;
+    out[i] = Math.max(longer[i]!, shortVal);
+  }
+  return out;
+}
+
+/** Whole-curve version of optimalValue: V(state, mulligansLeft) as a
+ * function of extraDraws, not just at one fixed value. */
+function optimalCurveRec(
+  dnf: Dnf, groupIds: GroupId[], state: DeckState,
+  handSize: number, mulligansLeft: number,
+): Curve {
+  const hands = enumerateHands(groupIds, state, handSize);
+  const remDeckSize = state.deckSize - handSize;
+  const total = new Float64Array(remDeckSize + 1);
+  for (const { hand, probability } of hands) {
+    const kc = keepCurve(dnf, groupIds, state, hand, handSize);
+    let best = kc;
+    if (mulligansLeft > 0) {
+      const nextState: DeckState = {
+        sizes: remainingSizes(state, groupIds, hand),
+        deckSize: state.deckSize - handSize,
+      };
+      const mc = optimalCurveRec(dnf, groupIds, nextState, handSize, mulligansLeft - 1);
+      best = pointwiseMaxExtend(kc, mc);
+    }
+    for (let i = 0; i < total.length; i++) total[i]! += probability * best[i]!;
+  }
+  return total;
+}
+
+export interface MulliganCurveResult {
+  /** Indexed by extraDraws (cards drawn AFTER the kept hand), NOT total
+   * cards seen -- callers displaying by total draw count need to shift by
+   * handSize themselves (see useMulliganStrategy.tsx). */
+  bestCurve: Curve;
+  neverMulliganCurve: Curve;
+}
+
+/** Same exact model as optimalMulliganStrategy, generalized to return the
+ * WHOLE curve (every extraDraws value at once) rather than one point --
+ * lets the chart/table/grid show the mulligan-adjusted success rate
+ * everywhere, not just at one specific goal turn. Reuses every helper
+ * (enumerateHands, shiftBox, the size-cap check) unchanged; the recursion
+ * is the same shape, just carrying arrays instead of scalars. */
+export function optimalMulliganCurve(
+  dnf: Dnf,
+  fullSizes: Sizes,
+  deckSize: number,
+  handSize: number,
+  maxMulligans: number,
+): MulliganCurveResult {
+  const groupIds = [...new Set(dnf.clauses.flatMap((c) => Object.keys(c)))];
+  checkSizeCap(groupIds, handSize, maxMulligans);
+
+  const fullState: DeckState = { sizes: fullSizes, deckSize };
+  const hands = enumerateHands(groupIds, fullState, handSize);
+  const remDeckSize = deckSize - handSize;
+  const bestCurve = new Float64Array(remDeckSize + 1);
+  const neverMulliganCurve = new Float64Array(remDeckSize + 1);
+
+  for (const { hand, probability } of hands) {
+    const kc = keepCurve(dnf, groupIds, fullState, hand, handSize);
+    let best = kc;
+    if (maxMulligans > 0) {
+      const nextState: DeckState = {
+        sizes: remainingSizes(fullState, groupIds, hand),
+        deckSize: deckSize - handSize,
+      };
+      const mc = optimalCurveRec(dnf, groupIds, nextState, handSize, maxMulligans - 1);
+      best = pointwiseMaxExtend(kc, mc);
+    }
+    for (let i = 0; i <= remDeckSize; i++) {
+      bestCurve[i]! += probability * best[i]!;
+      neverMulliganCurve[i]! += probability * kc[i]!;
+    }
+  }
+
+  return { bestCurve, neverMulliganCurve };
+}
+
+/** Shared by both optimalMulliganStrategy and optimalMulliganCurve: same
+ * loose (stars-and-bars, ignores individual group caps -- deliberately a
+ * safe over-estimate) upper bound on the hand-space size per level, so an
+ * oversized case fails immediately rather than grinding through a partial
+ * recursion first. */
+function checkSizeCap(groupIds: GroupId[], handSize: number, maxMulligans: number): void {
+  if (groupIds.length > 4) {
+    throw new MulliganTooLargeError(`${groupIds.length} groups referenced -- capped at 4`);
+  }
+  const handSpaceUpperBound = choose(handSize + groupIds.length, groupIds.length);
+  const totalLeaves = Math.pow(handSpaceUpperBound, maxMulligans + 1);
+  if (!Number.isFinite(totalLeaves) || totalLeaves > MAX_LEAVES) {
+    throw new MulliganTooLargeError(
+      `${groupIds.length} groups \u00d7 ${maxMulligans} mulligans -- search space too large`,
+    );
+  }
+}
+
 export function optimalMulliganStrategy(
   dnf: Dnf,
   fullSizes: Sizes,
@@ -186,20 +314,7 @@ export function optimalMulliganStrategy(
   maxMulligans: number,
 ): MulliganResult {
   const groupIds = [...new Set(dnf.clauses.flatMap((c) => Object.keys(c)))];
-  if (groupIds.length > 4) {
-    throw new MulliganTooLargeError(`${groupIds.length} groups referenced -- capped at 4`);
-  }
-  // Loose (stars-and-bars, ignores individual group caps -- deliberately a
-  // safe over-estimate) upper bound on the hand-space size per level, so an
-  // oversized case fails immediately rather than grinding through a partial
-  // recursion first.
-  const handSpaceUpperBound = choose(handSize + groupIds.length, groupIds.length);
-  const totalLeaves = Math.pow(handSpaceUpperBound, maxMulligans + 1);
-  if (!Number.isFinite(totalLeaves) || totalLeaves > MAX_LEAVES) {
-    throw new MulliganTooLargeError(
-      `${groupIds.length} groups \u00d7 ${maxMulligans} mulligans -- search space too large`,
-    );
-  }
+  checkSizeCap(groupIds, handSize, maxMulligans);
 
   const fullState: DeckState = { sizes: fullSizes, deckSize };
   const hands = enumerateHands(groupIds, fullState, handSize);

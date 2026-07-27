@@ -5,6 +5,7 @@ import { effectiveOpeningHand, turnForCardsSeen, cardsSeenByTurn } from '../mode
 import type { analyze } from '../math/analyze';
 import { curvesForVectors } from '../state/suggestionCurves';
 import { useSuggestionsCtx } from '../state/useSuggestions';
+import { useMulliganStrategyCtx, buildDisplayCurve } from '../state/useMulliganStrategy';
 import { evaluate } from '../math/evaluate';
 import { GridTab } from './GridTab';
 import { SuggestionsTab } from './SuggestionsTab';
@@ -49,6 +50,8 @@ function ChartTab() {
   const N = result ? result.curve.length - 1 : 0;
   const turnN = Math.min(N, cardsSeenByTurn(adviseTurn, turnCfg));
   const nameOf = nameOfFactory(groups);
+  const { curves: mulliganCurves } = useMulliganStrategyCtx();
+  const displayCurve = result ? buildDisplayCurve(result.curve, mulliganCurves, turnCfg.openingHand) : null;
 
   const { vectors: suggestedVectors } = useSuggestionsCtx();
   const suggestions = useMemo(() => {
@@ -89,7 +92,7 @@ function ChartTab() {
   // so none of those four things can silently disagree with each other.
   interface Series { key: string; label: string; curve: Float64Array; baseOpacity: number; className: string }
   const series: Series[] = [
-    { key: 'main', label: 'Current deck (any combo)', curve: result.curve, baseOpacity: 1, className: 'curve-line' },
+    { key: 'main', label: 'Current deck (any combo)', curve: displayCurve!, baseOpacity: 1, className: 'curve-line' },
     ...clauseCurves.flatMap((curve, i) => curve
       ? [{ key: `clause${i}`, label: `Combo ${i + 1}`, curve, baseOpacity: 0.35, className: 'clause-line' }]
       : []),
@@ -201,26 +204,28 @@ function ChartTab() {
 
 
 function TableTab({
-  result, analysis, hand, turnCfg,
+  result, analysis, hand, turnCfg, displayCurve,
 }: {
   result: NonNullable<ReturnType<typeof useQueryModelCtx>['result']>;
   analysis: ReturnType<typeof analyze>;
   hand: number;
   turnCfg: ReturnType<typeof useAppState>['turnCfg'];
+  /** Same length/indexing as result.curve; equals it exactly when mulligans=0. */
+  displayCurve: ReturnType<typeof buildDisplayCurve>;
 }) {
   const N = result.curve.length - 1;
   const start = Math.min(hand, N);
   const kneeN = visibleKnee(analysis, start) + 1;
   const rows = [];
   for (let n = start; n <= N; n++) {
-    const hit = result.curve[n]! >= analysis.target - 1e-12;
+    const hit = displayCurve[n]! >= analysis.target - 1e-12;
     const isKnee = n === kneeN;
     const turn = turnForCardsSeen(n, turnCfg);
     rows.push(
       <tr key={n} className={hit ? 'hit' : ''}>
         <td>{n}</td>
         <td className="dim">{turn ?? ''}</td>
-        <td>{pct(result.curve[n]!)}</td>
+        <td>{pct(displayCurve[n]!)}</td>
         <td className="dim">
           {n === start ? '' : signed(analysis.deltas[n - 1]!)}
           {isKnee ? ' \u25c2 steepest' : ''}
@@ -245,6 +250,7 @@ export type ResultTab = 'chart' | 'table' | 'grid' | 'suggestions';
 export function ResultView({ tab, setTab }: { tab: ResultTab; setTab: (t: ResultTab) => void }) {
   const { turnCfg, target } = useAppState();
   const { error, result, analysis } = useQueryModelCtx();
+  const { curves: mulliganCurves } = useMulliganStrategyCtx();
 
   if (error) {
     return (
@@ -256,6 +262,7 @@ export function ResultView({ tab, setTab }: { tab: ResultTab; setTab: (t: Result
   if (!result || !analysis) return null;
 
   const hand = effectiveOpeningHand(turnCfg);
+  const displayCurve = buildDisplayCurve(result.curve, mulliganCurves, turnCfg.openingHand);
 
   let summary: string;
   if (analysis.windows.length === 0) {
@@ -288,7 +295,7 @@ export function ResultView({ tab, setTab }: { tab: ResultTab; setTab: (t: Result
         <ChartTab />
       </div>
       <div className="tab-panel-table" style={{ display: tab === 'table' ? 'block' : 'none' }}>
-        <TableTab result={result} analysis={analysis} hand={hand} turnCfg={turnCfg} />
+        <TableTab result={result} analysis={analysis} hand={hand} turnCfg={turnCfg} displayCurve={displayCurve} />
       </div>
       <div className="tab-panel-grid" style={{ display: tab === 'grid' ? 'block' : 'none' }}>
         <GridTab />

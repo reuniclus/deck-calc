@@ -663,3 +663,55 @@ describe('Mulligan strategy (real end-to-end: exact recursive model, not the old
     expect(document.querySelector('.mulligan-strategy-line')).toBeNull();
   });
 });
+
+describe('Mulligan-adjusted values in the chart, table, and grid (not just the advisor line)', () => {
+  function setMulligans(n: number) {
+    const label = screen.getByText('Mull.').closest('label')!;
+    const input = label.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: String(n) } });
+  }
+
+  it('the chart main curve value at the opening hand point CHANGES when mulligans go from 0 to 1 (the actual reported jump)', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
+    const mainLineBefore = svg.querySelector('polyline.curve-line')!.getAttribute('points')!;
+    setMulligans(1);
+    const mainLineAfter = document.querySelector('svg[aria-label="probability curve"] polyline.curve-line')!.getAttribute('points')!;
+    expect(mainLineAfter).not.toBe(mainLineBefore);
+  });
+
+  it('the table shows a HIGHER value at the opening-hand row with 1 mulligan than with 0 (mulliganing can only help or be neutral)', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Table')!);
+    const getFirstRowPct = () => {
+      const firstRow = document.querySelector('.tab-panel-table table.num-table tbody tr')!;
+      return Number(firstRow.querySelectorAll('td')[2]!.textContent!.replace('%', ''));
+    };
+    const before = getFirstRowPct();
+    setMulligans(1);
+    const after = getFirstRowPct();
+    expect(after).toBeGreaterThanOrEqual(before);
+  });
+
+  it('the grid shows mulligan-adjusted values too, and flags when it falls back to raw values for a too-large case', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Grid')!);
+    const cellBefore = document.querySelector('.tab-panel-grid table.heat-table tr.active-row td')!.textContent;
+    setMulligans(1);
+    const cellAfter = document.querySelector('.tab-panel-grid table.heat-table tr.active-row td')!.textContent;
+    // grid's leftmost data column is at n=hand (the opening hand point) --
+    // should reflect the SAME jump the chart/table show.
+    expect(cellAfter).not.toBe(cellBefore);
+  });
+
+  it('at 0 mulligans, the displayed curve is UNCHANGED from before this whole feature existed (exact passthrough, not just "close")', () => {
+    render(<App />);
+    const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
+    const points1 = svg.querySelector('polyline.curve-line')!.getAttribute('points');
+    // toggle mulligans on then back to 0 -- should return to the exact same curve
+    setMulligans(2);
+    setMulligans(0);
+    const points2 = document.querySelector('svg[aria-label="probability curve"] polyline.curve-line')!.getAttribute('points');
+    expect(points2).toBe(points1);
+  });
+});

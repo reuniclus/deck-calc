@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { optimalMulliganStrategy, MulliganTooLargeError } from './mulligan';
+import { optimalMulliganStrategy, optimalMulliganCurve, MulliganTooLargeError } from './mulligan';
 import { parseQuery } from './parse';
 import { normalize } from './normalize';
 import { evaluate } from './evaluate';
@@ -143,5 +143,46 @@ describe('optimalMulliganStrategy', () => {
     // exactly (every "mulligan" option degrades to a guaranteed-0 branch,
     // so the max is always just keepP)
     expect(result.bestP).toBeCloseTo(result.neverMulliganP, 10);
+  });
+});
+
+describe('optimalMulliganCurve (whole-curve version, for the chart/table/grid)', () => {
+  it('matches optimalMulliganStrategy EXACTLY at every corresponding extraDraws point (cross-validates the bulk computation against the already-proven scalar one)', () => {
+    const ast = parseQuery('land>=1 & ramp>=1', resolve);
+    const sizes = { g0: 4, g1: 3 };
+    const dnf = normalize(ast, sizes);
+    const deckSize = 20, handSize = 7, M = 1;
+
+    const { bestCurve, neverMulliganCurve } = optimalMulliganCurve(dnf, sizes, deckSize, handSize, M);
+    for (let extraDraws = 0; extraDraws <= deckSize - handSize; extraDraws += 3) {
+      const scalar = optimalMulliganStrategy(dnf, sizes, deckSize, handSize, extraDraws, M);
+      expect(bestCurve[extraDraws]).toBeCloseTo(scalar.bestP, 10);
+      expect(neverMulliganCurve[extraDraws]).toBeCloseTo(scalar.neverMulliganP, 10);
+    }
+  });
+
+  it('at 0 mulligans, neverMulliganCurve and bestCurve are IDENTICAL to each other and to the raw evaluate() curve shifted by handSize', () => {
+    const ast = parseQuery('land>=2', resolve);
+    const sizes = { g0: 8 };
+    const dnf = normalize(ast, sizes);
+    const deckSize = 40, handSize = 7;
+
+    const { bestCurve, neverMulliganCurve } = optimalMulliganCurve(dnf, sizes, deckSize, handSize, 0);
+    const rawCurve = evaluate(deckSize, sizes, dnf).curve;
+    for (let extraDraws = 0; extraDraws <= deckSize - handSize; extraDraws++) {
+      expect(bestCurve[extraDraws]).toBeCloseTo(neverMulliganCurve[extraDraws]!, 10);
+      expect(bestCurve[extraDraws]).toBeCloseTo(rawCurve[handSize + extraDraws]!, 10);
+    }
+  });
+
+  it('bestCurve >= neverMulliganCurve at every point, and is monotonically non-decreasing in extraDraws (more draws never hurts a monotone query)', () => {
+    const ast = parseQuery('land>=3', resolve);
+    const sizes = { g0: 10 };
+    const dnf = normalize(ast, sizes);
+    const { bestCurve, neverMulliganCurve } = optimalMulliganCurve(dnf, sizes, 40, 7, 2);
+    for (let i = 0; i < bestCurve.length; i++) {
+      expect(bestCurve[i]!).toBeGreaterThanOrEqual(neverMulliganCurve[i]! - 1e-12);
+      if (i > 0) expect(bestCurve[i]!).toBeGreaterThanOrEqual(bestCurve[i - 1]! - 1e-12);
+    }
   });
 });
