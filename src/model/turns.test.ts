@@ -6,14 +6,14 @@ describe('turns model', () => {
     expect(cardsSeenByTurn(0, D)).toBe(7);
   });
 
-  it('on the play skips the turn-1 draw', () => {
+  it('firstTurnDraw false skips the turn-1 draw (default)', () => {
     expect(cardsSeenByTurn(1, D)).toBe(7);
     expect(cardsSeenByTurn(2, D)).toBe(8);
     expect(cardsSeenByTurn(3, D)).toBe(9);
   });
 
-  it('on the draw draws on turn 1', () => {
-    const cfg = { ...D, onThePlay: false };
+  it('firstTurnDraw true draws on turn 1', () => {
+    const cfg = { ...D, firstTurnDraw: true };
     expect(cardsSeenByTurn(1, cfg)).toBe(8);
     expect(cardsSeenByTurn(2, cfg)).toBe(9);
   });
@@ -28,7 +28,7 @@ describe('turns model', () => {
   it('is the exact inverse of turnForCardsSeen for turn >= 1', () => {
     // Turn 0 is cardsSeenByTurn's seed value for "opening hand, no turn yet" —
     // it is not itself a turn the inverse should ever produce.
-    for (const cfg of [D, { ...D, onThePlay: false }, { ...D, drawsPerTurn: 2 }]) {
+    for (const cfg of [D, { ...D, firstTurnDraw: true }, { ...D, drawsPerTurn: 2 }]) {
       for (let turn = 1; turn <= 10; turn++) {
         const n = cardsSeenByTurn(turn, cfg);
         expect(turnForCardsSeen(n, cfg)).toBe(turn);
@@ -36,10 +36,10 @@ describe('turns model', () => {
     }
   });
 
-  it('below the opening hand has no turn; at the opening hand size, turn 1 (on the play)', () => {
+  it('below the opening hand has no turn; at the opening hand size, turn 1 (no draw yet)', () => {
     expect(turnForCardsSeen(0, D)).toBeNull();
     expect(turnForCardsSeen(6, D)).toBeNull();
-    expect(turnForCardsSeen(7, D)).toBe(1); // on the play: turn 1 has no draw yet
+    expect(turnForCardsSeen(7, D)).toBe(1); // firstTurnDraw false: turn 1 has no draw yet
   });
 
   it('rounds down mid-turn when drawsPerTurn > 1', () => {
@@ -62,7 +62,7 @@ describe('mulligans (approximated as a smaller effective hand)', () => {
   it('shifts cardsSeenByTurn by exactly the mulligan count, turn structure unchanged', () => {
     const cfg = { ...D, mulligans: 2 };
     expect(cardsSeenByTurn(0, cfg)).toBe(5);
-    expect(cardsSeenByTurn(1, cfg)).toBe(5); // on the play: still no draw on turn 1
+    expect(cardsSeenByTurn(1, cfg)).toBe(5); // firstTurnDraw false: still no draw on turn 1
     expect(cardsSeenByTurn(2, cfg)).toBe(6);
     expect(cardsSeenByTurn(3, cfg)).toBe(7);
   });

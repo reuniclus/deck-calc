@@ -945,7 +945,7 @@ function divHeat(d: number, maxAbs: number): string {
 }
 
 function onPlaySuffix(): string {
-  return state.turnCfg.onThePlay ? '' : ' (draw)';
+  return state.turnCfg.firstTurnDraw ? ' (draw)' : '';
 }
 
 function range(a: number, b: number): number[] {
@@ -1075,7 +1075,7 @@ function init(): void {
   ($('openingHand') as HTMLInputElement).value = String(state.turnCfg.openingHand);
   ($('mulligans') as HTMLInputElement).value = String(state.turnCfg.mulligans);
   ($('adviseTurn') as HTMLInputElement).value = String(state.adviseTurn);
-  ($('onThePlay') as HTMLInputElement).checked = state.turnCfg.onThePlay;
+  ($('onThePlay') as HTMLInputElement).checked = state.turnCfg.firstTurnDraw;
 
   ($('deckSize') as HTMLInputElement).oninput = (e) => {
     const v = parseInt((e.target as HTMLInputElement).value, 10);
@@ -1111,7 +1111,7 @@ function init(): void {
     if (Number.isFinite(v) && v >= 0) { state.adviseTurn = v; recompute(); }
   };
   ($('onThePlay') as HTMLInputElement).onchange = (e) => {
-    state.turnCfg = { ...state.turnCfg, onThePlay: (e.target as HTMLInputElement).checked };
+    state.turnCfg = { ...state.turnCfg, firstTurnDraw: (e.target as HTMLInputElement).checked };
     recompute();
   };
   ($('gridGroup') as HTMLSelectElement).onchange = (e) => {

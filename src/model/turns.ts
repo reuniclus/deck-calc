@@ -8,8 +8,16 @@ export interface TurnConfig {
   openingHand: number;
   /** Cards drawn per turn from turn 1 onward. */
   drawsPerTurn: number;
-  /** Player who goes first skips their turn-1 draw in most trading card games. */
-  onThePlay: boolean;
+  /**
+   * Whether turn 1 itself includes a draw. false = going first ("on the
+   * play" in TCG jargon), which skips it — the more common default. true =
+   * going second ("on the draw"). Named for the mechanical effect rather
+   * than the jargon term; see UI_DESIGN.md §3 for why this was renamed from
+   * `onThePlay` and why the polarity had to flip along with the name (a
+   * checkbox literally labeled "first turn draw" has to read true when turn
+   * 1 has one, not when it doesn't).
+   */
+  firstTurnDraw: boolean;
   /**
    * Number of London-style mulligans taken. APPROXIMATION: modeled as a
    * straight reduction of the effective opening hand (openingHand - mulligans),
@@ -30,7 +38,7 @@ export interface TurnConfig {
 export const DEFAULT_TURN_CONFIG: TurnConfig = {
   openingHand: 7,
   drawsPerTurn: 1,
-  onThePlay: true,
+  firstTurnDraw: false,
   mulligans: 0,
 };
 
@@ -43,7 +51,7 @@ export function effectiveOpeningHand(cfg: TurnConfig): number {
 export function cardsSeenByTurn(turn: number, cfg: TurnConfig): number {
   const hand = effectiveOpeningHand(cfg);
   if (turn <= 0) return hand;
-  const draws = cfg.onThePlay ? turn - 1 : turn;
+  const draws = cfg.firstTurnDraw ? turn : turn - 1;
   return hand + Math.max(0, draws) * cfg.drawsPerTurn;
 }
 
@@ -58,5 +66,5 @@ export function turnForCardsSeen(n: number, cfg: TurnConfig): number | null {
   if (n < hand) return null;
   if (cfg.drawsPerTurn <= 0) return 0;
   const draws = Math.floor((n - hand) / cfg.drawsPerTurn);
-  return draws + (cfg.onThePlay ? 1 : 0);
+  return draws + (cfg.firstTurnDraw ? 0 : 1);
 }
