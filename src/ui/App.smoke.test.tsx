@@ -415,17 +415,26 @@ describe('Chart: turn-T line, hover tooltip, suggestion curves', () => {
     expect(document.querySelector('.chart-tooltip')).toBeNull();
   });
 
-  it('renders suggestion lines for the default single-clause monotone query, and the tooltip lists their compositions', () => {
+  it('hovering exactly on a suggestion line shows THAT line (only) in the tooltip -- not the main curve or every line at once', () => {
     render(<App />);
     const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
-    expect(svg.querySelectorAll('polyline.suggest-line').length).toBeGreaterThan(0);
+    const suggestLines = svg.querySelectorAll('polyline.suggest-line');
+    expect(suggestLines.length).toBeGreaterThan(0);
     vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
       left: 0, top: 0, width: 640, height: 200, right: 640, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
     });
-    fireEvent.mouseMove(svg, { clientX: 320, clientY: 100 });
-    const suggestRows = document.querySelectorAll('.suggest-tooltip-row');
-    expect(suggestRows.length).toBeGreaterThan(0);
-    expect(suggestRows[0]!.textContent).toMatch(/Blink (ETB|Spell)/);
+    // Hover at the EXACT rendered coordinate of a point on the suggestion
+    // line (parsed from its own points attribute), not a guessed position --
+    // guarantees the Y-aware hit-test picks this line, not the main curve.
+    const points = suggestLines[0]!.getAttribute('points')!.split(' ').map((p) => p.split(',').map(Number));
+    const [px, py] = points[Math.floor(points.length / 2)]!;
+    fireEvent.mouseMove(svg, { clientX: px, clientY: py });
+
+    const tooltip = document.querySelector('.chart-tooltip')!;
+    expect(tooltip.textContent).toMatch(/Blink (ETB|Spell)/);
+    expect(tooltip.textContent).not.toContain('Current deck (any combo)');
+    // exactly one data row -- not the main curve's line ALSO shown alongside it
+    expect(tooltip.querySelectorAll('div').length).toBe(2); // cards-drawn line + the one data line
   });
 
   it('no suggestion lines for a non-monotone or multi-clause query (advisor unavailable case)', () => {
@@ -520,17 +529,29 @@ describe('Chart hover pip (discrete point marker, not a continuous/interpolated 
     expect(document.querySelector('circle.hover-pip.main')).toBeNull();
   });
 
-  it('a pip also appears on each visible suggestion line, matching its own tooltip row', () => {
+  it('exactly ONE pip appears at a time, on whichever line is actually hovered -- not one per visible line', () => {
     render(<App />);
     const svg = document.querySelector('svg[aria-label="probability curve"]') as SVGSVGElement;
     vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
       left: 0, top: 0, width: 640, height: 200, right: 640, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
     });
-    fireEvent.mouseMove(svg, { clientX: 320, clientY: 100 });
-    const suggestPips = document.querySelectorAll('circle.hover-pip.suggest');
-    const suggestRows = document.querySelectorAll('.suggest-tooltip-row');
-    expect(suggestPips.length).toBe(suggestRows.length);
-    expect(suggestPips.length).toBeGreaterThan(0);
+    const suggestLine = svg.querySelector('polyline.suggest-line')!;
+    const points = suggestLine.getAttribute('points')!.split(' ').map((p) => p.split(',').map(Number));
+    const [px, py] = points[Math.floor(points.length / 2)]!;
+    fireEvent.mouseMove(svg, { clientX: px, clientY: py });
+
+    const allPips = document.querySelectorAll('circle.hover-pip');
+    expect(allPips.length).toBe(1);
+    expect(allPips[0]!.classList.contains('suggest')).toBe(true);
+
+    // moving to a point clearly on the MAIN curve instead switches the pip
+    const mainLine = svg.querySelector('polyline.curve-line')!;
+    const mainPoints = mainLine.getAttribute('points')!.split(' ').map((p) => p.split(',').map(Number));
+    const [mx, my] = mainPoints[Math.floor(mainPoints.length / 2)]!;
+    fireEvent.mouseMove(svg, { clientX: mx, clientY: my });
+    const pipsNow = document.querySelectorAll('circle.hover-pip');
+    expect(pipsNow.length).toBe(1);
+    expect(pipsNow[0]!.classList.contains('main')).toBe(true);
   });
 });
 

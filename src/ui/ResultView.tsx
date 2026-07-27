@@ -41,7 +41,7 @@ function tickValues(N: number): number[] {
 function ChartTab() {
   const { groups, deckSize, turnCfg, target, adviseTurn } = useAppState();
   const { dnf, result, ast } = useQueryModelCtx();
-  const [hover, setHover] = useState<{ n: number; clientX: number; clientY: number } | null>(null);
+  const [hover, setHover] = useState<{ n: number; seriesIdx: number; clientX: number; clientY: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const hand = effectiveOpeningHand(turnCfg);
@@ -79,19 +79,54 @@ function ChartTab() {
   const W = 640, H = 200, PAD = 28;
   const x = (n: number) => PAD + (n / N) * (W - PAD - 8);
   const y = (p: number) => H - PAD - p * (H - PAD - 10);
-  const points = Array.from(result.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
-  const suggestPoints = suggestions.map((s) => Array.from(s.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' '));
+
+  const vectorLabel = (v: Record<string, number>): string =>
+    Object.entries(v).map(([g, c]) => `${c} ${nameOf(g)}`).join(', ');
+
+  // One unified list drives hit-testing, line rendering, the pip, AND the
+  // tooltip -- a single source of truth for "what lines exist right now",
+  // so none of those four things can silently disagree with each other.
+  interface Series { key: string; label: string; curve: Float64Array; baseOpacity: number; className: string }
+  const series: Series[] = [
+    { key: 'main', label: 'Current deck (any combo)', curve: result.curve, baseOpacity: 1, className: 'curve-line' },
+    ...clauseCurves.flatMap((curve, i) => curve
+      ? [{ key: `clause${i}`, label: `Combo ${i + 1}`, curve, baseOpacity: 0.35, className: 'clause-line' }]
+      : []),
+    ...suggestions.map((s, i) => ({
+      key: `suggest${i}`,
+      label: vectorLabel(s.vectors[0]!) + (s.vectors.length > 1 ? ` (or ${s.vectors.length - 1} more tied)` : ''),
+      curve: s.curve,
+      baseOpacity: 0.85 - i * 0.18,
+      className: 'suggest-line',
+    })),
+  ];
 
   function handleMove(e: React.MouseEvent<SVGSVGElement>): void {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const svgY = ((e.clientY - rect.top) / rect.height) * H;
     const n = Math.round(((svgX - PAD) / (W - PAD - 8)) * N);
-    setHover(n >= 0 && n <= N ? { n, clientX: e.clientX, clientY: e.clientY } : null);
+    if (n < 0 || n > N) { setHover(null); return; }
+    // Nearest LINE at this n, not just nearest column -- compares the mouse's
+    // actual y against every series' y(curve[n]) and picks the closest one.
+    let seriesIdx = 0, bestDist = Infinity;
+    series.forEach((s, i) => {
+      const d = Math.abs(y(s.curve[n]!) - svgY);
+      if (d < bestDist) { bestDist = d; seriesIdx = i; }
+    });
+    setHover({ n, seriesIdx, clientX: e.clientX, clientY: e.clientY });
   }
 
-  const vectorLabel = (v: Record<string, number>): string =>
-    Object.entries(v).map(([g, c]) => `${c} ${nameOf(g)}`).join(', ');
+  function opacityFor(idx: number): number {
+    if (!hover) return series[idx]!.baseOpacity;
+    return hover.seriesIdx === idx ? 1 : series[idx]!.baseOpacity * 0.3;
+  }
+  function strokeWidthFor(idx: number, base: number): number {
+    return hover && hover.seriesIdx === idx ? base + 1 : base;
+  }
+
+  const hovered = hover ? series[hover.seriesIdx]! : null;
 
   return (
     <div style={{ position: 'relative' }}>
@@ -118,40 +153,37 @@ function ChartTab() {
         {turnN >= 0 && turnN <= N && turnN !== hand && (
           <line x1={x(turnN)} x2={x(turnN)} y1={8} y2={H - PAD} className="turnline" />
         )}
-        {clauseCurves.map((curve, i) => curve && (
+        {/* Draw non-main series first, main last, so hover emphasis (and the
+            main curve's own prominence) still ends up on top regardless of
+            which one is currently boosted. */}
+        {series.map((s, i) => s.key !== 'main' && (
           <polyline
-            key={`clause${i}`}
-            points={Array.from(curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ')}
-            className="clause-line"
+            key={s.key}
+            points={Array.from(s.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ')}
+            className={s.className}
+            style={{ opacity: opacityFor(i), strokeWidth: strokeWidthFor(i, s.className === 'clause-line' ? 1.5 : 1.5) }}
           />
         ))}
-        {suggestPoints.map((pts, i) => (
-          <polyline key={i} points={pts} className="suggest-line" style={{ opacity: 0.85 - i * 0.18 }} />
-        ))}
-        <polyline points={points} className="curve-line" />
+        <polyline
+          points={Array.from(series[0]!.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ')}
+          className="curve-line"
+          style={{ opacity: opacityFor(0), strokeWidth: strokeWidthFor(0, 2.5) }}
+        />
         {hover && <line x1={x(hover.n)} x2={x(hover.n)} y1={8} y2={H - PAD} className="hoverline" />}
-        {hover && clauseCurves.map((curve, i) => curve && (
-          <circle key={`cpip${i}`} cx={x(hover.n)} cy={y(curve[hover.n]!)} r={3} className="hover-pip clause" />
-        ))}
         {hover && (
-          <circle cx={x(hover.n)} cy={y(result.curve[hover.n]!)} r={3.5} className="hover-pip main" />
-        )}
-        {hover && suggestions.map((s, i) => (
           <circle
-            key={`pip${i}`}
             cx={x(hover.n)}
-            cy={y(s.curve[hover.n]!)}
-            r={3}
-            className="hover-pip suggest"
-            style={{ opacity: 0.85 - i * 0.18 }}
+            cy={y(hovered!.curve[hover.n]!)}
+            r={hovered!.key === 'main' ? 4 : 3.5}
+            className={`hover-pip ${hovered!.key === 'main' ? 'main' : hovered!.className === 'suggest-line' ? 'suggest' : 'clause'}`}
           />
-        ))}
+        )}
         {tickValues(N).map((n) => (
           <text key={`tick${n}`} x={x(n)} y={H - 8} className="lbl mid">{n}</text>
         ))}
         <text x={W / 2} y={H - 8} className="lbl mid dim-lbl">cards drawn</text>
       </svg>
-      {hover && (
+      {hover && hovered && (
         <div
           className="chart-tooltip"
           style={{ position: 'fixed', left: hover.clientX, top: hover.clientY }}
@@ -159,21 +191,13 @@ function ChartTab() {
           <div className="hint">
             {hover.n} cards drawn{turnForCardsSeen(hover.n, turnCfg) !== null ? ` (turn ${turnForCardsSeen(hover.n, turnCfg)})` : ''}
           </div>
-          <div>Current deck (any combo): <b>{pct(result.curve[hover.n]!)}</b></div>
-          {clauseCurves.map((curve, i) => curve && (
-            <div key={`crow${i}`} className="clause-tooltip-row">Combo {i + 1}: <b>{pct(curve[hover.n]!)}</b></div>
-          ))}
-          {suggestions.map((s, i) => (
-            <div key={i} className="suggest-tooltip-row">
-              {vectorLabel(s.vectors[0]!)}
-              {s.vectors.length > 1 ? ` (or ${s.vectors.length - 1} more tied)` : ''}: <b>{pct(s.curve[hover.n]!)}</b>
-            </div>
-          ))}
+          <div>{hovered.label}: <b>{pct(hovered.curve[hover.n]!)}</b></div>
         </div>
       )}
     </div>
   );
 }
+
 
 function TableTab({
   result, analysis, hand, turnCfg,
