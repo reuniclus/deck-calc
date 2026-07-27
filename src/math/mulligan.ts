@@ -62,7 +62,15 @@ export interface MulliganResult {
   strategy: HandStrategyRow[];
 }
 
-const MAX_LEAVES = 300_000;
+// Pre-memoization this capped total PATHS (handSpaceSize^(mulligans+1)),
+// which was a severe overestimate of real cost -- checkSizeCap's formula
+// now reflects the actual memoized work, so this can be far more generous
+// than before while still meaning roughly the same thing: also raised
+// because the computation now runs through a Web Worker (see
+// mulliganWorker.ts), so a multi-second case no longer freezes the page --
+// it's an acceptable wait with a visible loading state, not a hard failure
+// mode to avoid at all costs.
+const MAX_LEAVES = 1_000_000;
 
 function choose(n: number, k: number): number {
   if (k < 0 || k > n) return 0;
@@ -157,10 +165,26 @@ function keepValue(
 /** V(state, mulligansLeft): best achievable P(success by turn T) from a
  * fresh look at `state`, with `mulligansLeft` further mulligans available
  * after this one. */
+/** Cache key for memoizing optimalValue/optimalCurveRec: a state is fully
+ * characterized by the remaining count per tracked group PLUS mulligans
+ * left -- NOT by which specific sequence of hands got there. Removal is
+ * just addition, and addition is commutative, so different hand sequences
+ * routinely land on the identical state (e.g. drawing {2,1} then {1,0}
+ * removes the same total as {1,0} then {2,1}). Confirmed as the actual
+ * redundancy behind the reported slowness, not assumed. */
+function stateKey(groupIds: GroupId[], sizes: Sizes, mulligansLeft: number): string {
+  return groupIds.map((g) => sizes[g] ?? 0).join(',') + '|' + mulligansLeft;
+}
+
 function optimalValue(
   dnf: Dnf, groupIds: GroupId[], state: DeckState,
   handSize: number, extraDraws: number, mulligansLeft: number,
+  cache: Map<string, number>,
 ): number {
+  const key = stateKey(groupIds, state.sizes, mulligansLeft);
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+
   const hands = enumerateHands(groupIds, state, handSize);
   let total = 0;
   for (const { hand, probability } of hands) {
@@ -171,10 +195,11 @@ function optimalValue(
         sizes: remainingSizes(state, groupIds, hand),
         deckSize: state.deckSize - handSize,
       };
-      best = Math.max(best, optimalValue(dnf, groupIds, nextState, handSize, extraDraws, mulligansLeft - 1));
+      best = Math.max(best, optimalValue(dnf, groupIds, nextState, handSize, extraDraws, mulligansLeft - 1, cache));
     }
     total += probability * best;
   }
+  cache.set(key, total);
   return total;
 }
 
@@ -217,7 +242,12 @@ function pointwiseMaxExtend(longer: Curve, shorter: Curve): Curve {
 function optimalCurveRec(
   dnf: Dnf, groupIds: GroupId[], state: DeckState,
   handSize: number, mulligansLeft: number,
+  cache: Map<string, Curve>,
 ): Curve {
+  const key = stateKey(groupIds, state.sizes, mulligansLeft);
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+
   const hands = enumerateHands(groupIds, state, handSize);
   const remDeckSize = state.deckSize - handSize;
   const total = new Float64Array(remDeckSize + 1);
@@ -229,11 +259,12 @@ function optimalCurveRec(
         sizes: remainingSizes(state, groupIds, hand),
         deckSize: state.deckSize - handSize,
       };
-      const mc = optimalCurveRec(dnf, groupIds, nextState, handSize, mulligansLeft - 1);
+      const mc = optimalCurveRec(dnf, groupIds, nextState, handSize, mulligansLeft - 1, cache);
       best = pointwiseMaxExtend(kc, mc);
     }
     for (let i = 0; i < total.length; i++) total[i]! += probability * best[i]!;
   }
+  cache.set(key, total);
   return total;
 }
 
@@ -266,6 +297,7 @@ export function optimalMulliganCurve(
   const remDeckSize = deckSize - handSize;
   const bestCurve = new Float64Array(remDeckSize + 1);
   const neverMulliganCurve = new Float64Array(remDeckSize + 1);
+  const cache = new Map<string, Curve>();
 
   for (const { hand, probability } of hands) {
     const kc = keepCurve(dnf, groupIds, fullState, hand, handSize);
@@ -275,7 +307,7 @@ export function optimalMulliganCurve(
         sizes: remainingSizes(fullState, groupIds, hand),
         deckSize: deckSize - handSize,
       };
-      const mc = optimalCurveRec(dnf, groupIds, nextState, handSize, maxMulligans - 1);
+      const mc = optimalCurveRec(dnf, groupIds, nextState, handSize, maxMulligans - 1, cache);
       best = pointwiseMaxExtend(kc, mc);
     }
     for (let i = 0; i <= remDeckSize; i++) {
@@ -296,9 +328,21 @@ function checkSizeCap(groupIds: GroupId[], handSize: number, maxMulligans: numbe
   if (groupIds.length > 4) {
     throw new MulliganTooLargeError(`${groupIds.length} groups referenced -- capped at 4`);
   }
-  const handSpaceUpperBound = choose(handSize + groupIds.length, groupIds.length);
-  const totalLeaves = Math.pow(handSpaceUpperBound, maxMulligans + 1);
-  if (!Number.isFinite(totalLeaves) || totalLeaves > MAX_LEAVES) {
+  const G = groupIds.length;
+  const handSpaceUpperBound = choose(handSize + G, G);
+  // Pre-memoization this was handSpaceUpperBound^(maxMulligans+1) -- the
+  // total PATH count. With memoization the real cost is (hand enumeration
+  // per state) * (number of DISTINCT states across all mulligan-depth
+  // levels), and the number of distinct states at depth m (cumulative
+  // removal after m draws) is bounded by choose(handSize*m + G, G) --
+  // loose/safe (ignores individual group caps), but a SUM across levels
+  // instead of a PRODUCT, which is the actual change memoization made.
+  // Confirmed directly: the old formula rejected a 3-group/2-mulligan case
+  // that the memoized version completes in well under the old 2-group time.
+  let totalStates = 0;
+  for (let m = 0; m <= maxMulligans; m++) totalStates += choose(handSize * m + G, G);
+  const totalWork = handSpaceUpperBound * totalStates;
+  if (!Number.isFinite(totalWork) || totalWork > MAX_LEAVES) {
     throw new MulliganTooLargeError(
       `${groupIds.length} groups \u00d7 ${maxMulligans} mulligans -- search space too large`,
     );
@@ -318,6 +362,7 @@ export function optimalMulliganStrategy(
 
   const fullState: DeckState = { sizes: fullSizes, deckSize };
   const hands = enumerateHands(groupIds, fullState, handSize);
+  const cache = new Map<string, number>();
 
   const strategy: HandStrategyRow[] = [];
   let bestP = 0;
@@ -330,7 +375,7 @@ export function optimalMulliganStrategy(
         sizes: remainingSizes(fullState, groupIds, hand),
         deckSize: deckSize - handSize,
       };
-      mulliganP = optimalValue(dnf, groupIds, nextState, handSize, extraDrawsForT, maxMulligans - 1);
+      mulliganP = optimalValue(dnf, groupIds, nextState, handSize, extraDrawsForT, maxMulligans - 1, cache);
     }
     const shouldKeep = keepP >= mulliganP;
     strategy.push({ hand, probability, keepP, mulliganP, shouldKeep });

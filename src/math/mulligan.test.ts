@@ -186,3 +186,51 @@ describe('optimalMulliganCurve (whole-curve version, for the chart/table/grid)',
     }
   });
 });
+
+describe('memoization (same exact answers, dramatically less repeated work)', () => {
+  it('3 groups / 2 mulligans, previously impossible under the pre-memoization cap, now completes correctly and quickly', () => {
+    const ast = parseQuery('a>=1 & b>=1 & c>=1', (n) => ({ a: 'g0', b: 'g1', c: 'g2' }[n.toLowerCase()] ?? null));
+    const sizes = { g0: 12, g1: 9, g2: 6 };
+    const dnf = normalize(ast, sizes);
+    const start = performance.now();
+    const { bestP, neverMulliganP } = optimalMulliganStrategy(dnf, sizes, 60, 7, 3, 2);
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(3000); // generous; was flatly impossible before memoization
+    expect(bestP).toBeGreaterThanOrEqual(neverMulliganP - 1e-12);
+    expect(bestP).toBeGreaterThanOrEqual(0);
+    expect(bestP).toBeLessThanOrEqual(1);
+  });
+
+  it('3 groups / 3 mulligans also completes within a generous bound, with sane, correctly-ordered results', () => {
+    const ast = parseQuery('a>=1 & b>=1 & c>=1', (n) => ({ a: 'g0', b: 'g1', c: 'g2' }[n.toLowerCase()] ?? null));
+    const sizes = { g0: 12, g1: 9, g2: 6 };
+    const dnf = normalize(ast, sizes);
+    const start = performance.now();
+    const p3 = optimalMulliganStrategy(dnf, sizes, 99, 7, 3, 3).bestP;
+    const p2 = optimalMulliganStrategy(dnf, sizes, 99, 7, 3, 2).bestP;
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(15000);
+    expect(p3).toBeGreaterThanOrEqual(p2 - 1e-12); // more mulligans never hurts
+  }, 20000);
+
+  it('the curve version scales the same way -- 3 groups / 2 mulligans completes quickly and matches the scalar function exactly', () => {
+    const ast = parseQuery('a>=1 & b>=1 & c>=1', (n) => ({ a: 'g0', b: 'g1', c: 'g2' }[n.toLowerCase()] ?? null));
+    const sizes = { g0: 12, g1: 9, g2: 6 };
+    const dnf = normalize(ast, sizes);
+    const start = performance.now();
+    const { bestCurve } = optimalMulliganCurve(dnf, sizes, 60, 7, 2);
+    expect(performance.now() - start).toBeLessThan(3000);
+    const scalar = optimalMulliganStrategy(dnf, sizes, 60, 7, 3, 2);
+    expect(bestCurve[3]).toBeCloseTo(scalar.bestP, 10);
+  });
+
+  it('the size cap mechanism (not just the groups>4 branch) still rejects genuinely oversized cases', () => {
+    const ast = parseQuery('a>=1 & b>=1 & c>=1 & d>=1', (n) =>
+      ({ a: 'g0', b: 'g1', c: 'g2', d: 'g3' }[n.toLowerCase()] ?? null));
+    const sizes = { g0: 10, g1: 8, g2: 6, g3: 5 };
+    const dnf = normalize(ast, sizes);
+    // 4 groups x 2 mulligans -- confirmed via direct calculation to be just
+    // over the (raised, but still finite) cap.
+    expect(() => optimalMulliganStrategy(dnf, sizes, 60, 7, 3, 2)).toThrow(MulliganTooLargeError);
+  });
+});
