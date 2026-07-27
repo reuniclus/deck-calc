@@ -126,6 +126,44 @@ svg .lbl.dim-lbl { fill: var(--muted); }
 .chart-tooltip .hint { margin: 0 0 3px; }
 .suggest-tooltip-row { color: var(--flag); }
 
+/* ---- Mobile (see UI_DESIGN.md §8) ---------------------------------------
+   Real content stays at the TOP of the page (rail stacks above main via
+   normal DOM order once the grid collapses to one column) -- the sticky
+   bar/drawer below are a SHORTCUT back to that same content, never a
+   second copy of it. */
+.rail-sentinel { height: 1px; }
+.mobile-sticky-bar { display: none; }
+.mobile-drawer-backdrop { display: none; }
+
+@media (max-width: 720px) {
+  .app-grid { grid-template-columns: 1fr !important; }
+  .resize-handle { display: none; }
+  .rail { padding-right: 0; }
+
+  .mobile-sticky-bar {
+    display: flex; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 15;
+    background: var(--surface); border-bottom: 1px solid var(--border-strong);
+    padding: 8px 10px; margin: 0 -1.25rem 12px;
+  }
+  .chip-row { display: flex; gap: 6px; overflow-x: auto; flex: 1; min-width: 0; }
+  .count-chip {
+    display: flex; align-items: center; gap: 4px; flex-shrink: 0; white-space: nowrap;
+    background: var(--surface-2); border-radius: var(--radius, 4px); padding: 4px 6px; font-size: 11px;
+  }
+  .count-chip .dot { width: 7px; height: 7px; }
+  .count-chip .chip-name { max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .count-chip button { padding: 1px 5px; font-size: 11px; }
+  .chip-num { width: 32px; text-align: center; border: none; border-bottom: 1px dashed var(--border-strong); background: none; border-radius: 0; padding: 1px; }
+  .edit-btn { flex-shrink: 0; font-size: 11px; padding: 5px 10px; }
+
+  .mobile-drawer-backdrop {
+    display: flex; position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    align-items: flex-start; justify-content: center; z-index: 30; padding: 20px 12px; overflow-y: auto;
+  }
+  .mobile-drawer { background: var(--surface); border-radius: 10px; padding: 14px; width: 100%; max-width: 420px; }
+  .drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+}
+
 .tab-strip { display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin: 10px 0; flex-wrap: wrap; }
 .tab-strip button { border: none; background: none; color: var(--dim); font-size: 13px; padding: 4px 10px; border-radius: 4px; }
 .tab-strip button.active { background: var(--surface-2); color: var(--fg); font-weight: 500; }

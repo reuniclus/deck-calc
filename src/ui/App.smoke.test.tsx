@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { App } from './App';
+import { AppStateProvider } from '../state/AppState';
+import { QueryModelProvider } from '../state/useQueryModel';
+import { MobileStickyBar } from './MobileNav';
 
 describe('App smoke test (real render, not just typecheck)', () => {
   it('renders the default deck, query, and a working curve', () => {
@@ -423,5 +426,45 @@ describe('Chart: turn-T line, hover tooltip, suggestion curves', () => {
     fireEvent.change(textarea, { target: { value: '"Blink ETB">=1 & "Blink Spell">=1 | "Blink ETB">=3' } });
     const svg = document.querySelector('svg[aria-label="probability curve"]')!;
     expect(svg.querySelectorAll('polyline.suggest-line').length).toBe(0);
+  });
+});
+
+describe('Mobile sticky bar and drawer (structural + interaction checks -- jsdom cannot fire real IntersectionObserver events, see CLAUDE.md §10)', () => {
+  it('the rail sentinel exists for the observer to watch', () => {
+    render(<App />);
+    expect(document.querySelector('.rail-sentinel')).toBeTruthy();
+  });
+
+  it('the sticky bar is not rendered until "scrolled past" (stub never fires, so it starts false and stays false here)', () => {
+    render(<App />);
+    expect(document.querySelector('.mobile-sticky-bar')).toBeNull();
+  });
+
+  it('with scrolledPast forced true, chips match each group and Edit opens a drawer containing the SAME editor components as the rail', () => {
+    render(
+      <AppStateProvider>
+        <QueryModelProvider>
+          <MobileStickyBar scrolledPast={true} />
+        </QueryModelProvider>
+      </AppStateProvider>,
+    );
+    const chips = document.querySelectorAll('.count-chip');
+    expect(chips.length).toBe(2); // Blink ETB, Blink Spell
+    expect(chips[0]!.textContent).toContain('Blink ETB');
+
+    // bump a count via the chip's own +/- buttons
+    const incBtn = chips[0]!.querySelector('button[aria-label^="increase"]') as HTMLButtonElement;
+    fireEvent.click(incBtn);
+    expect((chips[0]!.querySelector('.chip-num') as HTMLInputElement).value).toBe('5');
+
+    // Edit opens the drawer -- same DeckEditor/CombosEditor, not a duplicate
+    fireEvent.click(screen.getByText('Edit'));
+    const drawer = document.querySelector('.mobile-drawer')!;
+    expect(drawer.querySelector('.group-row')).toBeTruthy(); // DeckEditor's real markup
+    expect(drawer.querySelector('.combo-box')).toBeTruthy(); // CombosEditor's real markup
+
+    // backdrop click closes it
+    fireEvent.click(document.querySelector('.mobile-drawer-backdrop')!);
+    expect(document.querySelector('.mobile-drawer')).toBeNull();
   });
 });

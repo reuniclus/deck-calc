@@ -5,6 +5,7 @@ import { DeckEditor } from './DeckEditor';
 import { CombosEditor } from './CombosEditor';
 import { ResultView, type ResultTab } from './ResultView';
 import { AdvisorStrip } from './AdvisorStrip';
+import { MobileStickyBar, useScrolledPastRail } from './MobileNav';
 
 const RAIL_MIN = 180, RAIL_MAX = 450, RAIL_DEFAULT = 230;
 
@@ -23,6 +24,7 @@ function useRailWidth(): [number, (w: number) => void] {
 function Layout() {
   const [railWidth, setRailWidth] = useRailWidth();
   const [tab, setTab] = useState<ResultTab>('chart');
+  const [sentinelRef, scrolledPastRail] = useScrolledPastRail();
   const gridRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
@@ -42,23 +44,32 @@ function Layout() {
   }, [setRailWidth]);
 
   return (
-    <div className="app-grid" ref={gridRef} style={{ gridTemplateColumns: `${railWidth}px 8px 1fr` }}>
-      <div className="rail">
-        <DeckEditor />
-        <CombosEditor />
+    <>
+      <MobileStickyBar scrolledPast={scrolledPastRail} />
+      <div className="app-grid" ref={gridRef} style={{ gridTemplateColumns: `${railWidth}px 8px 1fr` }}>
+        <div className="rail">
+          <DeckEditor />
+          <CombosEditor />
+          {/* Sits at the bottom of the RAIL's own content specifically, not
+              after the whole page -- on mobile the rail stacks above main
+              (this is exactly the boundary "scrolled past setup" should mean);
+              on desktop it's side-by-side so this rarely matters, but the
+              sticky bar stays CSS-hidden above the mobile breakpoint anyway. */}
+          <div ref={sentinelRef} className="rail-sentinel" aria-hidden="true" />
+        </div>
+        <div
+          className="resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the setup and combos rail"
+          onPointerDown={() => { dragging.current = true; }}
+        />
+        <div className="main">
+          <AdvisorStrip onSeeSuggestions={() => setTab('suggestions')} />
+          <ResultView tab={tab} setTab={setTab} />
+        </div>
       </div>
-      <div
-        className="resize-handle"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize the setup and combos rail"
-        onPointerDown={() => { dragging.current = true; }}
-      />
-      <div className="main">
-        <AdvisorStrip onSeeSuggestions={() => setTab('suggestions')} />
-        <ResultView tab={tab} setTab={setTab} />
-      </div>
-    </div>
+    </>
   );
 }
 
