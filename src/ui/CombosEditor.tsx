@@ -58,7 +58,7 @@ function ComboRow({
         {row.neg ? 'NOT' : 'not'}
       </button>
       <span className="dot" style={{ background: colorFor(row.g) }} />
-      <select value={row.g} onChange={(e) => onChange({ ...row, g: e.target.value })}>
+      <select className="group-select" value={row.g} onChange={(e) => onChange({ ...row, g: e.target.value })}>
         {groups.map((g) => (
           <option key={g.id} value={g.id}>{g.name}</option>
         ))}

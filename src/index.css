@@ -63,8 +63,19 @@ button:hover { border-color: var(--accent); }
 .combo-toggle .chevron { color: var(--muted); width: 10px; }
 .combo-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .combo-rows { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-.combo-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.combo-row .spacer { flex: 1; }
+.combo-row { display: flex; align-items: center; gap: 6px; font-size: 12px; flex-wrap: wrap; }
+.combo-row .spacer { flex: 1 1 0; min-width: 4px; }
+.combo-row .dot { flex-shrink: 0; }
+.combo-row select.group-select {
+  flex: 1 1 40px; min-width: 0; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.combo-row select:not(.group-select),
+.combo-row input,
+.combo-row .neg-toggle,
+.combo-row .icon-btn {
+  flex-shrink: 0;
+}
 .neg-toggle { font-size: 10px; color: var(--muted); padding: 2px 5px; }
 .neg-toggle.on { color: var(--bad); border-color: var(--bad); }
 
