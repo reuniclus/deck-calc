@@ -36,7 +36,6 @@ input, select, textarea, button {
   border: 1px solid var(--border-strong); border-radius: 4px;
 }
 input[type="number"] { width: 44px; padding: 3px 5px; }
-input.num-sm { width: 44px; }
 select { padding: 3px 4px; }
 button { cursor: pointer; padding: 3px 6px; }
 button:hover { border-color: var(--accent); }
@@ -70,12 +69,14 @@ button:hover { border-color: var(--accent); }
   flex: 1 1 40px; min-width: 0; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.combo-row select:not(.group-select),
-.combo-row input,
-.combo-row .neg-toggle,
-.combo-row .icon-btn {
-  flex-shrink: 0;
-}
+/* Comparator select and number inputs have short, KNOWN content (>=/<=/=/range,
+   or a handful of digits) -- give them explicit small widths instead of the
+   browser's natural select sizing, which is what actually overflowed the row
+   (an unstyled <select> renders far wider than its short option text needs,
+   and flex-shrink:0 meant it never gave that space back). */
+.combo-row select.cmp-select { flex-shrink: 0; width: 46px; padding: 3px 2px; }
+.combo-row input.num-sm { flex-shrink: 0; width: 34px; }
+.combo-row .neg-toggle, .combo-row .icon-btn { flex-shrink: 0; }
 .neg-toggle { font-size: 10px; color: var(--muted); padding: 2px 5px; }
 .neg-toggle.on { color: var(--bad); border-color: var(--bad); }
 

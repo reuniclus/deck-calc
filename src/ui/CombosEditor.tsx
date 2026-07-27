@@ -64,6 +64,7 @@ function ComboRow({
         ))}
       </select>
       <select
+        className="cmp-select"
         value={cmp}
         onChange={(e) => {
           const v = e.target.value as Cmp;

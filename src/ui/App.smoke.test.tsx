@@ -197,3 +197,21 @@ describe('Grid tab', () => {
     expect(selectAfter.value).toBe(secondOption);
   });
 });
+
+describe('Combo row structure (jsdom cannot verify rendered CSS/layout -- this only confirms the right elements and classes exist for the stylesheet to target)', () => {
+  it('the comparator select has a dedicated class distinct from the group select', () => {
+    render(<App />);
+    expect(document.querySelector('.combo-row select.cmp-select')).toBeTruthy();
+    expect(document.querySelector('.combo-row select.group-select')).toBeTruthy();
+  });
+
+  it('switching one row to range mode adds exactly one more num-sm input to THAT row', () => {
+    render(<App />);
+    const firstRow = document.querySelector('.combo-row') as HTMLElement;
+    expect(firstRow.querySelectorAll('input.num-sm').length).toBe(1);
+    const cmpSelect = firstRow.querySelector('select.cmp-select') as HTMLSelectElement;
+    fireEvent.change(cmpSelect, { target: { value: 'range' } });
+    const numInputs = firstRow.querySelectorAll('input.num-sm');
+    expect(numInputs.length).toBe(2);
+  });
+});

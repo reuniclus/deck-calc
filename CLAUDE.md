@@ -34,6 +34,7 @@ React 19 · TypeScript 7 · Vite 8 · Vitest 4 · Node 22
 7. **`vite.config.ts` `base` must match the repo name** (`/deck-calc/`) or the Pages build serves a blank page.
 8. **The harness is generated, never hand-edited.** `src/harness/` is the source; the single-file HTML is a build artifact. It imports the real `src/math` modules so it cannot drift from tested code.
 9. **The real UI (`src/ui/`, `src/state/`) needs a real render test, not just `tsc`.** Typecheck passing does not mean the wiring works — this session alone, a real React Testing Library render caught two bugs (an unparseable seed query; a rename that silently broke the query instead of re-deriving it) that `tsc -b` and `vite build` both missed. Every new interactive piece gets at least one test that actually renders it and fires the events a user would.
+10. **jsdom does NOT load Vite's CSS imports or run real layout.** `getComputedStyle` in tests reflects only inline styles and jsdom's minimal UA defaults — it will NOT tell you whether a stylesheet rule applies, let alone whether something visually overflows. Tests for CSS-driven behavior can only confirm the right elements/classes exist for the stylesheet to target (structural), never that the rendered result is actually correct (pixel-level). Wasted a round writing tests that asserted computed style from `index.css` rules before catching this — don't repeat it.
 9. Every new math function gets a test against either the BigInt oracle or brute-force enumeration before it gets a UI.
 
 ## Style
