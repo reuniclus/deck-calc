@@ -4,6 +4,7 @@ import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
 import { compileFlat, type Row, type FlatQuery } from '../math/builder';
 import { printExpr } from '../math/print';
 import { colorFor } from './DeckEditor';
+import { parseNumOr0 } from './numberInput';
 
 type Cmp = 'gte' | 'lte' | 'eq' | 'range';
 
@@ -84,8 +85,7 @@ function ComboRow({
         className="num-sm"
         value={cmp === 'lte' ? row.hi ?? 0 : row.lo}
         onChange={(e) => {
-          const v = parseInt(e.target.value, 10);
-          if (!Number.isFinite(v) || v < 0) return;
+          const v = parseNumOr0(e.target.value);
           if (cmp === 'lte') onChange({ ...row, hi: v });
           else if (cmp === 'eq') onChange({ ...row, lo: v, hi: v });
           else onChange({ ...row, lo: v });
@@ -99,10 +99,7 @@ function ComboRow({
             min={0}
             className="num-sm"
             value={row.hi ?? 0}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (Number.isFinite(v) && v >= 0) onChange({ ...row, hi: v });
-            }}
+            onChange={(e) => onChange({ ...row, hi: parseNumOr0(e.target.value) })}
           />
         </>
       )}

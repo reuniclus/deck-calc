@@ -93,3 +93,51 @@ describe('Table tab and resize handle', () => {
     expect(screen.getByRole('separator', { name: /resize/i })).toBeInTheDocument();
   });
 });
+
+describe('QoL fixes: empty-number-input-snaps-to-0, and auto-prune on delete', () => {
+  it('backspacing a group count to empty sets it to 0, not stuck-blank', () => {
+    render(<App />);
+    const countInput = screen.getAllByDisplayValue('4')[0]! as HTMLInputElement;
+    fireEvent.change(countInput, { target: { value: '' } });
+    expect(countInput.value).toBe('0');
+    // Others should have recalculated too, proving state actually updated (not just DOM)
+    expect(screen.getByText('37')).toBeInTheDocument(); // 40 - 0 - 3
+  });
+
+  it('backspacing deck size to empty snaps to the reducer minimum (1), not stuck-blank', () => {
+    render(<App />);
+    const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
+    fireEvent.change(deckInput, { target: { value: '' } });
+    expect(deckInput.value).toBe('1');
+  });
+
+  it('backspacing a combo condition number to empty sets it to 0', () => {
+    render(<App />);
+    // default query has two conditions each >=1; find the numeric row inputs (not deck/hand/etc)
+    const numInputs = document.querySelectorAll('.combo-row input[type="number"]');
+    expect(numInputs.length).toBeGreaterThan(0);
+    fireEvent.change(numInputs[0]!, { target: { value: '' } });
+    expect((numInputs[0] as HTMLInputElement).value).toBe('0');
+  });
+
+  it('deleting a group referenced by the query auto-prunes it instead of forcing text mode', () => {
+    render(<App />);
+    expect(document.querySelector('.query-textarea')).toBeNull(); // starts in builder mode
+    const delBtns = screen.getAllByRole('button', { name: /Remove/ });
+    fireEvent.click(delBtns[1]!); // delete "Blink Spell", referenced by the default query
+    expect(document.querySelector('.query-textarea')).toBeNull(); // still builder mode, not forced to text
+    expect(screen.queryByText(/unknown group/)).toBeNull();
+    expect(screen.getByText(/Removed "Blink Spell" from the query/)).toBeInTheDocument();
+    // the remaining condition should still evaluate correctly
+    expect(screen.getByText(/monotone/)).toBeInTheDocument();
+  });
+
+  it('deleting an UNREFERENCED group does not show a removal notice', () => {
+    render(<App />);
+    fireEvent.click(screen.getByText('+ add group')); // adds "Group 3", not referenced by the query
+    const delBtns = screen.getAllByRole('button', { name: /Remove/ });
+    fireEvent.click(delBtns[delBtns.length - 1]!); // delete the newly-added, unreferenced group
+    expect(screen.queryByText(/Removed .* from the query/)).toBeNull();
+    expect(document.querySelector('.query-textarea')).toBeNull();
+  });
+});

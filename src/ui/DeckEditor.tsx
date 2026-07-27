@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { useAppDispatch, useAppState } from '../state/AppState';
 import { parseQuery } from '../math/parse';
 import { printExpr } from '../math/print';
+import { pruneGroups, collectGroups } from '../math/expr';
 import { resolverFor, nameOfFactory } from '../state/useQueryModel';
+import { parseNumOr0 } from './numberInput';
 
 /** Deterministic, well-separated hue per group id — same scheme used for phantom
  * curves later, so a group's color is consistent everywhere it appears. */
@@ -17,6 +20,7 @@ export function colorFor(id: string): string {
 export function DeckEditor() {
   const { deckSize, groups, turnCfg, query } = useAppState();
   const dispatch = useAppDispatch();
+  const [notice, setNotice] = useState<string | null>(null);
 
   /**
    * A group's id never changes, but the query is stored as TEXT (name-based),
@@ -37,6 +41,40 @@ export function DeckEditor() {
     }
   }
 
+  /**
+   * Deleting a group the query references used to leave the query pointing
+   * at a name that no longer exists, throwing "unknown group" and forcing
+   * the combos card into its all-or-nothing text fallback — NOT because the
+   * query became structurally too complex, but because nothing cleaned up
+   * after the delete. Fixed by auto-pruning the deleted group's own
+   * conditions out of the query as part of the same action.
+   *
+   * This deliberately reverses an earlier design decision (PLAN.md/harness):
+   * pruning used to require an explicit one-click confirmation, specifically
+   * because silently changing what a query MEANS is the exact failure mode
+   * that looks like a math bug. Requested explicitly here ("should handle
+   * automatically") — kept the spirit of that caution by making it visible
+   * (a one-line notice naming what was removed) rather than fully silent,
+   * without forcing a manual click every time.
+   */
+  function removeGroup(id: string, name: string): void {
+    try {
+      const ast = parseQuery(query, resolverFor(groups));
+      if (collectGroups(ast).has(id)) {
+        const pruned = pruneGroups(ast, new Set([id]));
+        const remainingGroups = groups.filter((g) => g.id !== id);
+        dispatch({ type: 'removeGroup', id });
+        dispatch({ type: 'setQuery', query: printExpr(pruned, nameOfFactory(remainingGroups)) });
+        setNotice(`Removed "${name}" from the query.`);
+        return;
+      }
+    } catch {
+      // query already broken for some other reason -- nothing valid to prune
+    }
+    dispatch({ type: 'removeGroup', id });
+    setNotice(null);
+  }
+
   const others = deckSize - groups.reduce((s, g) => s + g.count, 0);
   const dupeName = groups.find((g, i) =>
     groups.findIndex((h) => h.name.trim().toLowerCase() === g.name.trim().toLowerCase()) !== i,
@@ -52,10 +90,7 @@ export function DeckEditor() {
             min={1}
             max={1024}
             value={deckSize}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (Number.isFinite(v)) dispatch({ type: 'setDeckSize', deckSize: v });
-            }}
+            onChange={(e) => dispatch({ type: 'setDeckSize', deckSize: parseNumOr0(e.target.value) })}
           />
         </label>
         <label className="inline-field">
@@ -65,10 +100,8 @@ export function DeckEditor() {
             min={0}
             max={60}
             value={turnCfg.openingHand}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (Number.isFinite(v) && v >= 0) dispatch({ type: 'setTurnCfg', turnCfg: { openingHand: v } });
-            }}
+            onChange={(e) =>
+              dispatch({ type: 'setTurnCfg', turnCfg: { openingHand: parseNumOr0(e.target.value) } })}
           />
         </label>
         <label className="inline-field">
@@ -78,10 +111,8 @@ export function DeckEditor() {
             min={0}
             max={60}
             value={turnCfg.mulligans}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (Number.isFinite(v) && v >= 0) dispatch({ type: 'setTurnCfg', turnCfg: { mulligans: v } });
-            }}
+            onChange={(e) =>
+              dispatch({ type: 'setTurnCfg', turnCfg: { mulligans: parseNumOr0(e.target.value) } })}
           />
         </label>
       </div>
@@ -100,10 +131,8 @@ export function DeckEditor() {
               type="number"
               min={0}
               value={g.count}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10);
-                if (Number.isFinite(v) && v >= 0) dispatch({ type: 'setGroupCount', id: g.id, count: v });
-              }}
+              onChange={(e) =>
+                dispatch({ type: 'setGroupCount', id: g.id, count: parseNumOr0(e.target.value) })}
             />
             {/* Flex spacer goes HERE, between the input and delete -- not
                 between the name and the input. Putting it on the name (an
@@ -114,7 +143,7 @@ export function DeckEditor() {
             <button
               className="icon-btn"
               aria-label={`Remove ${g.name}`}
-              onClick={() => dispatch({ type: 'removeGroup', id: g.id })}
+              onClick={() => removeGroup(g.id, g.name)}
             >
               &#10005;
             </button>
@@ -137,6 +166,7 @@ export function DeckEditor() {
           Duplicate group name: &quot;{dupeName}&quot;. Names must be unique — groups are disjoint.
         </p>
       )}
+      {notice && <p className="hint">{notice}</p>}
       <button className="link-btn" onClick={() => dispatch({ type: 'addGroup' })}>
         + add group
       </button>

@@ -3,6 +3,7 @@ import { useAppDispatch, useAppState } from '../state/AppState';
 import { useQueryModelCtx } from '../state/useQueryModel';
 import { effectiveOpeningHand, turnForCardsSeen } from '../model/turns';
 import type { analyze } from '../math/analyze';
+import { parseNumOr0 } from './numberInput';
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(2)}%`;
@@ -135,8 +136,8 @@ export function ResultView() {
             max={100}
             value={Math.round(target * 100)}
             onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (Number.isFinite(v) && v > 0 && v <= 100) dispatch({ type: 'setTarget', target: v / 100 });
+              const v = parseNumOr0(e.target.value);
+              dispatch({ type: 'setTarget', target: v / 100 });
             }}
           />
           <span>%</span>
