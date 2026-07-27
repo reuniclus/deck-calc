@@ -66,3 +66,30 @@ describe('App smoke test (real render, not just typecheck)', () => {
     expect(within(combosPanel).getByText('Edit as text')).toBeInTheDocument();
   });
 });
+
+describe('Table tab and resize handle', () => {
+  it('switches between Chart and Table, and the table respects the starting hand trim', () => {
+    render(<App />);
+    // default hand size 7 -> table's first row should be n=7, not n=0
+    fireEvent.click(screen.getByText('Table'));
+    const table = document.querySelector('table.num-table')!;
+    expect(table).toBeTruthy();
+    const firstDataCell = table.querySelector('tbody tr td')!;
+    expect(firstDataCell.textContent).toBe('7');
+  });
+
+  it('changing the target % updates the summary live', () => {
+    render(<App />);
+    const before = screen.getByText(/Reaches \d+\.\d+% at/).textContent;
+    const targetInput = screen.getByDisplayValue('90');
+    fireEvent.change(targetInput, { target: { value: '50' } });
+    const after = screen.getByText(/Reaches \d+\.\d+% at/).textContent;
+    expect(after).not.toBe(before);
+    expect(after).toContain('50.00%');
+  });
+
+  it('the resize handle exists with the correct ARIA role', () => {
+    render(<App />);
+    expect(screen.getByRole('separator', { name: /resize/i })).toBeInTheDocument();
+  });
+});

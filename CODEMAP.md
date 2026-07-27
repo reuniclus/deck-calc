@@ -12,9 +12,9 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/state/useQueryModel.tsx` | parse→normalize→evaluate→analyze→decompile pipeline, computed once via `QueryModelProvider` and shared through context (not recomputed per consumer) |
 | `src/ui/DeckEditor.tsx` | deck size / hand / mulligans (one line), group rows (name+input grouped, delete isolated — a real spacing bug caught in mockup review), rename re-derives query text |
 | `src/ui/CombosEditor.tsx` | accordion combo builder: NOT toggle, comparator/number inputs, all-or-nothing fallback to text for real nesting, manual "Edit as text" escape hatch |
-| `src/ui/ResultView.tsx` | status line, plain-language summary, live SVG curve (target + starting-hand reference lines) |
-| `src/ui/App.tsx` | real app shell: rail (deck+combos) + main (result), first vertical slice — table/grid/suggestions/advisor/resize/mobile not yet built |
-| `src/ui/App.smoke.test.tsx` | React Testing Library smoke test — caught 2 real bugs (unquoted seed query; rename not re-deriving query text) that typecheck alone missed |
+| `src/ui/ResultView.tsx` | status line, target % control, Chart/Table tab strip, per-draw table (visibleKnee-fixed), live SVG curve |
+| `src/ui/App.tsx` | app shell: rail (deck+combos) + draggable resize handle + main (result). Rail width is a localStorage view preference, deliberately outside AppState. Grid/Suggestions tabs and mobile not yet built |
+| `src/ui/App.smoke.test.tsx` | React Testing Library smoke test — 11 tests. Caught 2 real bugs (unquoted seed query; rename not re-deriving query text) that typecheck alone missed |
 | `src/math/lnfact.ts` | lazily-grown log-factorial table; `lnC`, `binom` |
 | `src/math/hyper.ts` | univariate hypergeometric: `support`, `pmf`, `cdf`, `sfAtLeast`, `between` |
 | `src/math/exact.ts` | **test-only** BigInt exact oracle |

@@ -19,9 +19,12 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-size: 14px; }
 main { max-width: 72rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
 h1 { font-size: 1.25rem; margin: 0 0 1rem; }
 
-.app-grid { display: grid; grid-template-columns: 230px 1fr; gap: 20px; align-items: start; }
-.rail { display: flex; flex-direction: column; gap: 14px; }
-.main { min-width: 0; }
+.app-grid { display: grid; gap: 0; align-items: start; }
+.rail { display: flex; flex-direction: column; gap: 14px; padding-right: 8px; min-width: 0; }
+.main { min-width: 0; padding-left: 8px; }
+.resize-handle { cursor: col-resize; display: flex; justify-content: center; align-self: stretch; touch-action: none; }
+.resize-handle::before { content: ''; width: 3px; border-radius: 2px; background: var(--border); align-self: stretch; }
+.resize-handle:hover::before { background: var(--border-strong); }
 
 .panel { background: var(--surface); border-radius: 8px; padding: 12px; }
 
@@ -75,3 +78,17 @@ svg .ax { stroke: var(--border); }
 svg .tgt { stroke: var(--ok); stroke-dasharray: 4 3; opacity: .7; }
 svg .hand { stroke: var(--flag); stroke-dasharray: 2 2; opacity: .6; }
 svg .curve-line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+
+.tab-strip { display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin: 10px 0; flex-wrap: wrap; }
+.tab-strip button { border: none; background: none; color: var(--dim); font-size: 13px; padding: 4px 10px; border-radius: 4px; }
+.tab-strip button.active { background: var(--surface-2); color: var(--fg); font-weight: 500; }
+.tab-strip button:hover { border: none; color: var(--accent); }
+
+.table-scroll { max-height: 22rem; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+table.num-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.num-table th, table.num-table td { text-align: right; padding: 3px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+table.num-table th:first-child, table.num-table td:first-child { text-align: left; }
+table.num-table thead th { position: sticky; top: 0; background: var(--surface); color: var(--dim); font-weight: 500; }
+table.num-table tr.hit td:nth-child(3) { color: var(--ok); }
+table.num-table tr.hit { background: rgba(104, 211, 145, .06); }
+.dim { color: var(--dim); }
