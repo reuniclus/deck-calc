@@ -6,6 +6,7 @@ import { CombosEditor } from './CombosEditor';
 import { ResultView, type ResultTab } from './ResultView';
 import { AdvisorStrip } from './AdvisorStrip';
 import { MobileStickyBar, useScrolledPastRail } from './MobileNav';
+import { CopyLinkButton } from './CopyLinkButton';
 
 const RAIL_MIN = 180, RAIL_MAX = 450, RAIL_DEFAULT = 230;
 
@@ -48,6 +49,7 @@ function Layout() {
       <MobileStickyBar scrolledPast={scrolledPastRail} />
       <div className="app-grid" ref={gridRef} style={{ gridTemplateColumns: `${railWidth}px 8px 1fr` }}>
         <div className="rail">
+          <CopyLinkButton />
           <DeckEditor />
           <CombosEditor />
           {/* Sits at the bottom of the RAIL's own content specifically, not

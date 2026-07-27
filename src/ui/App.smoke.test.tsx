@@ -4,6 +4,7 @@ import { App } from './App';
 import { AppStateProvider } from '../state/AppState';
 import { QueryModelProvider } from '../state/useQueryModel';
 import { MobileStickyBar } from './MobileNav';
+import { encodeShared } from '../state/hashState';
 
 describe('App smoke test (real render, not just typecheck)', () => {
   it('renders the default deck, query, and a working curve', () => {
@@ -530,5 +531,54 @@ describe('Chart hover pip (discrete point marker, not a continuous/interpolated 
     const suggestRows = document.querySelectorAll('.suggest-tooltip-row');
     expect(suggestPips.length).toBe(suggestRows.length);
     expect(suggestPips.length).toBeGreaterThan(0);
+  });
+});
+
+describe('URL sharing (real end-to-end through the actual app, not just the pure module)', () => {
+  it('the hash auto-updates as deck size, groups, and query change', () => {
+    render(<App />);
+    expect(window.location.hash).not.toBe('');
+    const before = window.location.hash;
+    fireEvent.click([...document.querySelectorAll('.preset-chips button')].find((b) => b.textContent === '60')!);
+    expect(window.location.hash).not.toBe(before);
+  });
+
+  it('target/turn/mulligans do NOT affect the hash (session preferences, not shareable state)', () => {
+    render(<App />);
+    const before = window.location.hash;
+    const targetInputs = document.querySelectorAll('.advisor-inline');
+    fireEvent.change(targetInputs[0]!, { target: { value: '50' } });
+    expect(window.location.hash).toBe(before);
+  });
+
+  it('a fresh mount from a hand-crafted hash restores the exact deck, groups, and query', () => {
+    const hash = '#' + encodeShared(99, [{ name: 'land', count: 38 }, { name: 'ramp', count: 6 }],
+      '!land>=4 | (!land>=3 & !ramp>=1)');
+    window.history.replaceState(null, '', hash);
+
+    render(<App />);
+    expect((screen.getByDisplayValue('99') as HTMLInputElement).value).toBe('99');
+    expect(screen.getAllByDisplayValue('land').length).toBeGreaterThan(0);
+    expect(screen.getAllByDisplayValue('ramp').length).toBeGreaterThan(0);
+    // decompileFlat works on the RAW ast, not the simplified DNF, so this
+    // renders as a normal 2-combo accordion, not a text fallback.
+    expect(document.querySelectorAll('.combo-box').length).toBe(2);
+  });
+
+  it('an invalid/garbage hash falls back to the normal default deck, not a crash', () => {
+    window.history.replaceState(null, '', '#not-valid-shared-state!!!');
+    render(<App />);
+    expect((screen.getByDisplayValue('40') as HTMLInputElement).value).toBe('40');
+    expect(screen.getAllByDisplayValue('Blink ETB').length).toBeGreaterThan(0);
+  });
+
+  it('the Copy link button exists and copies the current URL', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<App />);
+    fireEvent.click(screen.getByText('Copy link'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writeText).toHaveBeenCalledWith(window.location.href);
+    expect(await screen.findByText('Copied!')).toBeInTheDocument();
   });
 });

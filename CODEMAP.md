@@ -8,6 +8,8 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 |---|---|
 | `PLAN.md` | math/architecture plan — algorithms, watch-outs, resolved bugs |
 | `UI_DESIGN.md` | real product IA/mockup decisions (layout, combos card, advisor, curve/grid) |
+| `src/state/hashState.ts` | URL hash encode/decode (UI_DESIGN.md §6) — base64url of {deckSize, groups, query} only. Target %/turn config/adviseTurn deliberately excluded (session/view preferences, not shareable state) |
+| `src/ui/CopyLinkButton.tsx` | copies `window.location.href` — nothing to compute, `AppState`'s effect already keeps the hash in sync |
 | `src/state/AppState.tsx` | React context + reducer; query TEXT is the single source of truth, never a cached AST |
 | `src/state/useQueryModel.tsx` | parse→normalize→evaluate→analyze→decompile pipeline, computed once via `QueryModelProvider` and shared through context (not recomputed per consumer) |
 | `src/ui/numberInput.ts` | `parseNumOr0` — shared fix for controlled number inputs stalling visually blank on backspace-to-empty |

@@ -1,4 +1,19 @@
 import '@testing-library/jest-dom/vitest';
+import { beforeEach } from 'vitest';
+
+/**
+ * window.location.hash persists across test cases within the same jsdom run
+ * unless explicitly reset. AppState now auto-syncs the hash on every render
+ * (URL sharing, see hashState.ts) -- without this reset, one test's leftover
+ * hash silently changes the NEXT test's starting deck/query via
+ * computeInitialState(), which is exactly what happened the first time this
+ * was wired in: 27 unrelated tests failed because an earlier test's hash
+ * state leaked forward. Confirmed as the actual cause before adding this,
+ * not assumed.
+ */
+beforeEach(() => {
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+});
 
 /**
  * jsdom provides NO IntersectionObserver at all (confirmed directly: `new
