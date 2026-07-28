@@ -48,7 +48,7 @@ Path → purpose. Keep in sync; it's the index that avoids re-exploring.
 | `src/math/frontier.ts` | monotone-only: minimal sufficient vectors (greedy descent from the max corner) |
 | `src/math/allocate.ts` | slot-budget optimizer: maximize P for a budget (primal), fewest slots for a target (dual) |
 | `src/math/expr.ts` (`pruneGroups`) | explicit, user-triggered removal of atoms mentioning a deleted group |
-| `src/math/builder.ts` | builder model: query = OR of combos, each combo a plain AND (no per-combo threshold — see PLAN §4c) |
+| `src/math/builder.ts` | builder model: query = OR of combos, each combo a plain AND (no per-combo threshold — see PLAN §4c). No "not" toggle -- for integer counts, NOT is fully redundant for >= and <= (rewritten to the direct equivalent comparator: "not >=2" IS "<=1"). NOT of an exact count or a genuine range is a disjoint union, NOT reducible to one row -- correctly refused (falls back to text) rather than silently misrepresented; nothing is lost from the query language, only from what the row builder can directly construct |
 | `src/harness/main.ts` | plain-DOM dev harness — deck editor, combo query builder + text, export/import, "path to target" advisor (by-turn draws-vs-copies comparison), Result card (chart/table toggle, steepest-gain marker, starting-hand line, multi-group phantoms + hover/click-to-focus + tooltip), grid (values/Δboth interaction term; Δcopy/Δdraw kept in code, commented out of the UI), frontier |
 | `src/harness/harness.html` | harness template; `<!--BUNDLE-->` is replaced at build time |
 | `scripts/build-harness.mjs` | esbuild → one self-contained `dist-harness/harness.html` |

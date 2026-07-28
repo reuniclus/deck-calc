@@ -139,7 +139,6 @@ function groupOptsHtml(selected: string): string {
 function rowControlsHtml(r: Row, attrs: string): string {
   const cmp = cmpOf(r);
   return `<span class="brow" ${attrs}>
-    <button class="bneg ${r.neg ? 'on' : ''}" ${attrs} title="negate">${r.neg ? 'NOT' : 'not'}</button>
     <select class="bgroup" ${attrs}>${groupOptsHtml(r.g)}</select>
     <select class="bcmp" ${attrs}>
       <option value="gte" ${cmp === 'gte' ? 'selected' : ''}>&ge;</option>
@@ -160,15 +159,8 @@ function locateRow(el: HTMLElement): Row | undefined {
   return b.clauses[Number(el.dataset.ci)]?.rows[Number(el.dataset.ri)];
 }
 
-/** Shared wiring for value-only edits (negate/group/comparator/numbers) on a clause's rows. */
+/** Shared wiring for value-only edits (group/comparator/numbers) on a clause's rows. */
 function wireRowControls(box: HTMLElement): void {
-  box.querySelectorAll<HTMLButtonElement>('.bneg').forEach((el) => {
-    el.onclick = () => {
-      const r = locateRow(el); if (!r) return;
-      r.neg = !r.neg;
-      renderBuilder(); applyBuilder();
-    };
-  });
   box.querySelectorAll<HTMLSelectElement>('.bgroup').forEach((el) => {
     el.onchange = () => {
       const r = locateRow(el); if (!r) return;
@@ -253,7 +245,7 @@ function renderBuilder(): void {
     el.onclick = () => {
       const ci = Number(el.dataset.ci);
       const c = state.builder!.clauses[ci]; if (!c) return;
-      c.rows.push({ g: state.groups[0]!.id, neg: false, lo: 1, hi: null });
+      c.rows.push({ g: state.groups[0]!.id, lo: 1, hi: null });
       renderBuilder(); applyBuilder();
     };
   });
@@ -275,7 +267,7 @@ function renderBuilder(): void {
     };
   });
   $('baddClause').addEventListener('click', () => {
-    state.builder!.clauses.push({ rows: [{ g: state.groups[0]!.id, neg: false, lo: 1, hi: null }] });
+    state.builder!.clauses.push({ rows: [{ g: state.groups[0]!.id, lo: 1, hi: null }] });
     renderBuilder(); applyBuilder();
   });
 }

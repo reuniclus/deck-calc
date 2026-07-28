@@ -38,9 +38,24 @@ h1 { font-size: 1.25rem; margin: 0 0 1rem; }
 
 .panel { background: var(--surface); border-radius: 8px; padding: 12px; min-width: 0; max-width: 100%; overflow: hidden; }
 .advisor-strip { margin-bottom: 12px; }
-.advisor-inline { width: 40px; border: none; border-bottom: 1px dashed var(--border-strong); background: none; text-align: center; padding: 1px 2px; border-radius: 0; }
+input[type="number"].advisor-inline {
+  width: 30px; border: none; border-bottom: 1px dashed var(--border-strong); background: none;
+  text-align: center; padding: 1px 2px; border-radius: 0;
+  -moz-appearance: textfield;
+}
+.advisor-inline::-webkit-outer-spin-button,
+.advisor-inline::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 
 .row-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+/* Keeps a short phrase-with-inline-inputs (e.g. "Goal: [90] success rate by
+   turn [4]") from breaking mid-phrase when the outer row wraps -- the group
+   itself is one flex item to the OUTER row-line, so on a narrow screen only
+   the NEXT item (e.g. the first-turn-draw checkbox) drops to a new line,
+   never something in the middle of this phrase. */
+.no-wrap-group { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .preset-chips { display: flex; gap: 4px; }
 .preset-chips button { font-size: 11px; padding: 3px 7px; color: var(--dim); }
 .preset-chips button.active { background: var(--surface-2); color: var(--fg); border-color: var(--border-strong); }
@@ -51,6 +66,18 @@ input, select, textarea, button {
   border: 1px solid var(--border-strong); border-radius: 4px;
 }
 input[type="number"] { width: 44px; padding: 3px 5px; }
+/* Deck/Hand/Mull. never need more than 2 digits -- hide the browser's
+   spinner arrows (they were competing with the digits for space in an
+   already-narrow box) and tighten the width to match. */
+input[type="number"].deck-num {
+  width: 26px;
+  -moz-appearance: textfield;
+}
+.deck-num::-webkit-outer-spin-button,
+.deck-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 select { padding: 3px 4px; }
 button { cursor: pointer; padding: 3px 6px; }
 button:hover { border-color: var(--accent); }
@@ -105,9 +132,7 @@ button:hover { border-color: var(--accent); }
    and flex-shrink:0 meant it never gave that space back). */
 .combo-row select.cmp-select { flex-shrink: 0; width: 44px; padding: 3px 2px; }
 .combo-row input.num-sm { flex-shrink: 0; width: 34px; }
-.combo-row .neg-toggle, .combo-row .icon-btn { flex-shrink: 0; }
-.neg-toggle { font-size: 10px; color: var(--muted); padding: 2px 5px; }
-.neg-toggle.on { color: var(--bad); border-color: var(--bad); }
+.combo-row .icon-btn { flex-shrink: 0; }
 
 .query-textarea { width: 100%; min-height: 4rem; resize: vertical; font-family: ui-monospace, monospace; padding: 6px; margin-bottom: 6px; }
 

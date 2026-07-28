@@ -994,8 +994,7 @@
 
   // src/math/builder.ts
   function rowExpr(r) {
-    const atom = { t: "atom", g: r.g, lo: r.lo, hi: r.hi };
-    return r.neg ? { t: "not", kid: atom } : atom;
+    return { t: "atom", g: r.g, lo: r.lo, hi: r.hi };
   }
   function clauseExpr(c) {
     if (c.rows.length === 1) return rowExpr(c.rows[0]);
@@ -1007,9 +1006,17 @@
     return { t: "or", kids: nonEmpty.map(clauseExpr) };
   }
   function tryAtomOrNeg(e) {
-    if (e.t === "atom") return { g: e.g, neg: false, lo: e.lo, hi: e.hi };
+    if (e.t === "atom") return { g: e.g, lo: e.lo, hi: e.hi };
     if (e.t === "not" && e.kid.t === "atom") {
-      return { g: e.kid.g, neg: true, lo: e.kid.lo, hi: e.kid.hi };
+      const { g, lo, hi } = e.kid;
+      if (hi === null) {
+        if (lo <= 0) return null;
+        return { g, lo: 0, hi: lo - 1 };
+      }
+      if (lo === 0) {
+        return { g, lo: hi + 1, hi: null };
+      }
+      return null;
     }
     return null;
   }
@@ -1025,11 +1032,11 @@
           const his = [e.hi, partner.hi].filter((h) => h !== null);
           if (his.length > 0) {
             remaining.splice(partnerIdx, 1);
-            rows.push({ g: e.g, neg: false, lo: Math.max(e.lo, partner.lo), hi: Math.min(...his) });
+            rows.push({ g: e.g, lo: Math.max(e.lo, partner.lo), hi: Math.min(...his) });
             continue;
           }
         }
-        rows.push({ g: e.g, neg: false, lo: e.lo, hi: e.hi });
+        rows.push({ g: e.g, lo: e.lo, hi: e.hi });
         continue;
       }
       const row = tryAtomOrNeg(e);
@@ -1161,7 +1168,6 @@
   function rowControlsHtml(r, attrs) {
     const cmp = cmpOf(r);
     return `<span class="brow" ${attrs}>
-    <button class="bneg ${r.neg ? "on" : ""}" ${attrs} title="negate">${r.neg ? "NOT" : "not"}</button>
     <select class="bgroup" ${attrs}>${groupOptsHtml(r.g)}</select>
     <select class="bcmp" ${attrs}>
       <option value="gte" ${cmp === "gte" ? "selected" : ""}>&ge;</option>
@@ -1180,15 +1186,6 @@
     return b.clauses[Number(el.dataset.ci)]?.rows[Number(el.dataset.ri)];
   }
   function wireRowControls(box) {
-    box.querySelectorAll(".bneg").forEach((el) => {
-      el.onclick = () => {
-        const r = locateRow(el);
-        if (!r) return;
-        r.neg = !r.neg;
-        renderBuilder();
-        applyBuilder();
-      };
-    });
     box.querySelectorAll(".bgroup").forEach((el) => {
       el.onchange = () => {
         const r = locateRow(el);
@@ -1287,7 +1284,7 @@
         const ci = Number(el.dataset.ci);
         const c = state.builder.clauses[ci];
         if (!c) return;
-        c.rows.push({ g: state.groups[0].id, neg: false, lo: 1, hi: null });
+        c.rows.push({ g: state.groups[0].id, lo: 1, hi: null });
         renderBuilder();
         applyBuilder();
       };
@@ -1312,7 +1309,7 @@
       };
     });
     $("baddClause").addEventListener("click", () => {
-      state.builder.clauses.push({ rows: [{ g: state.groups[0].id, neg: false, lo: 1, hi: null }] });
+      state.builder.clauses.push({ rows: [{ g: state.groups[0].id, lo: 1, hi: null }] });
       renderBuilder();
       applyBuilder();
     });

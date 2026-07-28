@@ -86,6 +86,7 @@ export function DeckEditor() {
         <label className="inline-field">
           <span>Deck</span>
           <input
+            className="deck-num"
             type="number"
             min={1}
             max={1024}
@@ -107,6 +108,7 @@ export function DeckEditor() {
         <label className="inline-field">
           <span>Hand</span>
           <input
+            className="deck-num"
             type="number"
             min={0}
             max={60}
@@ -118,6 +120,7 @@ export function DeckEditor() {
         <label className="inline-field">
           <span>Mull.</span>
           <input
+            className="deck-num"
             type="number"
             min={0}
             max={60}

@@ -52,13 +52,6 @@ function ComboRow({
   const cmp = cmpOf(row);
   return (
     <div className="combo-row">
-      <button
-        className={`neg-toggle ${row.neg ? 'on' : ''}`}
-        onClick={() => onChange({ ...row, neg: !row.neg })}
-        title="negate"
-      >
-        {row.neg ? 'NOT' : 'not'}
-      </button>
       <span className="dot" style={{ background: colorFor(row.g) }} />
       <select className="group-select" value={row.g} onChange={(e) => onChange({ ...row, g: e.target.value })}>
         {groups.map((g) => (
@@ -176,7 +169,6 @@ export function CombosEditor() {
                     return (
                       <span className="combo-summary-item" key={ri}>
                         {ri > 0 && <span className="hint">and</span>}
-                        {r.neg && <span className="hint">not</span>}
                         <span className="dot inline" style={{ background: colorFor(r.g) }} />
                         <span className="truncate-name">{name}</span>
                         <span className="hint">{rest}</span>
@@ -209,7 +201,7 @@ export function CombosEditor() {
                   className="link-btn"
                   onClick={() => applyFlat({
                     clauses: flat.clauses.map((c, i) =>
-                      i === ci ? { rows: [...c.rows, { g: groups[0]?.id ?? '', neg: false, lo: 1, hi: null }] } : c),
+                      i === ci ? { rows: [...c.rows, { g: groups[0]?.id ?? '', lo: 1, hi: null }] } : c),
                   })}
                 >
                   + add condition
@@ -225,7 +217,7 @@ export function CombosEditor() {
           onClick={() => {
             const newIndex = flat.clauses.length;
             applyFlat({
-              clauses: [...flat.clauses, { rows: [{ g: groups[0]?.id ?? '', neg: false, lo: 1, hi: null }] }],
+              clauses: [...flat.clauses, { rows: [{ g: groups[0]?.id ?? '', lo: 1, hi: null }] }],
             });
             setExpanded((prev) => new Set(prev).add(newIndex));
           }}

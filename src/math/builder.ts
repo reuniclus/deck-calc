@@ -19,7 +19,6 @@ import type { Expr, GroupId } from './expr';
 
 export interface Row {
   g: GroupId;
-  neg: boolean;
   lo: number;
   hi: number | null;
 }
@@ -35,8 +34,7 @@ export interface FlatQuery {
 }
 
 function rowExpr(r: Row): Expr {
-  const atom: Expr = { t: 'atom', g: r.g, lo: r.lo, hi: r.hi };
-  return r.neg ? { t: 'not', kid: atom } : atom;
+  return { t: 'atom', g: r.g, lo: r.lo, hi: r.hi };
 }
 
 function clauseExpr(c: Clause): Expr {
@@ -52,10 +50,41 @@ export function compileFlat(fq: FlatQuery): Expr {
   return { t: 'or', kids: nonEmpty.map(clauseExpr) };
 }
 
+/**
+ * No "not" toggle in the row builder: for integer counts, NOT is fully
+ * redundant for >= and <=, since the complement of one is always exactly
+ * the other with an adjusted threshold ("not >=2" IS "<=1" -- the same
+ * condition, not a related one that happens to agree). Rewritten here
+ * rather than carried as a separate neg flag through the row type, so the
+ * builder can never even construct or display a state that's just a more
+ * roundabout way of saying something a plain comparator already says.
+ *
+ * This is NOT true for = or a genuine range: "not (count == 5)" is
+ * count<5 OR count>5, a disjoint union that cannot be written as a single
+ * row's lo/hi. Rather than silently misrepresent that as some approximate
+ * single row, this returns null -- decompileFlat's caller treats null as
+ * "too complex for the builder" and falls back to the text editor, the
+ * same escape hatch every other unrepresentable shape already uses. No
+ * expressiveness is lost from the QUERY LANGUAGE, only from what the row
+ * builder can directly construct or display.
+ */
 function tryAtomOrNeg(e: Expr): Row | null {
-  if (e.t === 'atom') return { g: e.g, neg: false, lo: e.lo, hi: e.hi };
+  if (e.t === 'atom') return { g: e.g, lo: e.lo, hi: e.hi };
   if (e.t === 'not' && e.kid.t === 'atom') {
-    return { g: e.kid.g, neg: true, lo: e.kid.lo, hi: e.kid.hi };
+    const { g, lo, hi } = e.kid;
+    if (hi === null) {
+      // NOT(count >= lo) = count <= lo-1. "not >= 0" is impossible (every
+      // count is already >=0) -- not a sensible row, fall back to text.
+      if (lo <= 0) return null;
+      return { g, lo: 0, hi: lo - 1 };
+    }
+    if (lo === 0) {
+      // NOT(count <= hi) = count >= hi+1.
+      return { g, lo: hi + 1, hi: null };
+    }
+    // NOT(EQ) or a genuine NOT(RANGE) with both bounds finite and nonzero:
+    // a disjoint union, not expressible as one row.
+    return null;
   }
   return null;
 }
@@ -81,11 +110,11 @@ function rowsFromAndKids(kids: readonly Expr[]): Row[] | null {
         const his = [e.hi, partner.hi].filter((h): h is number => h !== null);
         if (his.length > 0) {
           remaining.splice(partnerIdx, 1);
-          rows.push({ g: e.g, neg: false, lo: Math.max(e.lo, partner.lo), hi: Math.min(...his) });
+          rows.push({ g: e.g, lo: Math.max(e.lo, partner.lo), hi: Math.min(...his) });
           continue;
         }
       }
-      rows.push({ g: e.g, neg: false, lo: e.lo, hi: e.hi });
+      rows.push({ g: e.g, lo: e.lo, hi: e.hi });
       continue;
     }
     const row = tryAtomOrNeg(e);

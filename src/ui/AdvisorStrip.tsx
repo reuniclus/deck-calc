@@ -98,20 +98,22 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
   return (
     <div className="panel advisor-strip">
       <div className="row-line" style={{ marginBottom: 4 }}>
-        <span className="hint">Goal:</span>
-        <input
-          className="advisor-inline"
-          type="number" min={1} max={100}
-          value={Math.round(target * 100)}
-          onChange={(e) => dispatch({ type: 'setTarget', target: parseNumOr0(e.target.value) / 100 })}
-        />
-        <span className="hint">success rate by turn</span>
-        <input
-          className="advisor-inline"
-          type="number" min={0} max={60}
-          value={adviseTurn}
-          onChange={(e) => dispatch({ type: 'setAdviseTurn', adviseTurn: parseNumOr0(e.target.value) })}
-        />
+        <div className="no-wrap-group">
+          <span className="hint">Goal:</span>
+          <input
+            className="advisor-inline"
+            type="number" min={1} max={100}
+            value={Math.round(target * 100)}
+            onChange={(e) => dispatch({ type: 'setTarget', target: parseNumOr0(e.target.value) / 100 })}
+          />
+          <span className="hint">success rate by turn</span>
+          <input
+            className="advisor-inline"
+            type="number" min={0} max={60}
+            value={adviseTurn}
+            onChange={(e) => dispatch({ type: 'setAdviseTurn', adviseTurn: parseNumOr0(e.target.value) })}
+          />
+        </div>
         <label className="inline-field" style={{ marginLeft: 6 }}>
           <input
             type="checkbox"
