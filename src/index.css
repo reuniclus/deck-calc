@@ -150,6 +150,7 @@ svg .lbl.dim-lbl { fill: var(--muted); }
 .mobile-drawer-backdrop { display: none; }
 
 @media (max-width: 720px) {
+  main { padding-left: 0.6rem; padding-right: 0.6rem; }
   .app-grid { grid-template-columns: 1fr !important; }
   .resize-handle { display: none; }
   .rail { padding-right: 0; }
@@ -157,7 +158,7 @@ svg .lbl.dim-lbl { fill: var(--muted); }
   .mobile-sticky-bar {
     display: flex; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 15;
     background: var(--surface); border-bottom: 1px solid var(--border-strong);
-    padding: 8px 10px; margin: 0 -1.25rem 12px;
+    padding: 8px 10px; margin: 0 -0.6rem 12px;
   }
   .chip-row { display: flex; gap: 6px; overflow-x: auto; flex: 1; min-width: 0; }
   .count-chip {

@@ -77,13 +77,14 @@ function Layout() {
         <div className="rail">
           <CopyLinkButton />
           <DeckEditor />
-          <CombosEditor />
-          {/* Sits at the bottom of the RAIL's own content specifically, not
-              after the whole page -- on mobile the rail stacks above main
-              (this is exactly the boundary "scrolled past setup" should mean);
-              on desktop it's side-by-side so this rarely matters, but the
+          {/* Right after the FIRST card specifically, not the whole rail --
+              the sticky bar is meant to appear once you've scrolled past
+              the Deck card, not only after scrolling past Combos too (which
+              could be a lot of content once combos are expanded). On
+              desktop this is side-by-side so it rarely matters, and the
               sticky bar stays CSS-hidden above the mobile breakpoint anyway. */}
           <div ref={sentinelRef} className="rail-sentinel" aria-hidden="true" />
+          <CombosEditor />
         </div>
         <div
           className="resize-handle"

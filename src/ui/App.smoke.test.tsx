@@ -276,10 +276,11 @@ describe('Deck size presets, others alignment, chart axis labels/gridlines', () 
     expect(document.querySelector('.others-label')?.textContent).toBe('Others');
   });
 
-  it('the chart renders vertical per-card gridlines and percentage/axis labels', () => {
+  it('the chart renders vertical per-card gridlines and percentage/axis labels, capped at 20 cards drawn (not the full 40-card deck -- drawing that many is unrealistic and squishes the useful range)', () => {
     render(<App />);
     const svg = document.querySelector('svg[aria-label="probability curve"]')!;
-    expect(svg.querySelectorAll('line.vax, line.vax5').length).toBeGreaterThan(30); // one per card, N=40
+    const gridlines = svg.querySelectorAll('line.vax, line.vax5');
+    expect(gridlines.length).toBe(21); // one per card, n=0..20 inclusive, regardless of the 40-card deck
     expect(svg.querySelectorAll('text.lbl').length).toBeGreaterThan(0);
     expect([...svg.querySelectorAll('text.lbl')].some((t) => t.textContent === 'cards drawn')).toBe(true);
     expect([...svg.querySelectorAll('text.lbl')].some((t) => t.textContent === '100%')).toBe(true);
@@ -775,5 +776,29 @@ describe('Mulligan computation loading state (the actual point: never freeze, al
     // worker with full control over response timing -- not re-attempted
     // here against the sync fallback's near-instant microtask resolution,
     // which is too fast a window to assert against reliably end-to-end.
+  });
+});
+
+describe('Mobile UI fixes: horizontal padding, sticky-bar sentinel position, chart draw cap', () => {
+  it('the chart caps at 20 cards drawn even for a much larger deck (99), not deckSize', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.preset-chips button')].find((b) => b.textContent === '99')!);
+    const svg = document.querySelector('svg[aria-label="probability curve"]')!;
+    expect(svg.querySelectorAll('line.vax, line.vax5').length).toBe(21); // n=0..20, not 0..99
+    const mainLine = svg.querySelector('polyline.curve-line')!;
+    const points = mainLine.getAttribute('points')!.split(' ');
+    expect(points.length).toBe(21); // the polyline itself must not extend past the cap either
+  });
+
+  it('the rail sentinel sits BETWEEN DeckEditor and CombosEditor (after the first card specifically), not after the whole rail', () => {
+    render(<App />);
+    const rail = document.querySelector('.rail')!;
+    const children = [...rail.children];
+    const sentinelIdx = children.findIndex((c) => c.classList.contains('rail-sentinel'));
+    const comboBoxIdx = children.findIndex((c) => c.querySelector('.combo-box') !== null);
+    expect(sentinelIdx).toBeGreaterThan(-1);
+    expect(comboBoxIdx).toBeGreaterThan(-1);
+    // sentinel must come BEFORE the combos card, i.e. right after the deck card
+    expect(sentinelIdx).toBeLessThan(comboBoxIdx);
   });
 });

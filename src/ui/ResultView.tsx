@@ -40,6 +40,25 @@ function tickValues(N: number): number[] {
   return out;
 }
 
+/** Drawing out to deckSize (e.g. 40, 60, 99) is unrealistic and mostly
+ * meaningless -- games essentially never reach that many cards drawn, and
+ * showing that whole irrelevant tail squishes the actually-useful early-turn
+ * detail into a small fraction of the chart's width, especially on mobile.
+ * Capped at a fixed 20, not deckSize-relative. */
+const MAX_CHART_DRAWS = 20;
+
+/** Builds SVG polyline points for exactly n=0..maxN (never iterating past
+ * it, even if the underlying curve array is longer) -- x(n) is scaled
+ * against the SAME capped range, so a naive Array.from over the whole
+ * curve would push points for n>maxN off the right edge at the wrong
+ * scale instead of simply not drawing them. */
+function polylinePoints(curve: Float64Array, maxN: number, xFn: (n: number) => number, yFn: (p: number) => number): string {
+  const parts: string[] = [];
+  const limit = Math.min(maxN, curve.length - 1);
+  for (let n = 0; n <= limit; n++) parts.push(`${xFn(n).toFixed(1)},${yFn(curve[n]!).toFixed(1)}`);
+  return parts.join(' ');
+}
+
 function ChartTab() {
   const { groups, deckSize, turnCfg, target, adviseTurn } = useAppState();
   const { dnf, result, ast } = useQueryModelCtx();
@@ -47,7 +66,7 @@ function ChartTab() {
   const svgRef = useRef<SVGSVGElement>(null);
 
   const hand = effectiveOpeningHand(turnCfg);
-  const N = result ? result.curve.length - 1 : 0;
+  const N = result ? Math.min(result.curve.length - 1, MAX_CHART_DRAWS) : 0;
   const turnN = Math.min(N, cardsSeenByTurn(adviseTurn, turnCfg));
   const nameOf = nameOfFactory(groups);
   const { curves: mulliganCurves } = useMulliganStrategyCtx();
@@ -163,13 +182,13 @@ function ChartTab() {
         {series.map((s, i) => s.key !== 'main' && (
           <polyline
             key={s.key}
-            points={Array.from(s.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ')}
+            points={polylinePoints(s.curve, N, x, y)}
             className={s.className}
             style={{ opacity: opacityFor(i), strokeWidth: strokeWidthFor(i, s.className === 'clause-line' ? 1.5 : 1.5) }}
           />
         ))}
         <polyline
-          points={Array.from(series[0]!.curve, (p, n) => `${x(n).toFixed(1)},${y(p).toFixed(1)}`).join(' ')}
+          points={polylinePoints(series[0]!.curve, N, x, y)}
           className="curve-line"
           style={{ opacity: opacityFor(0), strokeWidth: strokeWidthFor(0, 2.5) }}
         />
