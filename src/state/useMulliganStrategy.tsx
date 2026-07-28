@@ -14,7 +14,7 @@ import { useQueryModelCtx } from './useQueryModel';
 import { cardsSeenByTurn } from '../model/turns';
 import { useWorkerRequest, type WorkerLike } from './useWorkerRequest';
 import { getMulliganWorker } from './mulliganWorkerClient';
-import type { MulliganComputeRequest, MulliganComputeResponse } from '../workers/mulliganProtocol';
+import type { MulliganSingleRequest, MulliganSingleSuccess, MulliganFailure } from '../workers/mulliganProtocol';
 import type { MulliganResult, MulliganCurveResult } from '../math/mulligan';
 import type { Curve } from '../math/boxdp';
 
@@ -44,16 +44,16 @@ export function MulliganStrategyProvider({ children }: { children: ReactNode }) 
   const workerRef = useRef<WorkerLike | null>(null);
   if (!workerRef.current) workerRef.current = getMulliganWorker();
 
-  const request = useMemo<Omit<MulliganComputeRequest, 'id'> | null>(() => {
+  const request = useMemo<Omit<MulliganSingleRequest, 'id'> | null>(() => {
     if (turnCfg.mulligans <= 0 || !dnf || !queryResult) return null;
     const handSize = turnCfg.openingHand;
     const totalSeen = Math.min(deckSize, cardsSeenByTurn(adviseTurn, turnCfg));
     const extraDrawsForT = Math.max(0, totalSeen - handSize);
-    return { dnf, sizes, deckSize, handSize, extraDrawsForT, maxMulligans: turnCfg.mulligans };
+    return { kind: 'single', dnf, sizes, deckSize, handSize, extraDrawsForT, maxMulligans: turnCfg.mulligans };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dnf, queryResult, sizes, deckSize, turnCfg, adviseTurn, target]);
 
-  const { data, loading, error } = useWorkerRequest<Omit<MulliganComputeRequest, 'id'>, MulliganComputeResponse>(
+  const { data, loading, error } = useWorkerRequest<Omit<MulliganSingleRequest, 'id'>, MulliganSingleSuccess | MulliganFailure>(
     workerRef.current,
     request,
     (r) => (r.ok ? { strategy: r.strategy, curves: r.curves } : null),

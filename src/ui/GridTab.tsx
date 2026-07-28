@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useAppState, type Group } from '../state/AppState';
 import { useQueryModelCtx } from '../state/useQueryModel';
 import { evaluate } from '../math/evaluate';
 import { normalize } from '../math/normalize';
-import { optimalMulliganCurve, MulliganTooLargeError } from '../math/mulligan';
+import type { Dnf, Sizes } from '../math/expr';
 import { buildDisplayCurve } from '../state/useMulliganStrategy';
+import { useWorkerRequest, type WorkerLike } from '../state/useWorkerRequest';
+import { getMulliganWorker } from '../state/mulliganWorkerClient';
+import type { MulliganBatchRequest, MulliganBatchSuccess, MulliganFailure } from '../workers/mulliganProtocol';
 import { effectiveOpeningHand } from '../model/turns';
 import { colorFor } from './DeckEditor';
 import { parseNumOr0 } from './numberInput';
@@ -62,7 +65,9 @@ export function GridTab() {
   const hand = effectiveOpeningHand(turnCfg);
   const nMax = Math.min(deckSize, maxDraws);
 
-  const computed = useMemo(() => {
+  // Cheap, synchronous: the raw (non-mulligan) curve per swept row. evaluate()
+  // itself is fast (a few ms at most) -- this was never the bottleneck.
+  const rawComputed = useMemo(() => {
     if (!ast || !g) return null;
     const fixed = groups.filter((x) => x.id !== g.id).reduce((s, x) => s + x.count, 0);
     const kPossible = deckSize - fixed;
@@ -74,41 +79,54 @@ export function GridTab() {
     kLo = Math.max(0, kHi - WINDOW);
     const computeFrom = Math.max(0, kLo - 1); // one extra row so dCopy/interaction never fake-NA at the edge
 
-    const curves = new Map<number, Float64Array | null>();
-    let mulliganTooLarge: string | null = null;
+    const rows: Array<{ k: number; sizes: Sizes; dnf: Dnf | null; curve: Float64Array | null }> = [];
     for (let k = computeFrom; k <= kHi; k++) {
       const trialGroups = groups.map((x) => (x.id === g.id ? { ...x, count: k } : x));
       const sizes: Record<string, number> = {};
       for (const x of trialGroups) sizes[x.id] = x.count;
       try {
         const dnf = normalize(ast, sizes);
-        const rawCurve = evaluate(deckSize, sizes, dnf).curve;
-        if (turnCfg.mulligans > 0 && !mulliganTooLarge) {
-          try {
-            const mc = optimalMulliganCurve(dnf, sizes, deckSize, turnCfg.openingHand, turnCfg.mulligans);
-            curves.set(k, buildDisplayCurve(rawCurve, mc, turnCfg.openingHand));
-          } catch (e) {
-            // The size cap doesn't depend on the swept count, only on group
-            // count/handSize/mulligans -- if one row is too large, EVERY row
-            // would be, so fall back to the raw (non-mulligan) curve for the
-            // whole grid rather than a confusing row-by-row mix.
-            mulliganTooLarge = e instanceof MulliganTooLargeError ? e.message : String(e);
-            curves.set(k, rawCurve);
-          }
-        } else {
-          curves.set(k, rawCurve);
-        }
+        const curve = evaluate(deckSize, sizes, dnf).curve;
+        rows.push({ k, sizes, dnf, curve });
       } catch {
-        curves.set(k, null);
+        rows.push({ k, sizes, dnf: null, curve: null });
       }
     }
-    return { curves, kLo, kHi, mulliganTooLarge };
+    return { rows, kLo, kHi };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ast, g?.id, g?.count, groups, deckSize, turnCfg]);
+  }, [ast, g?.id, g?.count, groups, deckSize]);
+
+  // Expensive part, off the main thread: one batched worker request for
+  // every row's mulligan-adjusted curve, instead of a synchronous loop
+  // calling optimalMulliganCurve once per row (confirmed directly as a
+  // real cause of UI jank -- ~160ms for the default deck alone, scaling up
+  // with deck/group complexity, and running regardless of which tab was
+  // actually visible since this tab stays mounted).
+  const workerRef = useRef<WorkerLike | null>(null);
+  if (!workerRef.current) workerRef.current = getMulliganWorker();
+
+  const batchRequest = useMemo<Omit<MulliganBatchRequest, 'id'> | null>(() => {
+    if (turnCfg.mulligans <= 0 || !rawComputed) return null;
+    const entries = rawComputed.rows
+      .filter((r): r is { k: number; sizes: Sizes; dnf: Dnf; curve: Float64Array } => r.dnf !== null && r.curve !== null)
+      .map((r) => ({ dnf: r.dnf, sizes: r.sizes }));
+    if (entries.length === 0) return null;
+    return { kind: 'batch', entries, deckSize, handSize: turnCfg.openingHand, maxMulligans: turnCfg.mulligans };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawComputed, deckSize, turnCfg]);
+
+  const { data: mulliganBatchRaw, error: mulliganTooLarge } = useWorkerRequest<
+    Omit<MulliganBatchRequest, 'id'>, MulliganBatchSuccess | MulliganFailure
+  >(
+    workerRef.current,
+    batchRequest,
+    (r) => (r.ok ? r.curves : null),
+  );
+  const mulliganBatch = mulliganBatchRaw as MulliganBatchSuccess['curves'] | null;
 
   if (error) return <p className="hint bad">{error}</p>;
   if (!g) return <p className="hint">Add a group first.</p>;
-  if (!computed) return null;
+  if (!rawComputed) return null;
   if (hand > nMax) {
     return (
       <p className="hint flag">
@@ -117,7 +135,18 @@ export function GridTab() {
     );
   }
 
-  const { curves, kLo, kHi, mulliganTooLarge } = computed;
+  const { rows, kLo, kHi } = rawComputed;
+  const curves = new Map<number, Float64Array | null>();
+  rows.forEach((row, i) => {
+    if (!row.curve) { curves.set(row.k, null); return; }
+    if (turnCfg.mulligans > 0 && mulliganBatch && !mulliganTooLarge) {
+      const mc = mulliganBatch[i];
+      curves.set(row.k, mc ? buildDisplayCurve(row.curve, mc, turnCfg.openingHand) : row.curve);
+    } else {
+      curves.set(row.k, row.curve);
+    }
+  });
+
   const cols: number[] = [];
   for (let n = hand; n <= nMax; n++) cols.push(n);
 
@@ -200,6 +229,9 @@ export function GridTab() {
           ? <>P (%) as <b>{g.name}</b> copies and cards drawn both vary. Row marked &#9666; is your current deck.</>
           : <>Interaction between an extra copy of <b>{g.name}</b> and an extra card drawn &mdash; positive (cool) means
             they compound, negative (warm) means they overlap/substitute.</>}
+        {turnCfg.mulligans > 0 && !mulliganBatch && !mulliganTooLarge && (
+          <span className="mulligan-loading"> Computing optimal-mulligan-adjusted values\u2026</span>
+        )}
       </p>
       {mulliganTooLarge && (
         <p className="hint flag">

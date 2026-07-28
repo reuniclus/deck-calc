@@ -17,7 +17,11 @@
  */
 import { optimalMulliganStrategy, optimalMulliganCurve, MulliganTooLargeError } from '../math/mulligan';
 import type { WorkerLike } from './useWorkerRequest';
-import type { MulliganComputeRequest, MulliganComputeResponse } from '../workers/mulliganProtocol';
+import type { MulliganRequest, MulliganResponse } from '../workers/mulliganProtocol';
+
+function errMessage(err: unknown): string {
+  return err instanceof MulliganTooLargeError ? err.message : (err instanceof Error ? err.message : String(err));
+}
 
 class SyncFallbackMulliganWorker implements WorkerLike {
   private listeners: Array<(e: MessageEvent) => void> = [];
@@ -29,16 +33,30 @@ class SyncFallbackMulliganWorker implements WorkerLike {
     this.listeners = this.listeners.filter((l) => l !== listener);
   }
   postMessage(message: unknown): void {
-    const req = message as MulliganComputeRequest;
-    let response: MulliganComputeResponse;
-    try {
-      const strategy = optimalMulliganStrategy(
-        req.dnf, req.sizes, req.deckSize, req.handSize, req.extraDrawsForT, req.maxMulligans);
-      const curves = optimalMulliganCurve(req.dnf, req.sizes, req.deckSize, req.handSize, req.maxMulligans);
-      response = { id: req.id, ok: true, strategy, curves };
-    } catch (e) {
-      const errMessage = e instanceof MulliganTooLargeError ? e.message : (e instanceof Error ? e.message : String(e));
-      response = { id: req.id, ok: false, error: errMessage };
+    const req = message as MulliganRequest;
+    let response: MulliganResponse;
+    if (req.kind === 'single') {
+      try {
+        const strategy = optimalMulliganStrategy(
+          req.dnf, req.sizes, req.deckSize, req.handSize, req.extraDrawsForT, req.maxMulligans);
+        const curves = optimalMulliganCurve(req.dnf, req.sizes, req.deckSize, req.handSize, req.maxMulligans);
+        response = { id: req.id, kind: 'single', ok: true, strategy, curves };
+      } catch (err) {
+        response = { id: req.id, kind: 'single', ok: false, error: errMessage(err) };
+      }
+    } else {
+      try {
+        const curves = req.entries.map(({ dnf, sizes }) => {
+          try {
+            return optimalMulliganCurve(dnf, sizes, req.deckSize, req.handSize, req.maxMulligans);
+          } catch {
+            return null;
+          }
+        });
+        response = { id: req.id, kind: 'batch', ok: true, curves };
+      } catch (err) {
+        response = { id: req.id, kind: 'batch', ok: false, error: errMessage(err) };
+      }
     }
     // Deferred, not synchronous-inline: keeps this on the same footing as a
     // real worker's message timing (always at least one microtask away),
