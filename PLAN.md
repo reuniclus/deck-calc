@@ -851,3 +851,261 @@ in the app must not silently change what these numbers mean without the row
 itself saying so. If a by-turn-T version is wanted later, it should say so
 explicitly in the same muted style, not share a meaning with a setting that
 lives somewhere else on the page.
+
+### Further Questions-tab revisions, 2026-07-30 (second mockup review)
+
+- **"How many copies do I need" dropped from Questions entirely** -- redundant
+  with Suggestions' existing "fewest slots for target," no reason to duplicate it.
+
+- **"Is my hand safe" needs no new code at all.** Uses the REAL combo query
+  (not a separate standalone mini-query), and the table is multi-column for
+  multi-group queries -- which means it's exactly `mulligan.ts`'s existing
+  per-hand strategy table (`optimalMulliganStrategy`'s `strategy` rows),
+  already rendering in the Suggestions tab. Extract that table into its own
+  reusable component and render it in BOTH tabs against the same shared
+  computation (`useMulliganStrategyCtx()`) -- do not build a second version
+  of the same math. Mulligan count comes from the rail's existing "Mull."
+  setting, same pattern as "in opening hand" pulling Hand size rather than
+  asking for it again.
+
+- **Tapped-land damage: simplified inputs, no group pickers needed.**
+  "`_` lands, `_` tapped" (two plain numbers) instead of picking Untapped/
+  Tapped as separate tracked groups -- Untapped is derived as
+  lands-minus-tapped internally, so this doesn't depend on the rail having
+  those groups pre-configured at all. Also: no turn cap input -- show the
+  full table until risk is negligible, don't artificially stop at a chosen T.
+  The mana-curve-aware "only check step-up turns" refinement from the first
+  mockup review is NOT implemented this round (would need cost-tracking per
+  card, which doesn't exist in the app's data model at all today) -- showing
+  every turn is the deliberate, smaller-scope version for now.
+
+- **Cantrips as a DISTRIBUTION of look-sizes, not one uniform M -- a real
+  generalization of the math, not just a UI change.** Input becomes a small
+  add/removable list of (count, look-size) pairs (e.g. "6 that see 3, 1 that
+  sees 4, 1 that sees 6"), not a single "N cantrips, each looks at M" pair.
+  This turns "how many cantrips drawn by turn T" from a single hypergeometric
+  variable into a JOINT one -- how many of EACH distinct look-size got drawn
+  by turn T, simultaneously -- the same kind of multivariate distribution
+  mulligan.ts already computes for hand compositions (enumerateHands-style),
+  just applied to "which cantrip types you've drawn" instead of "which
+  resources." Tractable with existing techniques, not a new kind of hardness,
+  but a genuine step up in scope from the single-M version. Dilution still
+  applies across the combined total (every distinct look-size is its own
+  deck slot competing for the same shrinking Others pool) -- not modeled
+  separately per look-size type, stated explicitly in the UI's scope note.
+
+### Cantrip card, third revision: stop prescribing, start informing (2026-07-30)
+
+Real problem with "suggest the best combination" left to run freely: it will
+always favor the biggest look-size (5>4>3...), but bigger effects aren't
+always available or feasible for reasons the tool can't see (mana cost,
+color, card availability, format legality). Prescribing a single "optimal"
+mix is fighting the model's own honesty, not fixing a bug in it.
+
+Fix: don't prescribe, INFORM. Flip the question per effect type: "what does
++1 copy of THIS do to my success rate, right now" -- a marginal value, not a
+recommendation. The decision of which effects to actually run stays with the
+user, who knows constraints the tool doesn't.
+
+Marginal value is a snapshot, not a constant: it depends on everything else
+currently in the deck (dilution), so it recomputes live as the rest of the
+deck changes, same as everything else in this app -- never implies a
+universal ranking.
+
+Showing the full declining-marginal-value curve (0->1, 1->2, 1->3, ...) is
+too much information for a quick nudge, given real decks run at most 4 (rarely
+8) copies of anything. Collapse to ONE approximate number per effect type:
+the AVERAGE marginal value over a realistic 1-4 copies, prefixed with "~" to
+honestly signal it's an approximation, not any one specific copy's exact
+value. This telescopes cleanly: average of the four step-wise marginals
+(0->1, 1->2, 2->3, 3->4) equals (P(4)-P(0))/4 exactly -- one evaluation, not
+four, confirmed algebraically and numerically before relying on it.
+
+"Suggest a combination for target X%" is a separate, EXACT feature, not an
+extension of the ~ estimates -- a real multi-dimensional search across
+several effect types at once (see the earlier A/B split: ratio-preserving
+scale-up now, real per-card copy-cap allocation later). Presenting a single
+suggested combination doesn't reintroduce the "always picks biggest" problem
+here, since the search is happening across TYPES the user already chose to
+include, not silently picking which types matter.
+
+The suggested (or manually built) mix should be directly checkable via the
+SAME exact tool used to build one by hand -- suggestions aren't a black box,
+they hand off to the same verify-a-specific-mix interface a person would use
+themselves, matching "don't build the same computation twice."
+
+UI: default/primary view is JUST the per-type ~ marginal list plus the
+"suggest a combination" action -- both cheap to read, neither requires
+opening anything. The full manual distribution editor (add/remove
+(count, look-size) rows), the detailed cantrips-vs-success table, and the
+"more details" sub-metrics are ALL collapsed under a single disclosure by
+default, layered (a nested "more details" inside the outer "build an exact
+mix" disclosure) rather than all flattened into one view -- keeps the
+common case to two things to read, the power-user case fully available one
+click away.
+
+Global target% possibly belongs in the rail rather than re-entered per
+Questions card, since `target`/`adviseTurn` are ALREADY single shared values
+in the app's data model (the advisor strip is just the one current place
+that edits them) -- Questions cards defaulting to that same shared value
+is consistency with how Hand size and Mull are already reused, not new
+state. Whether its UI home physically moves into the rail is a separate,
+smaller layout decision not resolved yet.
+
+### Fourth mockup pass: cut the notes, cut a dead table (2026-07-30)
+
+- **Per-card "uses current settings" reassurance text consolidated to ONE
+  tab-level line**, shown once under the Questions tab strip, not repeated
+  per card -- every other tab already updates live without saying so per
+  card; Questions gets exactly one line acknowledging that, not several.
+
+- **The "~ averaged over 1-4 copies" caveat moved from a paragraph into a
+  tooltip on the "~ value per copy" column header** -- the explanation only
+  needs to exist once, attached to the thing it explains, not sitting in the
+  main reading flow as its own line.
+
+- **Removed the "total cantrips -> success/gain/cutting-from" table
+  entirely.** It implied a single scalar "total count" was the interesting
+  variable, but the real answer is always "fill all filler with cantrips"
+  once dilution is understood -- the table didn't tell you WHICH cantrips
+  were being added, just an abstract total. What actually matters -- a
+  specific, named mix and its real result -- is exactly what "build and test
+  an exact mix" already gives; the table was redundant sanity-checking on
+  top of a tool that already IS the sanity check.
+
+- **"More details" flattened, not nested inside a second disclosure** -- it
+  now sits as a plain section alongside the mix builder inside ONE
+  "build and test an exact mix" disclosure, not a details-inside-a-details.
+  Its metrics (avg cards seen, look-composition breakdown) are computed FROM
+  whatever mix is currently entered in that same disclosure, not a separate
+  hypothetical -- one mix, one set of numbers describing it.
+
+- **Tapped-land damage REMOVED from this round entirely**, not just
+  simplified further. The turn-by-turn percentage table reads too
+  abstractly on its own to be useful as shipped. Needs a real design
+  rethink before returning: likely comparing directly against the deck's
+  actual mana curve (a graph, not a table of percentages), or suggesting a
+  landbase shape that fits the curve, rather than a bare risk-by-turn list.
+  Left as an open, unscoped problem -- not scheduled, not designed further,
+  parked exactly where the cascading-cantrips and mana-curve-MDP problems
+  already are in this document.
+
+### Fifth mockup pass (2026-07-30)
+
+- "Same table as Suggestions" note removed -- didn't need explaining.
+- "Uses your current settings live" note removed ENTIRELY, not relocated.
+  It's true for every tab already, and none of them say so; adding it only
+  for Questions would be the one inconsistent thing on the page.
+- Cantrip table's "suggest a combination" button removed. Replaced with a
+  live third column, "copies for [target]%", computed directly per effect
+  type (a single-group minSlotsForTarget-style solve per row) -- no click
+  needed, and genuinely plural (one independent suggestion per row) rather
+  than one prescribed mix. The old explanatory sentence ("exact search, not
+  the ~ estimates above") is no longer needed once the column sits directly
+  next to the ~ column it's contrasted with.
+- "When you've actually drawn one..." reworded to "With a cantrip drawn:
+  92%. Without: 62%." -- same numbers, shorter.
+- The 3-card-look composition breakdown moved OUT of the "build and test an
+  exact mix" disclosure, now sits directly under the top-level marginal
+  table (a fact about the deck generally, not specific to any one mix).
+- **"Enough setup for my payoffs" redesigned to read counts from the rail
+  instead of asking again.** Real problem identified: it was awkwardly
+  mixing "pick a group" (rail-driven) with "manually type how many copies"
+  (duplicate of what the rail's count/% row already tracks) -- and risked
+  its own trial-and-error hunting for the right dark-monster count. Fix:
+  drop the manual copy-count input entirely; it's just two group pickers +
+  a turn now, with counts read live from whatever the rail currently shows
+  for each picked group (same reuse principle as "is my hand safe" using
+  the real combo query instead of a separate mini-query). Added a direct
+  "darks needed for 90%" readout, same live-third-column idea as the
+  cantrip table, so reaching a target doesn't require manually walking the
+  rail's count up and down first.
+- A "lookup table / cheat sheet across multiple payoff-count values" was
+  raised as a nicer possible presentation but is a genuinely open design
+  problem given how arbitrary the underlying query can be -- parked
+  unscoped, same status as tapped-lands and the cascading-cantrips model,
+  not designed further this round.
+
+### Shared goal across Questions cards (2026-07-30)
+
+Confirmed: the cantrip table's "copies needed" column and the payoffs card's
+"needed for X%" line share ONE global target -- not independent per-card
+inputs. Since target% and turn T are already one combined "Goal" unit in the
+advisor strip (not two separate settings), both are shared together, not
+just P% alone -- sharing one but leaving the other per-card would reintroduce
+the exact inconsistency just eliminated elsewhere in this tab.
+
+Visual treatment: wherever the shared value appears in a Questions card, it
+uses the SAME dashed-underline accent-colored style as the rail's goal
+inputs and the advisor strip -- signals "this is the same value as
+everywhere else in the app" without needing a word of explanation, matching
+how the rail redesign already solved this exact "how do I convey `this
+number means something specific' without a label" problem. Editable from
+any of these spots; changes propagate everywhere, since it's one value, not
+several copies of it.
+
+### Correction: cantrip exact-mix result needs the overall number, not just with/without (2026-07-30)
+
+Trimming "when you've actually drawn one..." down to just "with/without"
+went too far -- it lost the one thing the removed total-cantrips table WAS
+good for: the overall, weighted success rate for the specific mix actually
+built (combining "drew 0 cantrips," "drew 1," "drew 2," etc., weighted by
+their real probabilities). Restored as the headline number, with the
+with/without conditional breakdown kept underneath as supporting context
+for WHY it works, not as a replacement for the overall answer.
+
+### Payoffs card reframed: liveness across the whole game, not a single-turn snapshot (2026-07-30)
+
+Real reframe, not just wording: the useful question isn't "at exactly turn T,
+is Allure live" (a single snapshot), it's "how live is this card across the
+whole game up to T" -- since when you'd actually want to cast it isn't pinned
+to one instant.
+
+Headline ("X% chance Allure is live") is an EQUAL-WEIGHTED AVERAGE of
+P(darks drawn >= Allures drawn) across every turn from the opening hand
+through the shared goal turn T -- not a snapshot at T alone. No separate
+per-card turn input needed at all now, matching the earlier decision that
+target%/turn are shared global values -- this card reads T directly rather
+than asking for it a second time.
+
+Secondary table (not the headline) gives the per-turn breakdown: for each
+turn from opening hand through T, the dark-monster count needed to hit the
+shared target% AT THAT SPECIFIC TURN (same inverse-solve idea as the cantrip
+table's "copies needed" column, one row per turn instead of one row per
+effect). Capped at the shared goal turn T, deliberately unlike tapped-lands'
+uncapped table -- "darks needed" only grows as more turns/Allures pass, with
+no natural "risk becomes negligible" stopping point the way tapped-land risk
+has, so T itself is the natural, meaningful cutoff here.
+
+### Two more trims (2026-07-30)
+
+- Payoffs card's "averaged from opening hand through turn T, using your
+  current counts" line removed -- same redundancy already eliminated
+  elsewhere: T is visible in the advisor strip, both group counts are
+  visible in the rail, restating them here added nothing.
+- Cantrip result now shows the vs-zero-cantrips baseline too ("85% overall
+  with this mix, vs 58% running none"), and the two comparisons (vs-zero,
+  and with/without-drawn-by-T) are DELIBERATELY KEPT AS DISTINCT NUMBERS,
+  not conflated -- "success with 0 cantrips in the deck" (undiluted) and
+  "success conditional on not having drawn one yet" (diluted -- the
+  cantrips are still occupying deck slots even in the branch where you
+  didn't draw one) are genuinely different quantities and will not usually
+  match; an earlier mockup draft accidentally used the same placeholder
+  number for both, which would have implied a false equivalence.
+
+### Final trim on the cantrip result line (2026-07-30)
+
+Settled wording: "85% success rate by turn T, vs 60% running none." as the
+headline, with just "92% if seen in opening hand." underneath in muted text
+-- dropped the "62% if not by turn T" half of the conditional breakdown
+entirely, and switched from the more abstract "drawn by turn T" framing to
+the concrete, fixed "seen in opening hand" scenario, which needs no turn
+reasoning to understand at a glance.
+
+### Cantrip table header consolidation (2026-07-30)
+
+Removed the separate "copies needed to reach X%:" line above the table --
+folded directly into the third column's own header, "copies needed for X%
+success," with the shared-goal input embedded inline. Verified directly
+(not assumed) that this doesn't overflow even at 390px mobile width, the
+tightest case in the app.

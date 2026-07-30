@@ -86,25 +86,27 @@ export function DeckEditor() {
         <label className="inline-field">
           <span>Deck</span>
           <input
-            className="deck-num"
+            className="deck-num deck-size-combo"
             type="number"
             min={1}
             max={1024}
+            list="deck-size-presets"
             value={deckSize}
             onChange={(e) => dispatch({ type: 'setDeckSize', deckSize: parseNumOr0(e.target.value) })}
           />
+          {/* Native combobox: type any size directly, or open the list for
+              the common ones. Deliberately not 4 separate boxes (a plain
+              value + 3 preset buttons) -- that layout could show the SAME
+              number twice at once (e.g. "40" typed AND "40" highlighted as
+              a separate, seemingly independent element) and cost real width
+              on mobile for very little. One field can't have that problem:
+              there's only ever one number on screen. */}
+          <datalist id="deck-size-presets">
+            <option value="40" />
+            <option value="60" />
+            <option value="99" />
+          </datalist>
         </label>
-        <div className="preset-chips">
-          {[40, 60, 99].map((n) => (
-            <button
-              key={n}
-              className={deckSize === n ? 'active' : ''}
-              onClick={() => dispatch({ type: 'setDeckSize', deckSize: n })}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
         <label className="inline-field">
           <span>Hand</span>
           <input

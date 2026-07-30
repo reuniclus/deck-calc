@@ -254,19 +254,29 @@ describe('Long/unbroken group names (structural checks -- jsdom cannot verify pi
   });
 });
 
-describe('Deck size presets, others alignment, chart axis labels/gridlines', () => {
-  it('deck size preset buttons exist and clicking one updates the deck size', () => {
+describe('Deck size combobox, others alignment, chart axis labels/gridlines', () => {
+  it('the deck size input is a native combobox with the right preset options in its datalist', () => {
     render(<App />);
-    const preset60 = [...document.querySelectorAll('.preset-chips button')].find((b) => b.textContent === '60')!;
-    fireEvent.click(preset60);
+    const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
+    expect(deckInput.getAttribute('list')).toBeTruthy();
+    const datalist = document.getElementById(deckInput.getAttribute('list')!) as HTMLDataListElement;
+    expect(datalist).toBeTruthy();
+    const optionValues = [...datalist.options].map((o) => o.value);
+    expect(optionValues).toEqual(['40', '60', '99']);
+  });
+
+  it('setting the deck size (typing directly, or picking a datalist option -- both look identical to the DOM) updates the deck size', () => {
+    render(<App />);
+    const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
+    fireEvent.change(deckInput, { target: { value: '60' } });
     expect((screen.getByDisplayValue('60') as HTMLInputElement).value).toBe('60');
   });
 
-  it('the active preset gets the active class when it matches the current deck size', () => {
+  it('a custom deck size (not one of the presets) works exactly the same way -- no separate "is this a preset" state to get out of sync', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('99'));
-    const preset99 = [...document.querySelectorAll('.preset-chips button')].find((b) => b.textContent === '99');
-    expect(preset99?.className).toContain('active');
+    const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
+    fireEvent.change(deckInput, { target: { value: '75' } });
+    expect((screen.getByDisplayValue('75') as HTMLInputElement).value).toBe('75');
   });
 
   it('Others row has a dedicated count element and placeholder distinct from the label', () => {
@@ -567,7 +577,7 @@ describe('URL sharing (real end-to-end through the actual app, not just the pure
     render(<App />);
     expect(window.location.hash).not.toBe('');
     const before = window.location.hash;
-    fireEvent.click([...document.querySelectorAll('.preset-chips button')].find((b) => b.textContent === '60')!);
+    fireEvent.change(screen.getByDisplayValue('40'), { target: { value: '60' } });
     expect(window.location.hash).not.toBe(before);
   });
 
@@ -782,7 +792,7 @@ describe('Mulligan computation loading state (the actual point: never freeze, al
 describe('Mobile UI fixes: horizontal padding, sticky-bar sentinel position, chart draw cap', () => {
   it('the chart caps at 20 cards drawn even for a much larger deck (99), not deckSize', () => {
     render(<App />);
-    fireEvent.click([...document.querySelectorAll('.preset-chips button')].find((b) => b.textContent === '99')!);
+    fireEvent.change(screen.getByDisplayValue('40'), { target: { value: '99' } });
     const svg = document.querySelector('svg[aria-label="probability curve"]')!;
     expect(svg.querySelectorAll('line.vax, line.vax5').length).toBe(21); // n=0..20, not 0..99
     const mainLine = svg.querySelector('polyline.curve-line')!;

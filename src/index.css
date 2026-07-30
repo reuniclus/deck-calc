@@ -56,9 +56,6 @@ input[type="number"].advisor-inline {
    the NEXT item (e.g. the first-turn-draw checkbox) drops to a new line,
    never something in the middle of this phrase. */
 .no-wrap-group { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
-.preset-chips { display: flex; gap: 4px; }
-.preset-chips button { font-size: 11px; padding: 3px 7px; color: var(--dim); }
-.preset-chips button.active { background: var(--surface-2); color: var(--fg); border-color: var(--border-strong); }
 .inline-field { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); }
 
 input, select, textarea, button {
@@ -78,6 +75,12 @@ input[type="number"].deck-num {
   -webkit-appearance: none;
   margin: 0;
 }
+/* Deck size specifically is wider than Hand/Mull -- it's now a combobox
+   (native <input list>/<datalist>), not a plain 2-digit field, and needs
+   comfortable room for the browser's own list-indicator affordance.
+   Placed AFTER .deck-num deliberately: same specificity, source order
+   decides ties, and this one needs to win over the narrower default. */
+input[type="number"].deck-size-combo { width: 44px; }
 select { padding: 3px 4px; }
 button { cursor: pointer; padding: 3px 6px; }
 button:hover { border-color: var(--accent); }
