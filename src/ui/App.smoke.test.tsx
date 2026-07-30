@@ -812,3 +812,68 @@ describe('Mobile UI fixes: horizontal padding, sticky-bar sentinel position, cha
     expect(sentinelIdx).toBeLessThan(comboBoxIdx);
   });
 });
+
+describe('Questions tab (real end-to-end, not just the component in isolation)', () => {
+  function setMulligans(n: number) {
+    const label = screen.getByText('Mull.').closest('label')!;
+    const input = label.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: String(n) } });
+  }
+  function goToQuestions() {
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
+  }
+
+  it('the Questions tab exists and shows all three cards', () => {
+    render(<App />);
+    goToQuestions();
+    const panel = document.querySelector('.tab-panel-questions')!;
+    expect(panel.textContent).toContain('Is my hand safe to keep?');
+    expect(panel.textContent).toContain('How many cantrips should I run?');
+    expect(panel.textContent).toContain('Enough setup for my payoffs?');
+  });
+
+  it('with 0 mulligans, "is my hand safe" shows the setup hint, not a table', () => {
+    render(<App />);
+    goToQuestions();
+    const panel = document.querySelector('.tab-panel-questions')!;
+    expect(panel.textContent).toContain('Set Mull. above 0');
+    expect(panel.querySelector('table.num-table')).toBeNull();
+  });
+
+  it('cantrips and payoffs are honest "not built yet" placeholders, not silently missing or fake data', () => {
+    render(<App />);
+    goToQuestions();
+    const panel = document.querySelector('.tab-panel-questions')!;
+    expect(panel.textContent).toContain('Not built yet');
+  });
+
+  it('with mulligans set, "is my hand safe" shows the SAME table data as the Suggestions tab -- shared computation, not a second independent one', async () => {
+    render(<App />);
+    setMulligans(1);
+    await waitFor(() => {
+      fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Suggestions')!);
+      expect(document.querySelector('.tab-panel-suggestions table.num-table')).toBeTruthy();
+    });
+    const suggestionsRows = [...document.querySelectorAll('.tab-panel-suggestions table.num-table')]
+      .find((t) => t.querySelector('th')?.textContent !== undefined && t.textContent!.includes('verdict'))!
+      .querySelectorAll('tbody tr').length;
+
+    goToQuestions();
+    const questionsTable = document.querySelector('.tab-panel-questions table.num-table')!;
+    expect(questionsTable).toBeTruthy();
+    expect(questionsTable.querySelectorAll('tbody tr').length).toBe(suggestionsRows);
+    expect(questionsTable.textContent).toMatch(/keep|mulligan/);
+  });
+
+  it('switching between Suggestions and Questions does not lose the mulligan panel state (both stay mounted)', async () => {
+    render(<App />);
+    setMulligans(1);
+    await waitFor(() => {
+      goToQuestions();
+      expect(document.querySelector('.tab-panel-questions table.num-table')).toBeTruthy();
+    });
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Chart')!);
+    goToQuestions();
+    expect(document.querySelector('.tab-panel-questions table.num-table')).toBeTruthy();
+  });
+});

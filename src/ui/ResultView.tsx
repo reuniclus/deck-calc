@@ -9,6 +9,7 @@ import { useMulliganStrategyCtx, buildDisplayCurve } from '../state/useMulliganS
 import { evaluate } from '../math/evaluate';
 import { GridTab } from './GridTab';
 import { SuggestionsTab } from './SuggestionsTab';
+import { QuestionsTab } from './QuestionsTab';
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(2)}%`;
@@ -264,7 +265,7 @@ function TableTab({
   );
 }
 
-export type ResultTab = 'chart' | 'table' | 'grid' | 'suggestions';
+export type ResultTab = 'chart' | 'table' | 'grid' | 'suggestions' | 'questions';
 
 export function ResultView({ tab, setTab }: { tab: ResultTab; setTab: (t: ResultTab) => void }) {
   const { turnCfg, target } = useAppState();
@@ -307,6 +308,7 @@ export function ResultView({ tab, setTab }: { tab: ResultTab; setTab: (t: Result
         <button className={tab === 'table' ? 'active' : ''} onClick={() => setTab('table')}>Table</button>
         <button className={tab === 'grid' ? 'active' : ''} onClick={() => setTab('grid')}>Grid</button>
         <button className={tab === 'suggestions' ? 'active' : ''} onClick={() => setTab('suggestions')}>Suggestions</button>
+        <button className={tab === 'questions' ? 'active' : ''} onClick={() => setTab('questions')}>Questions</button>
       </div>
       {/* All tabs stay mounted, toggled via display -- switching tabs must not
           reset a tab's own local state (e.g. Grid's swept-group selection). */}
@@ -321,6 +323,9 @@ export function ResultView({ tab, setTab }: { tab: ResultTab; setTab: (t: Result
       </div>
       <div className="tab-panel-suggestions" style={{ display: tab === 'suggestions' ? 'block' : 'none' }}>
         <SuggestionsTab />
+      </div>
+      <div className="tab-panel-questions" style={{ display: tab === 'questions' ? 'block' : 'none' }}>
+        <QuestionsTab />
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { useAppState } from '../state/AppState';
 import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
 import { useSuggestionsCtx } from '../state/useSuggestions';
 import { useMulliganStrategyCtx } from '../state/useMulliganStrategy';
+import { MulliganHandTable } from './MulliganHandTable';
 import { colorFor } from './DeckEditor';
 import { allocate, minSlotsForTarget } from '../math/allocate';
 import { collectGroups } from '../math/expr';
@@ -130,31 +131,7 @@ export function SuggestionsTab() {
                 <b>{pct(mulliganResult.neverMulliganP)}</b> if you never mulligan.
                 {mulliganLoading && <span className="mulligan-loading"> (recomputing…)</span>}
               </p>
-              <table className="num-table">
-                <thead>
-                  <tr>
-                    {groupIds.map((g) => <th key={g} style={{ color: colorFor(g) }}>{nameOf(g)}</th>)}
-                    <th>P(this hand)</th>
-                    <th>keep</th>
-                    <th>mulligan</th>
-                    <th>verdict</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mulliganResult.strategy
-                    .slice()
-                    .sort((a, b) => groupIds.reduce((s, g) => s + a.hand[g]! - b.hand[g]!, 0))
-                    .map((row, i) => (
-                      <tr key={i} className={row.shouldKeep ? 'hit' : ''}>
-                        {groupIds.map((g) => <td key={g}>{row.hand[g]}</td>)}
-                        <td>{(row.probability * 100).toFixed(2)}%</td>
-                        <td>{pct(row.keepP)}</td>
-                        <td>{pct(row.mulliganP)}</td>
-                        <td>{row.shouldKeep ? 'keep' : 'mulligan'}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+              <MulliganHandTable />
             </>
           ) : mulliganLoading ? (
             <p className="hint mulligan-loading">Computing optimal mulligan strategy…</p>
