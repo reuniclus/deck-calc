@@ -36,22 +36,43 @@ export function MulliganHandTable() {
       : null;
   }
 
+  const sortedRows = mulliganResult.strategy
+    .slice()
+    .sort((a, b) => groupIds.reduce((s, g) => s + a.hand[g]! - b.hand[g]!, 0));
+
+  /**
+   * Once every REMAINING hand (in this sorted order) is a "keep," listing
+   * them all adds nothing -- confirmed directly from a real screenshot
+   * where the tail was a long run of all-keep rows. Truncate right after
+   * the LAST mulligan verdict rather than guessing at a threshold: the
+   * keep/mulligan split isn't simply "more total cards is better" (two
+   * hands with the same total can disagree, e.g. one group's copies being
+   * worth more than another's) -- finding the actual last occurrence in
+   * the computed data is correct by construction; assuming a pattern and
+   * picking a cutoff point would not be.
+   */
+  const lastMulliganIndex = sortedRows.reduce((last, r, i) => (r.shouldKeep ? last : i), -1);
+  const visibleRows = lastMulliganIndex === -1 ? [] : sortedRows.slice(0, lastMulliganIndex + 1);
+  const hiddenCount = sortedRows.length - visibleRows.length;
+
+  if (lastMulliganIndex === -1) {
+    return <p className="hint">Every possible opening hand is safe to keep &mdash; there's no hand worth mulliganing here.</p>;
+  }
+
   return (
-    <table className="num-table">
-      <thead>
-        <tr>
-          {groupIds.map((g) => <th key={g} style={{ color: colorFor(g) }}>{nameOf(g)}</th>)}
-          <th>P(this hand)</th>
-          <th>keep</th>
-          <th>mulligan</th>
-          <th>verdict</th>
-        </tr>
-      </thead>
-      <tbody>
-        {mulliganResult.strategy
-          .slice()
-          .sort((a, b) => groupIds.reduce((s, g) => s + a.hand[g]! - b.hand[g]!, 0))
-          .map((row, i) => (
+    <>
+      <table className="num-table">
+        <thead>
+          <tr>
+            {groupIds.map((g) => <th key={g} style={{ color: colorFor(g) }}>{nameOf(g)}</th>)}
+            <th>P(this hand)</th>
+            <th>keep</th>
+            <th>mulligan</th>
+            <th>verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visibleRows.map((row, i) => (
             <tr key={i} className={row.shouldKeep ? 'hit' : ''}>
               {groupIds.map((g) => <td key={g}>{row.hand[g]}</td>)}
               <td>{(row.probability * 100).toFixed(2)}%</td>
@@ -60,7 +81,13 @@ export function MulliganHandTable() {
               <td>{row.shouldKeep ? 'keep' : 'mulligan'}</td>
             </tr>
           ))}
-      </tbody>
-    </table>
+        </tbody>
+      </table>
+      {hiddenCount > 0 && (
+        <p className="hint" style={{ margin: '4px 0 0' }}>
+          + {hiddenCount} more hand{hiddenCount === 1 ? '' : 's'} beyond this point, all keep.
+        </p>
+      )}
+    </>
   );
 }
