@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { evaluate } from './evaluate';
-import { bruteSelectionP } from './bruteSelection';
+import { bruteSelectionP, bruteSelectionUpperP } from './bruteSelection';
 import {
   assertDrawShaped, drawEffect, exactDrawCurve, exactDrawCurveUnsplit,
-  exactScryCurveSingleGroup, exactSelectionCurveSingleGroup, impulseEffect, ponderEffect,
+  exactScryCurveSingleGroup, exactSelectionCurveAnd, exactSelectionCurveSingleGroup,
+  impulseEffect, ponderEffect,
   scryEffect, slotDistribution, UnsupportedSelectionError,
 } from './selection';
 import type { Dnf } from './expr';
@@ -263,5 +264,85 @@ describe('the no-cascading scope, measured rather than asserted', () => {
       const on = bruteSelectionP(counts, n, be(eff), { A: t }, true);
       expect(on - off).toBe(0);
     }
+  });
+});
+
+describe('multi-group AND of thresholds', () => {
+  const shapes = (E: number) => [
+    ['draw', drawEffect('C', E), 'exact'],
+    ['ponder (no shuffle)', { ...ponderEffect('C', E), canShuffle: false }, 'exact'],
+    ['scry', scryEffect('C', E), 'sandwich'],
+    ['impulse', impulseEffect('C', E), 'sandwich'],
+  ] as const;
+  const configs: Array<[number, number, number, number, number]> = [
+    [12, 3, 2, 2, 2],
+    [11, 2, 2, 3, 2],
+    [12, 4, 3, 2, 3],
+  ];
+
+  for (const [N, A, B, C, E] of configs) {
+    for (const [na, nb] of [[1, 1], [2, 1]] as const) {
+      for (const [name, eff, kind] of shapes(E)) {
+        it(`${name}: N=${N} A=${A}/${na} B=${B}/${nb} copies=${C} examined=${E}`, () => {
+          const dp = exactSelectionCurveAnd(N, [{ count: A, need: na }, { count: B, need: nb }], eff, C, 7);
+          const counts = { A, B, C, '': N - A - B - C };
+          const be = {
+            group: 'C', examined: eff.examined, keepMax: eff.keepMax,
+            keptCostsDraw: eff.keptCostsDraw, nonKeptLeavesPool: eff.nonKeptLeavesPool,
+          };
+          for (const n of [2, 3, 5, 7]) {
+            const greedy = bruteSelectionP(counts, n, be, { A: na, B: nb });
+            if (kind === 'exact') {
+              // No keep CHOICE exists for these shapes (you take the whole
+              // window, or the whole window gets drawn), so any fixed policy is
+              // optimal and the match must be exact.
+              expect(dp[n]!).toBeCloseTo(greedy, 12);
+            } else {
+              // Here the choice is a real optimization, so an exact match
+              // against a fixed greedy policy would mean the model ISN'T
+              // optimizing. Sandwich it between that policy and a clairvoyant
+              // upper bound instead.
+              expect(dp[n]!).toBeGreaterThanOrEqual(greedy - 1e-12);
+              // The clairvoyant bound branches over every keep subset at every
+              // window, for every deck ordering, so it is only affordable at
+              // the smaller window size -- checked where it fits rather than
+              // dropped or left to time out.
+              if (E <= 2 && n <= 5) {
+                const upper = bruteSelectionUpperP(counts, n, be, { A: na, B: nb });
+                expect(dp[n]!).toBeLessThanOrEqual(upper + 1e-12);
+              }
+            }
+          }
+        }, 20000);
+      }
+    }
+  }
+
+  it('reproduces the single-group engine at G=1', () => {
+    for (const [N, A, C, E] of [[12, 3, 2, 2], [11, 2, 3, 2]] as const) {
+      for (const t of [1, 2]) {
+        const one = exactSelectionCurveSingleGroup(N, A, t, scryEffect('C', E), C, 7);
+        const many = exactSelectionCurveAnd(N, [{ count: A, need: t }], scryEffect('C', E), C, 7);
+        for (let n = 0; n <= 7; n++) expect(many[n]!).toBeCloseTo(one[n]!, 12);
+      }
+    }
+  });
+
+  it('packs state keys wide enough for the folded filler pool', () => {
+    // Regression: satisfied groups get folded into the filler pool (exact, and
+    // the main speedup), which pushes that count ABOVE the deck's original
+    // filler total. The packed state key originally sized that field for the
+    // UNFOLDED maximum, so distinct states collided in the memo and returned
+    // each other's values -- wrong by 1.5 points in this exact configuration.
+    const dp = exactSelectionCurveAnd(12, [{ count: 3, need: 1 }, { count: 2, need: 1 }], drawEffect('C', 2), 2, 7);
+    const greedy = bruteSelectionP({ A: 3, B: 2, C: 2, '': 5 }, 7,
+      { group: 'C', examined: 2, keepMax: 2, keptCostsDraw: false, nonKeptLeavesPool: true },
+      { A: 1, B: 1 });
+    expect(dp[7]!).toBeCloseTo(greedy, 12);
+  });
+
+  it('rejects group counts that exceed the deck', () => {
+    expect(() => exactSelectionCurveAnd(10, [{ count: 6, need: 1 }, { count: 5, need: 1 }], drawEffect('C', 2), 2, 5))
+      .toThrow(UnsupportedSelectionError);
   });
 });

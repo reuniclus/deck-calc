@@ -465,3 +465,259 @@ export function exactSelectionCurveSingleGroup(
   for (let n = 0; n <= maxDraws; n++) out[n] = V(0, 0, 0, 0, n);
   return out;
 }
+
+export interface TrackedGroup {
+  /** Copies in the deck. */
+  count: number;
+  /** How many must reach hand for this group's part of the query. */
+  need: number;
+}
+
+/**
+ * All four effect shapes against an AND of thresholds over SEVERAL tracked
+ * groups ("2 lands AND 1 combo piece by turn T").
+ *
+ * The new thing here versus the single-group engine is that the keep decision
+ * becomes a genuine CHOICE: a window holding a land and a combo piece, with an
+ * effect that can only take one, is a real optimization -- so this maximizes
+ * over every legal commit vector rather than applying a rule. "Take the one you
+ * lack" and "take the rarer one" are OUTPUTS of that max, never encoded.
+ * reveal.ts's doc comment flags exactly this as the caller's job, which is why
+ * it lives here rather than in the primitive.
+ *
+ * Cards reaching hand count toward the query whether or not you wanted them --
+ * so "acquired" means in hand, and the choice is only about what goes there.
+ * Pool counts are tracked SEPARATELY from acquired counts, because an impulse
+ * that can take one card exiles the rest: those copies leave the pool without
+ * ever being acquired (the bug that overstated impulse before it was split).
+ *
+ * Scope: AND of `>=` thresholds only. An OR needs the same max but over a state
+ * that can pursue different clauses, and an upper bound ("exactly 1") breaks the
+ * success-absorbs property this relies on, since drawing MORE can un-satisfy a
+ * query. Both are recorded as open in PLAN.md rather than approximated here.
+ */
+export function exactSelectionCurveAnd(
+  deckSize: number,
+  groups: TrackedGroup[],
+  effect: SelectionEffect,
+  copies: number,
+  maxDraws: number,
+): Curve {
+  const G = groups.length;
+  const trackedTotal = groups.reduce((s, g) => s + g.count, 0);
+  const others0 = deckSize - trackedTotal - copies;
+  if (others0 < 0) throw new UnsupportedSelectionError('group counts exceed the deck');
+  const { examined, keepMax, keptCostsDraw, nonKeptLeavesPool } = effect;
+  const canShuffle = effect.canShuffle ?? false;
+  // Numeric mixed-radix state keys, not strings: at two groups the state count
+  // reaches millions, and string building plus per-transition array copies
+  // dominated the runtime (7.5s for a 60-card deck before this change).
+  const radices: number[] = [];
+  for (const g of groups) radices.push(g.count + 1, g.need + 1);
+  // The filler field must be sized for the FOLDED maximum, not `others0`:
+  // canonicalizing a satisfied group moves its copies into the filler pool, so
+  // remO can exceed others0. Sizing it at others0+1 made distinct states
+  // collide in the memo and silently returned another state's value -- caught
+  // by the brute force immediately, but it would have been invisible without.
+  radices.push(copies + 1, others0 + trackedTotal + 1, maxDraws + 1);
+  const memo = new Map<number, number>();
+  const encode = (rem: number[], remC: number, remO: number, acq: number[], sLeft: number): number => {
+    let key = 0;
+    let i = 0;
+    for (let g = 0; g < G; g++) {
+      key = key * radices[i++]! + rem[g]!;
+      key = key * radices[i++]! + acq[g]!;
+    }
+    key = key * radices[i++]! + remC;
+    key = key * radices[i++]! + remO;
+    key = key * radices[i]! + sLeft;
+    return key;
+  };
+
+  /** rem: copies of each tracked group left in the pool. acq: how many of each
+   * are in hand, capped at that group's need (beyond it, they only matter as
+   * pool composition, which `rem` already carries). */
+  function V(rem: number[], remC: number, remO: number, acq: number[], sLeft: number): number {
+    let done = true;
+    for (let g = 0; g < G; g++) if (acq[g]! < groups[g]!.need) { done = false; break; }
+    if (done) return 1;
+    if (sLeft <= 0) return 0;
+
+    // Canonicalize: a group whose threshold is already met is indistinguishable
+    // from filler -- nothing about the remaining decisions or outcomes can tell
+    // its copies apart from any other card you don't need. Folding them into the
+    // filler pool is exact, and it collapses every state that differed only in a
+    // satisfied group's leftover count into one. Biggest single speedup here (a
+    // 60-card two-group case went from 3.1s to well under a second), because at
+    // two groups most reachable states have one group already done.
+    for (let g = 0; g < G; g++) {
+      if (acq[g]! >= groups[g]!.need && rem[g]! > 0) {
+        const folded = [...rem];
+        const spare = folded[g]!;
+        folded[g] = 0;
+        return V(folded, remC, remO + spare, acq, sLeft);
+      }
+    }
+    const pool = rem.reduce((s, r) => s + r, 0) + remC + remO;
+    if (pool <= 0) return 0;
+
+    const key = encode(rem, remC, remO, acq, sLeft);
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+
+    const d = sLeft - 1;
+    const bump = (a: number[], g: number, by: number): number[] => {
+      const out = [...a];
+      out[g] = Math.min(groups[g]!.need, out[g]! + by);
+      return out;
+    };
+    const dec = (r: number[], g: number, by: number): number[] => {
+      const out = [...r];
+      out[g] = out[g]! - by;
+      return out;
+    };
+
+    // An ordinary scheduled draw: whatever comes up goes to hand.
+    let value = (remO / pool) * V(rem, remC, remO - 1, acq, d);
+    for (let g = 0; g < G; g++) {
+      if (rem[g]! <= 0) continue;
+      value += (rem[g]! / pool) * V(dec(rem, g, 1), remC, remO, bump(acq, g, 1), d);
+    }
+
+    if (remC > 0) {
+      // A copy resolves. Enumerate its whole window's composition over the pool
+      // left after removing the copy itself, then choose optimally.
+      const poolAfter = pool - 1;
+      const remC2 = remC - 1;
+      const w = Math.min(examined, poolAfter);
+      const denom = chooseN(poolAfter, w);
+      let effectValue = 0;
+      if (denom <= 0 || w <= 0) {
+        effectValue = V(rem, remC2, remO, acq, d);
+      } else {
+        // window composition: how many of each tracked group, how many copies,
+        // how many filler.
+        const comp: number[] = new Array(G).fill(0) as number[];
+        const walk = (g: number, left: number, ways: number): void => {
+          if (g === G) {
+            for (let c = 0; c <= Math.min(remC2, left); c++) {
+              const o = left - c;
+              if (o < 0 || o > remO) continue;
+              const p = (ways * chooseN(remC2, c) * chooseN(remO, o)) / denom;
+              if (p <= 0) continue;
+              effectValue += p * resolveWindow([...comp], c, o, d);
+            }
+            return;
+          }
+          const maxTake = Math.min(rem[g]!, left);
+          for (let take = 0; take <= maxTake; take++) {
+            comp[g] = take;
+            walk(g + 1, left - take, ways * chooseN(rem[g]!, take));
+          }
+          comp[g] = 0;
+        };
+        walk(0, w, 1);
+      }
+      value += (remC / pool) * effectValue;
+    }
+    memo.set(key, value);
+    return value;
+
+    /** Best achievable value once this window's contents are known. */
+    function resolveWindow(wComp: number[], wC: number, wO: number, drawsLeft: number): number {
+      const windowSize = wComp.reduce((s, x) => s + x, 0) + wC + wO;
+      // Pool after the window is examined: every tracked card in the window is
+      // out of the pool either way (into hand, bottomed, or exiled).
+      const remAfter = wComp.reduce((r, take, g) => dec(r, g, take), rem);
+      const remCAfter = remC - 1 - wC;
+      const remOAfter = remO - wO;
+
+      if (!keptCostsDraw) {
+        // draw / impulse: what you take is free, so the only question is which
+        // cards to take when keepMax binds. Maximize over commit vectors.
+        let best = -1;
+        const take: number[] = new Array(G).fill(0) as number[];
+        const pick = (g: number, budget: number): void => {
+          if (g === G) {
+            let acq2 = acq;
+            for (let i = 0; i < G; i++) acq2 = bump(acq2, i, take[i]!);
+            best = Math.max(best, V(remAfter, remCAfter, remOAfter, acq2, drawsLeft));
+            return;
+          }
+          const maxTake = Math.min(wComp[g]!, budget);
+          for (let k = 0; k <= maxTake; k++) {
+            take[g] = k;
+            pick(g + 1, budget - k);
+          }
+          take[g] = 0;
+        };
+        pick(0, Math.min(keepMax, windowSize));
+        return best;
+      }
+
+      if (nonKeptLeavesPool) {
+        // scry: each kept card costs one of your remaining draws, so the choice
+        // trades cards against draws -- the case a flat additive bonus cannot
+        // express at all.
+        let best = -1;
+        const take: number[] = new Array(G).fill(0) as number[];
+        const pick = (g: number, budget: number): void => {
+          if (g === G) {
+            const spent = take.reduce((s, x) => s + x, 0);
+            let acq2 = acq;
+            for (let i = 0; i < G; i++) acq2 = bump(acq2, i, take[i]!);
+            best = Math.max(best, V(remAfter, remCAfter, remOAfter, acq2, drawsLeft - spent));
+            return;
+          }
+          const maxTake = Math.min(wComp[g]!, budget);
+          for (let k = 0; k <= maxTake; k++) {
+            take[g] = k;
+            pick(g + 1, budget - k);
+          }
+          take[g] = 0;
+        };
+        pick(0, Math.min(keepMax, drawsLeft, windowSize));
+        return best;
+      }
+
+      // ponder: reorder consumes the whole window as draws (so zero net
+      // advance, the two halves cancel), versus shuffling it back.
+      let reorder: number;
+      if (drawsLeft >= windowSize) {
+        let acq2 = acq;
+        for (let g = 0; g < G; g++) acq2 = bump(acq2, g, wComp[g]!);
+        reorder = V(remAfter, remCAfter, remOAfter, acq2, drawsLeft - windowSize);
+      } else {
+        // Not enough draws to clear the window: take the best `drawsLeft` of it.
+        let best = -1;
+        const take: number[] = new Array(G).fill(0) as number[];
+        const pick = (g: number, budget: number): void => {
+          if (g === G) {
+            let acq2 = acq;
+            for (let i = 0; i < G; i++) acq2 = bump(acq2, i, take[i]!);
+            let satisfied = true;
+            for (let i = 0; i < G; i++) if (acq2[i]! < groups[i]!.need) { satisfied = false; break; }
+            best = Math.max(best, satisfied ? 1 : 0);
+            return;
+          }
+          const maxTake = Math.min(wComp[g]!, budget);
+          for (let k = 0; k <= maxTake; k++) {
+            take[g] = k;
+            pick(g + 1, budget - k);
+          }
+          take[g] = 0;
+        };
+        pick(0, drawsLeft);
+        reorder = best;
+      }
+      if (!canShuffle) return reorder;
+      return Math.max(reorder, V(rem, remC - 1, remO, acq, drawsLeft));
+    }
+  }
+
+  const out = new Float64Array(maxDraws + 1);
+  const rem0 = groups.map((g) => g.count);
+  const acq0 = new Array(G).fill(0) as number[];
+  for (let n = 0; n <= maxDraws; n++) out[n] = V(rem0, copies, others0, acq0, n);
+  return out;
+}

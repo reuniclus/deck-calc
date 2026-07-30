@@ -149,3 +149,90 @@ export function bruteSelectionP(
   recurse(0);
   return arrangements > 0 ? weighted / arrangements : 0;
 }
+
+/**
+ * Clairvoyant play-out: same mechanics, but keep decisions are made with the
+ * REST OF THE DECK VISIBLE, choosing whichever commit vector can still win.
+ *
+ * This is an UPPER bound on optimal play, since knowing the future can only
+ * help, while `playOut`'s greedy keep-in-window-order policy is a LOWER bound.
+ * Together they sandwich a correct optimizer -- which is the only way to check
+ * the multi-group engine by simulation: for two or more groups the keep choice
+ * is a real optimization, so an exact match against any FIXED policy would
+ * actually indicate the model is failing to optimize.
+ */
+export function playOutClairvoyant(
+  order: string[],
+  n: number,
+  effect: BruteEffect,
+  need: Need,
+): boolean {
+  interface Card { l: string; seen: boolean }
+
+  function rec(deck: Card[], hand: Record<string, number>, scheduled: number): boolean {
+    if (satisfied(hand, need)) return true;
+    if (scheduled <= 0 || deck.length === 0) return false;
+    const rest = [...deck];
+    const card = rest.shift()!;
+    if (!(card.l === effect.group && !card.seen)) {
+      const h2 = { ...hand };
+      h2[card.l] = (h2[card.l] ?? 0) + 1;
+      return rec(rest, h2, scheduled - 1);
+    }
+    const window = rest.splice(0, effect.examined);
+    // Every legal choice of which window cards to commit.
+    const indices = window.map((_, i) => i);
+    const subsets: number[][] = [[]];
+    for (const i of indices) {
+      for (const s of [...subsets]) if (s.length < effect.keepMax) subsets.push([...s, i]);
+    }
+    for (const keepIdx of subsets) {
+      const kept = window.filter((_, i) => keepIdx.includes(i));
+      const rejected = window.filter((_, i) => !keepIdx.includes(i));
+      let deck2 = [...rest];
+      const hand2 = { ...hand };
+      if (!effect.nonKeptLeavesPool) {
+        deck2 = [...rejected.map((c) => ({ ...c, seen: true })), ...deck2];
+      }
+      if (effect.keptCostsDraw) deck2 = [...kept.map((c) => ({ ...c, seen: true })), ...deck2];
+      else for (const c of kept) hand2[c.l] = (hand2[c.l] ?? 0) + 1;
+      if (rec(deck2, hand2, scheduled - 1)) return true;
+    }
+    return false;
+  }
+
+  return rec(order.map((l) => ({ l, seen: false })), {}, n);
+}
+
+/** `bruteSelectionP` with clairvoyant keep decisions -- an upper bound. */
+export function bruteSelectionUpperP(
+  counts: Record<string, number>,
+  n: number,
+  effect: BruteEffect,
+  need: Need,
+): number {
+  const labels = Object.keys(counts);
+  const remaining: Record<string, number> = { ...counts };
+  const total = labels.reduce((s, l) => s + counts[l]!, 0);
+  let weighted = 0;
+  let arrangements = 0;
+  const order: string[] = [];
+
+  function recurse(depth: number): void {
+    if (depth === total) {
+      arrangements++;
+      if (playOutClairvoyant(order, n, effect, need)) weighted++;
+      return;
+    }
+    for (const l of labels) {
+      if (remaining[l]! <= 0) continue;
+      remaining[l]!--;
+      order.push(l);
+      recurse(depth + 1);
+      order.pop();
+      remaining[l]!++;
+    }
+  }
+  recurse(0);
+  return arrangements > 0 ? weighted / arrangements : 0;
+}

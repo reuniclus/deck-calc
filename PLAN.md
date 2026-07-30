@@ -1487,3 +1487,58 @@ a card commits you toward one clause at the cost of draws that might have served
 another, so the choice is a real optimization and the state has to carry
 per-group acquired counts. That is the next piece of work, and the last one
 before main-deck integration.
+
+### Multi-group selection effects: exact, but perf is now the binding constraint (2026-07-30)
+
+`exactSelectionCurveAnd` extends all four shapes to an AND of thresholds over
+several tracked groups. The genuinely new thing is that the keep decision
+becomes a real CHOICE -- a window holding a land and a combo piece, with an
+effect that can take only one, is an optimization -- so it maximizes over every
+legal commit vector. "Take the one you lack" and "take the rarer one" are
+outputs of that max, never encoded, exactly as the taxonomy discussion argued.
+
+**Verification had to change shape, and that's informative.** For draw and
+ponder there is no choice (you take the whole window, or the whole window gets
+drawn), so any fixed policy is optimal and the brute force must match EXACTLY --
+it does. For scry and impulse an exact match against a fixed greedy policy would
+mean the model is failing to optimize, so those are SANDWICHED between the greedy
+policy (a lower bound) and a new clairvoyant brute force that chooses keeps with
+the rest of the deck visible (an upper bound, since foresight can only help).
+Measured bands are tight, e.g. greedy 0.7689 <= DP 0.7741 <= clairvoyant 0.7795.
+The clairvoyant bound branches over every keep subset at every window for every
+ordering, so it's checked at the smaller window size only -- affordable where it
+fits rather than quietly dropped.
+
+**A memo-collision bug worth recording precisely.** The big speedup is
+canonicalizing satisfied groups into the filler pool (a group whose threshold is
+met is indistinguishable from filler for every remaining decision and outcome,
+so folding is exact and collapses every state differing only in a satisfied
+group's leftovers). But folding pushes the filler count ABOVE the deck's
+original filler total, and the packed mixed-radix state key had that field sized
+for the UNFOLDED maximum -- so distinct states collided and returned each other's
+memoized values, wrong by 1.5 points. Caught by the brute force on the next run;
+invisible without it, since the numbers stayed plausible and monotone. Now a
+regression test at the exact configuration that broke.
+
+**Perf, measured.** Single group is comfortable: 37ms at 99 cards with 10
+copies over 25 draw counts. Two groups is not: 164ms at 40 cards and 1.6s at 60
+cards, after a 4.6x improvement from numeric state keys (7.5s originally) plus
+the folding above. That's worker-territory for a single curve -- acceptable the
+same way the multi-second mulligan cases already are, with a loading state -- but
+a GridTab sweep multiplies it by every row, and unlike `slotDistribution` this
+DP is NOT query-independent, so it can't be cached across rows the same way.
+
+Open, in the order they block things:
+1. **Where multi-group selection may be used.** A single advisor/chart point is
+   fine today; a grid sweep is not, without either more perf work or a
+   deliberate restriction (e.g. selection-adjusted values on the chart only,
+   raw values in the grid with a visible note, which is the pattern GridTab
+   already uses when its search space is too large).
+2. **OR queries.** Needs the same max but over a state that can pursue different
+   clauses -- keeping a card commits draws toward one clause at the expense of
+   another. Not approximated in the meantime; `exactSelectionCurveAnd` takes
+   thresholds, not a Dnf, so there's no path to call it with an OR by accident.
+3. **Non-monotone queries** ("exactly 1"). Breaks the success-absorbs property
+   the state space relies on, since drawing MORE can un-satisfy the query, so
+   the DP would have to run to exhaustion and test at the end.
+4. Main-deck integration, after the above.
