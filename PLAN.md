@@ -1197,3 +1197,32 @@ itself.
   type=text width before simplifying it).
 - Removed the cantrip exact-mix scope note ("Cantrips dilute X once your N
   filler slots run out...") -- unnecessary per direct feedback.
+
+### Real bug: chart tooltip rendering far from the cursor (2026-07-30)
+
+Reported directly: "the graph hover tooltip is way away of where the actual
+cursor is." Confirmed the exact mechanism in a real browser before touching
+anything: `event.clientX`/`clientY` are already reported in final, POST-zoom
+viewport pixels (mouse at real screen position 684.5 produced clientX=684.5,
+NOT 684.5/1.5). Using that value directly as a `position: fixed; left`
+therefore gets zoomed a SECOND time by the page's `zoom: 1.5` when the
+browser renders that CSS length -- producing an offset that grows with
+distance from the origin (measured: 356.5px off at x=684.5).
+
+This is the EXACT same class of bug already found and fixed once for
+rail-dragging (`computeRailWidthFromDrag`'s own comment describes it
+identically) -- but the fix wasn't generalized to every OTHER place
+clientX gets used as a CSS length, which is exactly how it slipped through
+for the chart tooltip. Extracted the shared correction into `zoom.ts`
+(`zoomFactor()` reads the DOM, `unzoomedPosition()` is the pure, testable
+arithmetic) so both call sites share one implementation instead of two
+copies that could drift, and so any FUTURE clientX-as-CSS-length site has
+an obvious existing utility to reach for instead of re-deriving the fix
+(or missing it) again.
+
+Verified the fix directly in a real browser, not just reasoned about:
+offset dropped from ~356px/321px to ~14.5px, which itself exactly matches
+the tooltip's own intentional `transform: translate(10px, 10px)` CSS (10px
+* 1.5 zoom = 15px) -- correctly still zoom-scaled since that value is
+static, not derived from clientX. Confirms the fix is complete, not just
+improved.

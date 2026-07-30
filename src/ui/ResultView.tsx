@@ -10,6 +10,7 @@ import { evaluate } from '../math/evaluate';
 import { GridTab } from './GridTab';
 import { SuggestionsTab } from './SuggestionsTab';
 import { QuestionsTab } from './QuestionsTab';
+import { zoomFactor, unzoomedPosition } from './zoom';
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(2)}%`;
@@ -207,17 +208,17 @@ function ChartTab() {
         ))}
         <text x={W / 2} y={H - 8} className="lbl mid dim-lbl">cards drawn</text>
       </svg>
-      {hover && hovered && (
-        <div
-          className="chart-tooltip"
-          style={{ position: 'fixed', left: hover.clientX, top: hover.clientY }}
-        >
-          <div className="hint">
-            {hover.n} cards drawn{turnForCardsSeen(hover.n, turnCfg) !== null ? ` (turn ${turnForCardsSeen(hover.n, turnCfg)})` : ''}
+      {hover && hovered && (() => {
+        const { left, top } = unzoomedPosition(hover.clientX, hover.clientY, zoomFactor());
+        return (
+          <div className="chart-tooltip" style={{ position: 'fixed', left, top }}>
+            <div className="hint">
+              {hover.n} cards drawn{turnForCardsSeen(hover.n, turnCfg) !== null ? ` (turn ${turnForCardsSeen(hover.n, turnCfg)})` : ''}
+            </div>
+            <div>{hovered.label}: <b>{pct(hovered.curve[hover.n]!)}</b></div>
           </div>
-          <div>{hovered.label}: <b>{pct(hovered.curve[hover.n]!)}</b></div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

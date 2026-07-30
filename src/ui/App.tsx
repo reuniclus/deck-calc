@@ -9,6 +9,7 @@ import { ResultView, type ResultTab } from './ResultView';
 import { AdvisorStrip } from './AdvisorStrip';
 import { MobileStickyBar, useScrolledPastRail } from './MobileNav';
 import { CopyLinkButton } from './CopyLinkButton';
+import { zoomFactor } from './zoom';
 
 const RAIL_MIN = 180, RAIL_MAX = 450, RAIL_DEFAULT = 230;
 
@@ -28,12 +29,6 @@ export function computeRailWidthFromDrag(clientX: number, gridLeft: number, zoom
   const safeZoom = zoomFactor > 0 ? zoomFactor : 1;
   const unzoomed = (clientX - gridLeft) / safeZoom;
   return Math.max(RAIL_MIN, Math.min(RAIL_MAX, unzoomed));
-}
-
-function currentZoomFactor(): number {
-  if (typeof getComputedStyle === 'undefined') return 1;
-  const parsed = Number.parseFloat(getComputedStyle(document.documentElement).zoom);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
 /** Rail width is a "how I like to look at it" view preference, not shared or
@@ -59,7 +54,7 @@ function Layout() {
     function onMove(e: PointerEvent): void {
       if (!dragging.current || !gridRef.current) return;
       const rect = gridRef.current.getBoundingClientRect();
-      setRailWidth(computeRailWidthFromDrag(e.clientX, rect.left, currentZoomFactor()));
+      setRailWidth(computeRailWidthFromDrag(e.clientX, rect.left, zoomFactor()));
     }
     function onUp(): void { dragging.current = false; }
     window.addEventListener('pointermove', onMove);
