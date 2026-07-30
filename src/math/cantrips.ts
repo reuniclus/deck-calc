@@ -187,3 +187,74 @@ export function successGivenDrawnVsNot(
   const givenDrawn = pDrawnTotal > 0 ? drawnWeighted / pDrawnTotal : notDrawnP;
   return { givenDrawn, givenNotDrawn: notDrawnP, pDrawn: pDrawnTotal };
 }
+
+/**
+ * Which of several candidate groups should absorb dilution, chosen EXACTLY
+ * rather than by a heuristic like "whichever has the most copies" -- that
+ * heuristic is usually right (a group with many copies already has a high
+ * per-copy hit rate, so losing one hurts least) but not ALWAYS: a query
+ * like "A>=3 OR B>=1" can make the more-populous group the actual
+ * bottleneck, not the safe one to cut. Since candidate groups are always
+ * few (this app caps queries at 4 tracked groups) and evaluate() is cheap,
+ * there's no reason to guess -- just try every candidate directly and keep
+ * whichever one actually gives the highest resulting success rate.
+ */
+export function bestDilutionChoice(
+  dnf: Dnf,
+  fullSizes: Sizes,
+  deckSize: number,
+  cardsSeenByT: number,
+  othersCount: number,
+  candidateGroups: GroupId[],
+  effects: CantripEffect[],
+): { group: GroupId; rate: number } {
+  let best = candidateGroups[0]!;
+  let bestRate = -Infinity;
+  for (const g of candidateGroups) {
+    const rate = cantripSuccessRate(dnf, fullSizes, deckSize, cardsSeenByT, othersCount, g, effects);
+    if (rate > bestRate) {
+      bestRate = rate;
+      best = g;
+    }
+  }
+  return { group: best, rate: bestRate };
+}
+
+/** Same as marginalValuePerCopy, but re-picks the best dilution target at
+ * each of the two endpoints (0 and 4 copies) via bestDilutionChoice, rather
+ * than requiring one fixed group up front. */
+export function marginalValuePerCopyAutoDilute(
+  dnf: Dnf,
+  fullSizes: Sizes,
+  deckSize: number,
+  cardsSeenByT: number,
+  othersCount: number,
+  candidateGroups: GroupId[],
+  bonus: number,
+): number {
+  const p0 = bestDilutionChoice(dnf, fullSizes, deckSize, cardsSeenByT, othersCount, candidateGroups, [{ count: 0, bonus }]).rate;
+  const p4 = bestDilutionChoice(dnf, fullSizes, deckSize, cardsSeenByT, othersCount, candidateGroups, [{ count: 4, bonus }]).rate;
+  return (p4 - p0) / 4;
+}
+
+/** Same as copiesNeededForTarget, but re-picks the best dilution target at
+ * EACH candidate count tried, rather than fixing one choice for the whole
+ * search -- the best group to dilute can shift as count grows (e.g. once
+ * one group's own count has been fully diluted away). */
+export function copiesNeededForTargetAutoDilute(
+  dnf: Dnf,
+  fullSizes: Sizes,
+  deckSize: number,
+  cardsSeenByT: number,
+  othersCount: number,
+  candidateGroups: GroupId[],
+  bonus: number,
+  target: number,
+  maxSearch: number,
+): number | null {
+  for (let count = 0; count <= maxSearch; count++) {
+    const { rate } = bestDilutionChoice(dnf, fullSizes, deckSize, cardsSeenByT, othersCount, candidateGroups, [{ count, bonus }]);
+    if (rate >= target - 1e-12) return count;
+  }
+  return null;
+}

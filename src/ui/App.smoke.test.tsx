@@ -850,7 +850,6 @@ describe('Questions tab (real end-to-end, not just the component in isolation)',
     const panel = document.querySelector('.tab-panel-questions')!;
     expect(panel.textContent).toContain('Not built yet'); // payoffs only
     expect(panel.textContent).toContain('value/copy'); // cantrips' real table header
-    expect(panel.textContent).toContain('Dilutes:');
   });
 
   it('with mulligans set, "is my hand safe" shows the SAME table data as the Suggestions tab -- shared computation, not a second independent one', async () => {
@@ -1080,20 +1079,14 @@ describe('Cantrips card (real math, real UI interaction)', () => {
     expect(firstRowMarginalAfter).not.toBe(firstRowMarginalBefore);
   });
 
-  it('the dilution picker lists every tracked group and its value changes when selected -- wired to real state, not decorative', () => {
+  it('there is no dilution picker -- the best group to dilute is chosen automatically and shown as read-only text in the exact-mix scope note', () => {
     render(<App />);
     fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
-    const select = cantripPanel().querySelector('select') as HTMLSelectElement;
-    const optionValues = [...select.options].map((o) => o.value);
-    expect(optionValues.length).toBeGreaterThanOrEqual(2); // matches the default 2 tracked groups
-    const otherOption = optionValues.find((v) => v !== select.value)!;
-    fireEvent.change(select, { target: { value: otherOption } });
-    expect(select.value).toBe(otherOption);
-    // The actual numeric consequence of dilution (which group absorbs it,
-    // and how much that shifts the resulting success rate) is already
-    // covered directly and thoroughly by cantrips.test.ts's math-level
-    // tests -- this test's job is only to confirm the picker is wired to
-    // real component state, not to re-derive that math through the UI.
+    expect(cantripPanel().querySelector('select')).toBeNull();
+    const details = [...cantripPanel().querySelectorAll('details')].find((d) => d.textContent!.includes('Build and test'))!;
+    (details as HTMLDetailsElement).open = true;
+    fireEvent(details, new Event('toggle'));
+    expect(details.textContent).toMatch(/Cantrips dilute (Blink ETB|Blink Spell) once your \d+ filler slots run out/);
   });
 
   it('adding and removing an effect type works', () => {

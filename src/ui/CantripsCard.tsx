@@ -3,6 +3,17 @@
  * for the full design history (why marginal values instead of a single
  * prescribed "optimal" mix, the dilution model, the shared-goal decision).
  *
+ * No dilution picker: an earlier version asked the user to choose which
+ * group absorbs dilution, but that was never part of the agreed design and
+ * added a decision the tool can make itself. "Whichever group has the most
+ * copies" is usually right (a well-stocked group already has a high
+ * per-copy hit rate, so losing one hurts least) but not ALWAYS -- an OR
+ * query like "A>=3 OR B>=1" can make the more-populous group the actual
+ * bottleneck. Since candidate groups are always few and evaluate() is
+ * cheap, bestDilutionChoice just tries every candidate directly instead of
+ * guessing -- confirmed with a real counterexample where the naive
+ * heuristic would have picked measurably worse (see cantrips.test.ts).
+ *
  * Local component state only (not global app state, not URL-shared) --
  * this is exploratory scratch space for the Questions tab, not something
  * that needs to persist across sessions or be part of a shared link, same
@@ -13,7 +24,8 @@ import { useAppState } from '../state/AppState';
 import { useQueryModelCtx } from '../state/useQueryModel';
 import { cardsSeenByTurn } from '../model/turns';
 import {
-  cantripSuccessRate, marginalValuePerCopy, copiesNeededForTarget, successGivenDrawnVsNot,
+  cantripSuccessRate, marginalValuePerCopyAutoDilute, copiesNeededForTargetAutoDilute,
+  successGivenDrawnVsNot, bestDilutionChoice,
 } from '../math/cantrips';
 import { parseNumOr0 } from './numberInput';
 
@@ -40,7 +52,6 @@ const DEFAULT_EFFECTS: EffectType[] = [
 export function CantripsCard() {
   const { groups, deckSize, target, adviseTurn, turnCfg } = useAppState();
   const { dnf, sizes } = useQueryModelCtx();
-  const [dilutionGroup, setDilutionGroup] = useState(groups[0]?.id ?? '');
   const [effects, setEffects] = useState<EffectType[]>(DEFAULT_EFFECTS);
   const [mix, setMix] = useState<MixRow[]>([{ count: 6, bonus: 3 }, { count: 1, bonus: 4 }]);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -50,11 +61,11 @@ export function CantripsCard() {
 
   const othersCount = deckSize - groups.reduce((s, g) => s + g.count, 0);
   const cardsSeenByT = cardsSeenByTurn(adviseTurn, turnCfg);
-  const dilutionName = groups.find((g) => g.id === dilutionGroup)?.name ?? dilutionGroup;
+  const groupIds = groups.map((g) => g.id);
 
   const marginalRows = effects.map((e, i) => {
-    const marginal = marginalValuePerCopy(dnf, sizes, deckSize, cardsSeenByT, othersCount, dilutionGroup, e.bonus);
-    const needed = copiesNeededForTarget(dnf, sizes, deckSize, cardsSeenByT, othersCount, dilutionGroup, e.bonus, target, deckSize);
+    const marginal = marginalValuePerCopyAutoDilute(dnf, sizes, deckSize, cardsSeenByT, othersCount, groupIds, e.bonus);
+    const needed = copiesNeededForTargetAutoDilute(dnf, sizes, deckSize, cardsSeenByT, othersCount, groupIds, e.bonus, target, deckSize);
     return { i, name: e.name, bonus: e.bonus, marginal, needed };
   });
 
@@ -66,10 +77,9 @@ export function CantripsCard() {
   const otherPct = Math.max(0, 1 - lookComposition.reduce((s, g) => s + g.pct, 0));
 
   const activeMix = mix.filter((m) => m.count > 0);
-  const mixOverall = activeMix.length > 0
-    ? cantripSuccessRate(dnf, sizes, deckSize, cardsSeenByT, othersCount, dilutionGroup, activeMix)
-    : cantripSuccessRate(dnf, sizes, deckSize, cardsSeenByT, othersCount, dilutionGroup, []);
-  const mixNone = cantripSuccessRate(dnf, sizes, deckSize, cardsSeenByT, othersCount, dilutionGroup, []);
+  const mixDilution = bestDilutionChoice(dnf, sizes, deckSize, cardsSeenByT, othersCount, groupIds, activeMix);
+  const mixOverall = mixDilution.rate;
+  const mixNone = cantripSuccessRate(dnf, sizes, deckSize, cardsSeenByT, othersCount, mixDilution.group, []);
   // "with a cantrip drawn vs without" for the mix as a whole: treat the
   // combined mix as one pooled effect matching its own average bonus per
   // copy, weighted by count -- a reasonable summary stat for a mixed bag,
@@ -77,20 +87,12 @@ export function CantripsCard() {
   const totalMixCount = activeMix.reduce((s, m) => s + m.count, 0);
   const avgBonus = totalMixCount > 0 ? activeMix.reduce((s, m) => s + m.count * m.bonus, 0) / totalMixCount : 0;
   const conditional = totalMixCount > 0
-    ? successGivenDrawnVsNot(dnf, sizes, deckSize, cardsSeenByT, othersCount, dilutionGroup, totalMixCount, avgBonus)
+    ? successGivenDrawnVsNot(dnf, sizes, deckSize, cardsSeenByT, othersCount, mixDilution.group, totalMixCount, avgBonus)
     : null;
+  const mixDilutionName = groups.find((g) => g.id === mixDilution.group)?.name ?? mixDilution.group;
 
   return (
     <div>
-      <div className="row-line" style={{ marginBottom: 8 }}>
-        <label className="inline-field">
-          <span>Dilutes:</span>
-          <select value={dilutionGroup} onChange={(e) => setDilutionGroup(e.target.value)}>
-            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-        </label>
-      </div>
-
       <table className="num-table">
         <thead>
           <tr>
@@ -177,9 +179,10 @@ export function CantripsCard() {
           </div>
 
           <p className="q-scope">
-            Cantrips dilute {dilutionName} once your {othersCount} filler slots run out. Cascading (one
-            cantrip&apos;s own look revealing another cantrip) isn&apos;t modeled &mdash; real values are likely
-            somewhat higher throughout.
+            Cantrips dilute {mixDilutionName} once your {othersCount} filler slots run out (whichever tracked
+            group is actually best to dilute, computed automatically -- not always the most populous one).
+            Cascading (one cantrip&apos;s own look revealing another cantrip) isn&apos;t modeled &mdash; real
+            values are likely somewhat higher throughout.
           </p>
         </div>
       </details>

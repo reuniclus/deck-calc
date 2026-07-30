@@ -1150,3 +1150,32 @@ catch this class of bug either, for an unrelated reason (it's a pure math
 bug, not a DOM/layout one) -- it was caught because the UI's own visual
 result looked implausible on inspection, not because any automated check
 flagged it.
+
+### Correction: the dilution picker was never part of the agreed design -- removed (2026-07-30)
+
+Real feedback, and correct: the "Dilutes: [group]" dropdown shipped with
+cantrips was never in any agreed mockup -- it was added unilaterally while
+resolving an open design question during implementation, without flagging
+it as a deviation. Removed.
+
+The proposed replacement heuristic ("dilute whichever group is most
+populous, since it contributes least per copy") is usually right but not
+ALWAYS: an OR query like "A>=3 OR B>=1" can make the more-populous group
+the actual bottleneck rather than the safe one to cut. Rather than adopt a
+heuristic with a known failure mode, `bestDilutionChoice` tries every
+candidate group directly and keeps whichever one actually gives the
+highest resulting success rate -- exact, not approximate, and free given
+candidate groups are always few (this app caps queries at 4) and
+evaluate() is cheap. Confirmed with a REAL constructed counterexample
+(15-copy group needing >=3 vs. a 2-copy group needing >=1): the naive
+"most populous" pick would have been measurably worse, not just
+different, than what bestDilutionChoice actually selects.
+
+Extended to marginalValuePerCopyAutoDilute and copiesNeededForTargetAutoDilute,
+which re-run bestDilutionChoice at every count tried during a search (not
+just once, upfront) -- the best group to dilute can shift as more copies
+get added, since one group's count could be fully diluted away before
+another's. The UI now shows which group got auto-selected as read-only
+text in the exact-mix scope note, not as an editable picker -- transparency
+without asking the user to make a decision the tool can make correctly
+itself.

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   dilutedResourceCount, cantripSuccessRate, marginalValuePerCopy, copiesNeededForTarget, successGivenDrawnVsNot,
+  bestDilutionChoice, marginalValuePerCopyAutoDilute, copiesNeededForTargetAutoDilute,
 } from './cantrips';
 import { evaluate } from './evaluate';
 import { normalize } from './normalize';
@@ -215,5 +216,68 @@ describe('successGivenDrawnVsNot', () => {
     // More cards examined (even at fractional bonus) should never make
     // things drastically worse than running no cantrips at all.
     expect(p).toBeGreaterThanOrEqual(withoutCantrips - 1e-9);
+  });
+});
+
+describe('bestDilutionChoice', () => {
+  it('in the simple case (both groups needed via AND), picks whichever choice is at least as good -- ties are fine, this just confirms it does not throw or pick something worse', () => {
+    const resolve2 = (n: string) => ({ a: 'g0', b: 'g1' }[n.toLowerCase()] ?? null);
+    const ast2 = parseQuery('a>=1 & b>=1', resolve2);
+    const sizes2 = { g0: 4, g1: 3 };
+    const dnf2 = normalize(ast2, sizes2);
+    const { group, rate } = bestDilutionChoice(dnf2, sizes2, 10, 4, 3, ['g0', 'g1'], [{ count: 5, bonus: 2 }]);
+    expect(['g0', 'g1']).toContain(group);
+    const g0Rate = cantripSuccessRate(dnf2, sizes2, 10, 4, 3, 'g0', [{ count: 5, bonus: 2 }]);
+    const g1Rate = cantripSuccessRate(dnf2, sizes2, 10, 4, 3, 'g1', [{ count: 5, bonus: 2 }]);
+    expect(rate).toBeGreaterThanOrEqual(Math.max(g0Rate, g1Rate) - 1e-12);
+  });
+
+  it('REAL counterexample: a naive "most populous group" heuristic would pick WRONG here -- an OR query where the more-populous group (15 copies) is actually the harder-to-satisfy bottleneck (needs >=3) vs. the less-populous group (2 copies, needs only >=1). bestDilutionChoice correctly picks the LESS populous group, and it is measurably better, not just different.', () => {
+    const resolve2 = (n: string) => ({ a: 'g0', b: 'g1' }[n.toLowerCase()] ?? null);
+    const ast2 = parseQuery('a>=3 | b>=1', resolve2);
+    const sizes2 = { g0: 15, g1: 2 };
+    const dnf2 = normalize(ast2, sizes2);
+    const deckSize = 40, cardsSeenByT = 9, othersCount = 5;
+    const effects = [{ count: 8, bonus: 2 }];
+
+    const { group } = bestDilutionChoice(dnf2, sizes2, deckSize, cardsSeenByT, othersCount, ['g0', 'g1'], effects);
+    expect(group).toBe('g1'); // NOT g0, despite g0 having far more raw copies (15 vs 2)
+
+    const withNaivePick = cantripSuccessRate(dnf2, sizes2, deckSize, cardsSeenByT, othersCount, 'g0', effects);
+    const withActualBest = cantripSuccessRate(dnf2, sizes2, deckSize, cardsSeenByT, othersCount, 'g1', effects);
+    expect(withActualBest).toBeGreaterThan(withNaivePick); // measurably better, not a coin flip
+  });
+});
+
+describe('marginalValuePerCopyAutoDilute / copiesNeededForTargetAutoDilute', () => {
+  it('auto-dilute marginal value is never worse than picking either single fixed group', () => {
+    const resolve2 = (n: string) => ({ a: 'g0', b: 'g1' }[n.toLowerCase()] ?? null);
+    const ast2 = parseQuery('a>=1 & b>=1', resolve2);
+    const sizes2 = { g0: 4, g1: 3 };
+    const dnf2 = normalize(ast2, sizes2);
+    const auto = marginalValuePerCopyAutoDilute(dnf2, sizes2, 10, 4, 3, ['g0', 'g1'], 2);
+    const fixedG0 = marginalValuePerCopy(dnf2, sizes2, 10, 4, 3, 'g0', 2);
+    const fixedG1 = marginalValuePerCopy(dnf2, sizes2, 10, 4, 3, 'g1', 2);
+    expect(auto).toBeGreaterThanOrEqual(Math.max(fixedG0, fixedG1) - 1e-9);
+  });
+
+  it('auto-dilute copies-needed never needs MORE copies than a fixed (fortuitously optimal) choice would', () => {
+    const sizes = { g0: 8 };
+    const dnf = normalize(ast, sizes);
+    const autoNeeded = copiesNeededForTargetAutoDilute(dnf, sizes, 40, 9, 12, ['g0'], 2, 0.9, 30);
+    const fixedNeeded = copiesNeededForTarget(dnf, sizes, 40, 9, 12, 'g0', 2, 0.9, 30);
+    expect(autoNeeded).not.toBeNull();
+    expect(autoNeeded!).toBeLessThanOrEqual(fixedNeeded!);
+  });
+
+  it('re-optimizing at each step (auto-dilute) can find a target reachable in FEWER copies than fixing one group upfront, in the OR counterexample scenario', () => {
+    const resolve2 = (n: string) => ({ a: 'g0', b: 'g1' }[n.toLowerCase()] ?? null);
+    const ast2 = parseQuery('a>=3 | b>=1', resolve2);
+    const sizes2 = { g0: 15, g1: 2 };
+    const dnf2 = normalize(ast2, sizes2);
+    const auto = copiesNeededForTargetAutoDilute(dnf2, sizes2, 40, 9, 5, ['g0', 'g1'], 2, 0.92, 30);
+    const fixedWorst = copiesNeededForTarget(dnf2, sizes2, 40, 9, 5, 'g0', 2, 0.92, 30);
+    expect(auto).not.toBeNull();
+    if (fixedWorst !== null) expect(auto!).toBeLessThanOrEqual(fixedWorst);
   });
 });
