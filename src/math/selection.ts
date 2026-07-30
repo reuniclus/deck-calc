@@ -520,7 +520,22 @@ export function exactSelectionCurveAnd(
   // collide in the memo and silently returned another state's value -- caught
   // by the brute force immediately, but it would have been invisible without.
   radices.push(copies + 1, others0 + trackedTotal + 1, maxDraws + 1);
-  const memo = new Map<number, number>();
+  // Dense memo when the packed key space is small enough to allocate, sparse
+  // Map otherwise. Same keys either way, so this is purely a lookup-cost
+  // change: a Float64Array indexed by the packed key beats hashing it.
+  const stateSpace = radices.reduce((a, b) => a * b, 1);
+  const dense = stateSpace <= 8_000_000;
+  const denseVal = dense ? new Float64Array(stateSpace) : null;
+  const denseSeen = dense ? new Uint8Array(stateSpace) : null;
+  const sparse = dense ? null : new Map<number, number>();
+  const memoGet = (k: number): number | undefined => {
+    if (denseSeen !== null) return denseSeen[k] === 1 ? denseVal![k]! : undefined;
+    return sparse!.get(k);
+  };
+  const memoSet = (k: number, v: number): void => {
+    if (denseSeen !== null) { denseSeen[k] = 1; denseVal![k] = v; return; }
+    sparse!.set(k, v);
+  };
   const encode = (rem: number[], remC: number, remO: number, acq: number[], sLeft: number): number => {
     let key = 0;
     let i = 0;
@@ -552,36 +567,37 @@ export function exactSelectionCurveAnd(
     // two groups most reachable states have one group already done.
     for (let g = 0; g < G; g++) {
       if (acq[g]! >= groups[g]!.need && rem[g]! > 0) {
-        const folded = [...rem];
-        const spare = folded[g]!;
-        folded[g] = 0;
-        return V(folded, remC, remO + spare, acq, sLeft);
+        const spare = rem[g]!;
+        rem[g] = 0;
+        const folded = V(rem, remC, remO + spare, acq, sLeft);
+        rem[g] = spare;
+        return folded;
       }
     }
     const pool = rem.reduce((s, r) => s + r, 0) + remC + remO;
     if (pool <= 0) return 0;
 
     const key = encode(rem, remC, remO, acq, sLeft);
-    const hit = memo.get(key);
+    const hit = memoGet(key);
     if (hit !== undefined) return hit;
 
     const d = sLeft - 1;
-    const bump = (a: number[], g: number, by: number): number[] => {
-      const out = [...a];
-      out[g] = Math.min(groups[g]!.need, out[g]! + by);
-      return out;
-    };
-    const dec = (r: number[], g: number, by: number): number[] => {
-      const out = [...r];
-      out[g] = out[g]! - by;
-      return out;
-    };
 
-    // An ordinary scheduled draw: whatever comes up goes to hand.
+    // `rem` and `acq` are MUTATED IN PLACE and restored before returning, all
+    // the way down. Copying them per transition was the dominant cost once the
+    // state space reached millions; every call below leaves both arrays exactly
+    // as it found them, which the brute-force checks would catch immediately if
+    // any path forgot to restore.
     let value = (remO / pool) * V(rem, remC, remO - 1, acq, d);
     for (let g = 0; g < G; g++) {
-      if (rem[g]! <= 0) continue;
-      value += (rem[g]! / pool) * V(dec(rem, g, 1), remC, remO, bump(acq, g, 1), d);
+      const oldR = rem[g]!;
+      if (oldR <= 0) continue;
+      const oldA = acq[g]!;
+      rem[g] = oldR - 1;
+      acq[g] = Math.min(groups[g]!.need, oldA + 1);
+      value += (oldR / pool) * V(rem, remC, remO, acq, d);
+      rem[g] = oldR;
+      acq[g] = oldA;
     }
 
     if (remC > 0) {
@@ -620,38 +636,47 @@ export function exactSelectionCurveAnd(
       }
       value += (remC / pool) * effectValue;
     }
-    memo.set(key, value);
+    memoSet(key, value);
     return value;
 
     /** Best achievable value once this window's contents are known. */
     function resolveWindow(wComp: number[], wC: number, wO: number, drawsLeft: number): number {
       const windowSize = wComp.reduce((s, x) => s + x, 0) + wC + wO;
-      // Pool after the window is examined: every tracked card in the window is
-      // out of the pool either way (into hand, bottomed, or exiled).
-      const remAfter = wComp.reduce((r, take, g) => dec(r, g, take), rem);
       const remCAfter = remC - 1 - wC;
       const remOAfter = remO - wO;
+      // Ponder can shuffle the window BACK, so that branch needs the pool as it
+      // stands before the window leaves it -- computed first, while `rem` is
+      // still untouched.
+      const shuffleBranch = (keptCostsDraw && !nonKeptLeavesPool && canShuffle)
+        ? V(rem, remC - 1, remO, acq, drawsLeft)
+        : -1;
+      // Pool after the window is examined: every tracked card in it is out of
+      // the pool either way (into hand, bottomed, or exiled).
+      for (let g = 0; g < G; g++) rem[g] = rem[g]! - wComp[g]!;
+      const restorePool = (): void => {
+        for (let g = 0; g < G; g++) rem[g] = rem[g]! + wComp[g]!;
+      };
 
       if (!keptCostsDraw) {
         // draw / impulse: what you take is free, so the only question is which
         // cards to take when keepMax binds. Maximize over commit vectors.
         let best = -1;
-        const take: number[] = new Array(G).fill(0) as number[];
+        const saved: number[] = new Array(G).fill(0) as number[];
         const pick = (g: number, budget: number): void => {
           if (g === G) {
-            let acq2 = acq;
-            for (let i = 0; i < G; i++) acq2 = bump(acq2, i, take[i]!);
-            best = Math.max(best, V(remAfter, remCAfter, remOAfter, acq2, drawsLeft));
+            best = Math.max(best, V(rem, remCAfter, remOAfter, acq, drawsLeft));
             return;
           }
           const maxTake = Math.min(wComp[g]!, budget);
           for (let k = 0; k <= maxTake; k++) {
-            take[g] = k;
+            saved[g] = acq[g]!;
+            acq[g] = Math.min(groups[g]!.need, acq[g]! + k);
             pick(g + 1, budget - k);
+            acq[g] = saved[g]!;
           }
-          take[g] = 0;
         };
         pick(0, Math.min(keepMax, windowSize));
+        restorePool();
         return best;
       }
 
@@ -660,23 +685,22 @@ export function exactSelectionCurveAnd(
         // trades cards against draws -- the case a flat additive bonus cannot
         // express at all.
         let best = -1;
-        const take: number[] = new Array(G).fill(0) as number[];
-        const pick = (g: number, budget: number): void => {
+        const saved: number[] = new Array(G).fill(0) as number[];
+        const pick = (g: number, budget: number, spent: number): void => {
           if (g === G) {
-            const spent = take.reduce((s, x) => s + x, 0);
-            let acq2 = acq;
-            for (let i = 0; i < G; i++) acq2 = bump(acq2, i, take[i]!);
-            best = Math.max(best, V(remAfter, remCAfter, remOAfter, acq2, drawsLeft - spent));
+            best = Math.max(best, V(rem, remCAfter, remOAfter, acq, drawsLeft - spent));
             return;
           }
           const maxTake = Math.min(wComp[g]!, budget);
           for (let k = 0; k <= maxTake; k++) {
-            take[g] = k;
-            pick(g + 1, budget - k);
+            saved[g] = acq[g]!;
+            acq[g] = Math.min(groups[g]!.need, acq[g]! + k);
+            pick(g + 1, budget - k, spent + k);
+            acq[g] = saved[g]!;
           }
-          take[g] = 0;
         };
-        pick(0, Math.min(keepMax, drawsLeft, windowSize));
+        pick(0, Math.min(keepMax, drawsLeft, windowSize), 0);
+        restorePool();
         return best;
       }
 
@@ -684,19 +708,23 @@ export function exactSelectionCurveAnd(
       // advance, the two halves cancel), versus shuffling it back.
       let reorder: number;
       if (drawsLeft >= windowSize) {
-        let acq2 = acq;
-        for (let g = 0; g < G; g++) acq2 = bump(acq2, g, wComp[g]!);
-        reorder = V(remAfter, remCAfter, remOAfter, acq2, drawsLeft - windowSize);
+        const savedAcq: number[] = new Array(G).fill(0) as number[];
+        for (let g = 0; g < G; g++) {
+          savedAcq[g] = acq[g]!;
+          acq[g] = Math.min(groups[g]!.need, acq[g]! + wComp[g]!);
+        }
+        reorder = V(rem, remCAfter, remOAfter, acq, drawsLeft - windowSize);
+        for (let g = 0; g < G; g++) acq[g] = savedAcq[g]!;
       } else {
         // Not enough draws to clear the window: take the best `drawsLeft` of it.
         let best = -1;
         const take: number[] = new Array(G).fill(0) as number[];
         const pick = (g: number, budget: number): void => {
           if (g === G) {
-            let acq2 = acq;
-            for (let i = 0; i < G; i++) acq2 = bump(acq2, i, take[i]!);
             let satisfied = true;
-            for (let i = 0; i < G; i++) if (acq2[i]! < groups[i]!.need) { satisfied = false; break; }
+            for (let i = 0; i < G; i++) {
+              if (Math.min(groups[i]!.need, acq[i]! + take[i]!) < groups[i]!.need) { satisfied = false; break; }
+            }
             best = Math.max(best, satisfied ? 1 : 0);
             return;
           }
@@ -710,8 +738,8 @@ export function exactSelectionCurveAnd(
         pick(0, drawsLeft);
         reorder = best;
       }
-      if (!canShuffle) return reorder;
-      return Math.max(reorder, V(rem, remC - 1, remO, acq, drawsLeft));
+      restorePool();
+      return canShuffle ? Math.max(reorder, shuffleBranch) : reorder;
     }
   }
 

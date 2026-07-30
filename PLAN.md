@@ -1542,3 +1542,61 @@ Open, in the order they block things:
    the state space relies on, since drawing MORE can un-satisfy the query, so
    the DP would have to run to exhaustion and test at the end.
 4. Main-deck integration, after the above.
+
+### Multi-group perf: 10.5x, and where it still doesn't reach (2026-07-30)
+
+Three changes, each verified against the brute-force suite immediately after
+(lesson #19 -- a state-space optimization changes which states exist):
+
+1. **Numeric mixed-radix state keys** instead of string keys: 7.5s -> 3.1s.
+2. **Canonicalizing satisfied groups into the filler pool** (exact: a group whose
+   threshold is met is indistinguishable from filler for every remaining
+   decision): -> 1.6s. This is the change that introduced the memo-collision bug,
+   because it widened the filler field's real range.
+3. **Dense Float64Array memo** when the packed key space fits under 8M entries,
+   sparse Map otherwise (-> 934ms), then **mutate-and-restore of the `rem`/`acq`
+   vectors** instead of copying them per transition (-> 708ms). Every recursive
+   path now leaves both arrays exactly as it found them; the ponder shuffle
+   branch has to be evaluated BEFORE the window is removed from the pool, since
+   it's the one branch that needs the un-mutated pool.
+
+Net: 60-card two-group scry, 15 draw counts: 7468ms -> 708ms. At 20 draw counts
+it's 1182ms. Single group is 37ms at 99 cards.
+
+So: fine in a worker for one curve, still too slow to sweep a grid (rows
+multiply it, and this DP is query-dependent so it can't be cached across rows
+like `slotDistribution`). Both agreed: keep the grid restriction AND keep
+optimizing.
+
+Remaining perf option, NOT done: error-bounded pruning of negligible-probability
+states, reporting the dropped mass as an explicit interval rather than degrading
+to a heuristic. It needs the DP reformulated FORWARD (mass propagation) instead
+of backward (value function), because a backward value function has no
+probability mass to threshold on. That's a real restructuring, so it's recorded
+rather than half-started.
+
+### Combining combos: the premise was already half-true (2026-07-30)
+
+Proposed: a top-level AND/OR/XOR toggle plus per-combo enable checkboxes.
+Correction: combos are ALREADY OR'd (`builder.ts`: a query is a union of combos,
+each combo a flat AND), so "at least one combo online" is what ships today.
+
+- **AND toggle**: nearly free. ANDing flat ANDs is merging them into one clause,
+  a builder-level rewrite with no new math and no perf cost, and it stays
+  monotone. Wrinkle to handle explicitly: a merge can contradict (`A>=2` with
+  `A<=1`) and must say "impossible" rather than quietly showing 0%.
+- **Per-combo enable checkbox**: cheap, non-destructive, and the thing that
+  actually answers "which combo is carrying my number".
+- **XOR**: two independent problems. Over 3+ clauses XOR is PARITY, which nobody
+  wants -- the intent is "exactly one", so it should be named that. And
+  "exactly one" is non-monotone, which is load-bearing here: `frontier.ts` is
+  monotone-only so suggestions go dark, and it breaks the success-absorbs
+  property the entire selection DP relies on. The base percentage is computable
+  today (complementing an AND yields upper bounds, which `evaluate()` handles) at
+  the cost of clause blowup, but it would be a mode where the advisor and
+  selection effects silently stop working.
+
+Recommended instead of XOR: per-combo CONTRIBUTION percentages (each combo's own
+probability alongside the union). Monotone, cheap, reuses existing math, and it's
+what isolating combos is actually for. Exactly-one deferred until something
+concrete needs it.
