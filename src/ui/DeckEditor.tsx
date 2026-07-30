@@ -5,6 +5,31 @@ import { printExpr } from '../math/print';
 import { pruneGroups, collectGroups } from '../math/expr';
 import { resolverFor, nameOfFactory } from '../state/useQueryModel';
 import { parseNumOr0 } from './numberInput';
+import { evaluate } from '../math/evaluate';
+import { minSlotsForTarget } from '../math/allocate';
+
+/** P(>=1 of this group in `n` cards seen), given `count` copies in a
+ * `deckSize`-card deck. A trivial single-atom query -- no query text or
+ * parsing involved, just the same evaluate() machinery everything else in
+ * this app already uses, applied directly rather than through a full query. */
+function handOdds(deckSize: number, count: number, n: number): number {
+  const safeCount = Math.max(0, Math.min(count, deckSize));
+  const sizes = { g0: safeCount };
+  const dnf = { clauses: [{ g0: { lo: 1, hi: deckSize } }], monotone: true };
+  return evaluate(deckSize, sizes, dnf).curve[Math.min(Math.max(n, 0), deckSize)] ?? 0;
+}
+
+/** Solve for the fewest copies of ONE group needed to reach `target` in `n`
+ * cards seen, capped at `available` (deckSize minus every OTHER group's
+ * current count). Silently caps to the best achievable within that space
+ * rather than exceeding it, matching minSlotsForTarget's own extraSlots:null
+ * fallback (best/bestP stay populated even when the target isn't reachable
+ * within the cap) -- never returns a count that wouldn't fit. */
+function solveCountForTarget(deckSize: number, n: number, target: number, available: number): { count: number; achievedP: number } {
+  const capped = Math.max(0, Math.min(available, deckSize));
+  const result = minSlotsForTarget({ g0: { lo: 1, hi: capped } }, n, deckSize, target);
+  return { count: result.best?.g0 ?? 0, achievedP: result.bestP };
+}
 
 /** Deterministic, well-separated hue per group id — same scheme used for phantom
  * curves later, so a group's color is consistent everywhere it appears. */
@@ -134,37 +159,57 @@ export function DeckEditor() {
       </div>
 
       <div className="group-list">
-        {groups.map((g) => (
-          <div className="group-row" key={g.id}>
-            <span className="dot" style={{ background: colorFor(g.id) }} />
-            <input
-              className="group-name"
-              value={g.name}
-              onChange={(e) => renameGroup(g.id, e.target.value)}
-            />
-            <input
-              className="group-count"
-              type="number"
-              min={0}
-              value={g.count}
-              onChange={(e) =>
-                dispatch({ type: 'setGroupCount', id: g.id, count: parseNumOr0(e.target.value) })}
-            />
-            {/* Flex spacer goes HERE, between the input and delete -- not
-                between the name and the input. Putting it on the name (an
-                earlier mistake caught in mockup review) stretches the name
-                to fill the row and shoves the count input next to delete,
-                visually disconnecting it from the name it edits. */}
-            <span className="spacer" />
-            <button
-              className="icon-btn"
-              aria-label={`Remove ${g.name}`}
-              onClick={() => removeGroup(g.id, g.name)}
-            >
-              &#10005;
-            </button>
-          </div>
-        ))}
+        {groups.map((g) => {
+          const otherTotal = groups.filter((x) => x.id !== g.id).reduce((s, x) => s + x.count, 0);
+          const available = deckSize - otherTotal;
+          const pct = Math.round(handOdds(deckSize, g.count, turnCfg.openingHand) * 100);
+          return (
+            <div className="group-row" key={g.id}>
+              <span className="dot" style={{ background: colorFor(g.id) }} />
+              <input
+                className="group-name"
+                value={g.name}
+                onChange={(e) => renameGroup(g.id, e.target.value)}
+              />
+              <input
+                className="group-count"
+                type="number"
+                min={0}
+                value={g.count}
+                onChange={(e) =>
+                  dispatch({ type: 'setGroupCount', id: g.id, count: parseNumOr0(e.target.value) })}
+              />
+              <span className="goal-pct-sign">&rarr;</span>
+              <input
+                className="goal-input"
+                type="number"
+                min={0}
+                max={100}
+                value={pct}
+                onChange={(e) => {
+                  const target = Math.max(0, Math.min(100, parseNumOr0(e.target.value))) / 100;
+                  const { count } = solveCountForTarget(deckSize, turnCfg.openingHand, target, available);
+                  dispatch({ type: 'setGroupCount', id: g.id, count });
+                }}
+              />
+              <span className="goal-pct-sign">%</span>
+              <span className="goal-context">in opening hand</span>
+              {/* Flex spacer goes HERE, between the input and delete -- not
+                  between the name and the input. Putting it on the name (an
+                  earlier mistake caught in mockup review) stretches the name
+                  to fill the row and shoves the count input next to delete,
+                  visually disconnecting it from the name it edits. */}
+              <span className="spacer" />
+              <button
+                className="icon-btn"
+                aria-label={`Remove ${g.name}`}
+                onClick={() => removeGroup(g.id, g.name)}
+              >
+                &#10005;
+              </button>
+            </div>
+          );
+        })}
         <div className={`group-row others ${others < 0 ? 'bad' : ''}`}>
           <span className="dot" style={{ background: 'var(--text-muted)' }} />
           <span className="others-label">Others</span>

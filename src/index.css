@@ -92,6 +92,18 @@ button:hover { border-color: var(--accent); }
 .group-row .dot.inline { width: 6px; height: 6px; margin: 0 3px 0 0; display: inline-block; }
 .group-name { margin-right: 8px; width: 84px; padding: 2px 4px; }
 .group-count { width: 44px; }
+/* Live "-> N% in opening hand" readout next to each group's count -- same
+   visual language as the advisor strip's own goal inputs (dashed underline,
+   accent color, no box) so "this is a target, editable both ways" reads
+   from an EXISTING pattern rather than needing a label or a mode toggle. */
+.goal-input {
+  width: 28px; text-align: center; border: none;
+  border-bottom: 1px dashed var(--border-strong); background: none; border-radius: 0; padding: 1px 2px;
+  color: var(--accent); -moz-appearance: textfield;
+}
+.goal-input::-webkit-outer-spin-button, .goal-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.goal-pct-sign { color: var(--accent); font-size: 11px; }
+.goal-context { color: var(--muted); font-size: 10px; }
 .group-row .spacer { flex: 1; }
 .group-row.others { color: var(--muted); }
 .group-row.others.bad { color: var(--bad); }

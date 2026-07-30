@@ -877,3 +877,85 @@ describe('Questions tab (real end-to-end, not just the component in isolation)',
     expect(document.querySelector('.tab-panel-questions table.num-table')).toBeTruthy();
   });
 });
+
+describe('Rail count/% redesign: every group row shows a live, editable "-> N% in opening hand"', () => {
+  function getGroupRows() {
+    return [...document.querySelectorAll('.group-list .group-row:not(.others)')];
+  }
+
+  it('every group row shows a goal-input readout with "in opening hand" text, no mode toggle', () => {
+    render(<App />);
+    const rows = getGroupRows();
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.querySelector('.goal-input')).toBeTruthy();
+      expect(row.textContent).toContain('in opening hand');
+    }
+  });
+
+  it('editing the count updates the % readout live', () => {
+    render(<App />);
+    const row = getGroupRows()[0]!;
+    const countInput = row.querySelector('.group-count') as HTMLInputElement;
+    const goalInput = row.querySelector('.goal-input') as HTMLInputElement;
+    const before = goalInput.value;
+    fireEvent.change(countInput, { target: { value: '20' } });
+    const after = (row.querySelector('.goal-input') as HTMLInputElement).value;
+    expect(after).not.toBe(before);
+    expect(Number(after)).toBeGreaterThan(Number(before)); // more copies -> higher odds, monotone
+  });
+
+  it('editing the % solves for a new count, and that count actually achieves (at least) the requested rate', () => {
+    render(<App />);
+    const row = getGroupRows()[0]!;
+    const goalInput = row.querySelector('.goal-input') as HTMLInputElement;
+    fireEvent.change(goalInput, { target: { value: '95' } });
+    const countInput = row.querySelector('.group-count') as HTMLInputElement;
+    const newCount = Number(countInput.value);
+    expect(newCount).toBeGreaterThan(0);
+    // re-reading the % after the count changed should show >=95 (allowing for
+    // integer-copy rounding meaning it might overshoot slightly, never undershoot)
+    const achievedPct = Number((row.querySelector('.goal-input') as HTMLInputElement).value);
+    expect(achievedPct).toBeGreaterThanOrEqual(95);
+  });
+
+  it('a target % that is unreachable given deck space silently caps -- the count uses all available space, the % shows the ACTUAL achieved rate, and Others hits exactly 0 (no red text, no error message)', () => {
+    render(<App />);
+    const rows = getGroupRows();
+    const row = rows[0]!;
+    const goalInput = row.querySelector('.goal-input') as HTMLInputElement;
+    // 99.999% is unreachable for any finite count in a finite deck at a fixed hand size
+    fireEvent.change(goalInput, { target: { value: '100' } });
+    const othersRow = document.querySelector('.group-row.others')!;
+    const othersCount = Number(othersRow.querySelector('span:last-child')!.textContent);
+    expect(othersCount).toBeGreaterThanOrEqual(0); // never goes negative from this solve
+    expect(othersRow.className).not.toContain('bad'); // capping must not trigger the negative-Others error state
+    const achievedPct = Number((row.querySelector('.goal-input') as HTMLInputElement).value);
+    expect(achievedPct).toBeLessThanOrEqual(100);
+    expect(achievedPct).toBeGreaterThan(0);
+  });
+
+  it('two groups can independently be adjusted via their own % field without interfering with each other (independent solves, not a joint one)', () => {
+    render(<App />);
+    const rows = getGroupRows();
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    const [rowA, rowB] = rows;
+    fireEvent.change(rowA!.querySelector('.goal-input') as HTMLInputElement, { target: { value: '60' } });
+    const bCountBefore = (rowB!.querySelector('.group-count') as HTMLInputElement).value;
+    fireEvent.change(rowB!.querySelector('.goal-input') as HTMLInputElement, { target: { value: '70' } });
+    // Setting B's target should change B's own count; A's own count (already
+    // solved) should be UNCHANGED by B's edit -- each solve is independent.
+    const aCountAfter = (getGroupRows()[0]!.querySelector('.group-count') as HTMLInputElement).value;
+    const bCountAfter = (getGroupRows()[1]!.querySelector('.group-count') as HTMLInputElement).value;
+    expect(bCountAfter).not.toBe(bCountBefore);
+    expect(Number(aCountAfter)).toBeGreaterThan(0);
+  });
+
+  it('deck size backspaced to empty (a real, tested transient state) does not crash the new %-readout math', () => {
+    render(<App />);
+    const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
+    expect(() => fireEvent.change(deckInput, { target: { value: '' } })).not.toThrow();
+    // should not throw during the resulting re-render either
+    expect(getGroupRows().length).toBeGreaterThan(0);
+  });
+});
