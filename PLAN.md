@@ -636,3 +636,218 @@ Math is the current focus; these are noted so they aren't lost, not because they
     originally recognize as "the same row" and incorrectly called the query too complex.
     Both are covered by regression tests (`builder.test.ts`).
 10. **Query text vs AST divergence on parse errors.** While `state.queryError` is set, the textarea shows whatever the user typed, which may no longer match `state.ast`. That's correct (don't overwrite what they're typing), but the eventual UI should make clear *which* result is being shown — the last-valid one — so it doesn't read as if the broken text produced it.
+
+## Backlog: "frequently asked" deck-builder questions (2026-07-29 discussion)
+
+Almost everything raised reduces to two primitives, plus one shared prerequisite:
+
+**Primitive A — condition on a hypothetical hand/reveal, project forward.**
+Given query Q, a hypothetical composition already seen (e.g. "2 lands in a 7-card
+hand"), and N more cards to come: what's P(Q) after those N draws (or the whole
+curve as N varies)? This is exactly `keepValue`/`keepCurve` from `mulligan.ts`,
+generalized to be invoked directly rather than only as one branch of a
+keep-vs-mulligan comparison. Covers:
+  - "Is my N-land hand safe to keep" (the literal ask)
+  - Draw X: same primitive, N shifted forward by X. Trivial, no new math.
+  - Scry X: **reduces to the same primitive too**, via a real derivation, not a
+    hand-wave -- for a monotone query, optimal scrying is "keep every useful
+    card on top, bury the rest," which makes "how many of group G will I have
+    after scrying X then drawing n more" identical to conditioning on an X-card
+    reveal. One real caveat: the equivalence only holds exactly for n>=X --
+    below that, the effective shift is `min(X,n)` at each point along the
+    curve, the same kind of per-point variation the mulligan curve already
+    needed (see `optimalMulliganCurve`'s extraDraws indexing).
+
+**Primitive B — fewest copies for a target.** Already built: `allocate.ts` /
+`minSlotsForTarget`. "How many dark monsters", "how many WUG sources" (assuming
+non-overlapping sources) are already fully answerable today with zero new code
+-- confirmed with real numbers: 16 copies of a single group for 90% by opening
+hand in 60 cards; W:11/U:10/G:10 (31 total) for 85% by turn 3 in 40 cards with
+NO overlap allowed (illustrates why real manabases need dual lands -- the
+non-overlapping answer is mathematically correct but unrealistically
+expensive).
+
+**Shared prerequisite: overlapping/multi-role sources.** Both primitives above
+assume every card serves exactly one role. The moment a card can satisfy more
+than one (MDFC, dual land, flexible spell, "exile A or B from hand"), both need
+the same fix -- one shared piece of work, not three separate ones. Manual
+tagging ("this group also counts as that group") should come before any
+Scryfall-driven auto-classification, since auto-deriving "what colors does this
+land produce" from oracle text is unreliable for the full card pool (basics/
+simple duals are easy; conditional lands and "choose a color" effects are not)
+and will always need a manual-override path anyway.
+
+**Tapped lands -- reduces to an existing shape, not a new primitive.** Optimal
+play is "hold back your one untapped land for the turn you need it" -- you're
+only hurt if EVERY land drawn by a given turn is tapped. So the base version is
+just a plain two-group query: `P(Untapped=0 & Tapped>=T)`. Refined per the
+2026-07-29 discussion: the turns that actually matter are only the deck's own
+mana-curve STEP-UP points (where needed mana increases turn-over-turn), not
+every turn -- a deck with no 1-drops needs nothing on turn 1, so a tapped land
+there is free. Checking each step-up turn INDEPENDENTLY is a stated, named
+heuristic (not the exact joint "never blocked across the whole game"
+probability, which is a genuine cumulative/path-dependent condition -- same
+flavor of hardness the mulligan model needed, not a free extension).
+
+**Mana curve vs. landbase, as full distributions (not fixed curves).** Both
+"mana needed by turn T" and "mana available by turn T" are themselves random
+(hypergeometric) -- not fixed numbers derivable from the decklist alone.
+Comparing the two distributions independently per turn (e.g. P(available >= X)
+vs. P(you've drawn something costing X)) is cheap and exact on its own, and is
+the NEAR-TERM scope. The exact JOINT version -- optimal sequencing of which
+spells to cast turn over turn, maximizing mana spent (the "spend the most mana
+usually wins" heuristic), given hand composition is itself a random Markov
+chain -- is a substantially bigger, separate project:
+  - State reduction: track hand composition by cost-bucket counts (not exact
+    cards), same reduction used for groups everywhere else in this project.
+  - Per turn: a bounded knapsack (which subset of in-hand spells to cast to
+    minimize wasted mana this turn) -- exactly solvable, not guessable.
+    Confirmed "cheapest-castable-first" is PROVABLY SUBOPTIMAL (concrete
+    counter-example: 4 mana available, spells costing 2/3/4 plus a land in
+    hand -- greedy cheapest-first wastes 4 mana total across two turns, optimal
+    sequencing wastes 0).
+  - Across turns: solve backward as an MDP, expected value over the
+    hypergeometric distribution of what's drawn next at each state.
+  - Monte Carlo is the correct fallback ONLY if the exact DP's state space
+    actually blows up for realistic parameters -- this project has
+    consistently avoided simulation elsewhere because the exact version turned
+    out tractable once redundant work was memoized (see mulligan.ts's own
+    history); don't reach for simulation preemptively.
+  - Scope: comparable in size to mulligan.ts, likely larger given the
+    multi-turn horizon and per-turn knapsack. Not blocking anything above.
+
+**UI direction (agreed, not yet built):** a dedicated "Questions" tab, separate
+from Suggestions (these are often orthogonal to the current combo query, not
+extensions of it). Each frequent question is a PRESET over one of the two
+generic engines (a small form with blanks: hypothetical-hand count, group
+picker, target %, turn) rather than a bespoke widget per question. Deck size /
+hand size auto-filled from the rail unconditionally; group-to-role mapping
+(e.g. "which of your groups is Untapped vs Tapped") always an explicit picker,
+never silently assumed. Live-updating, no submit button, matching the rest of
+the app.
+
+### Refinements to the above, 2026-07-30 mockup review
+
+- **"Is my hand safe" isn't a single scenario, it's a table.** Own standalone
+  single-condition query ("I need X of A by turn T"), decoupled from whatever
+  the main combo builder currently has (which might have an OR/NOT that
+  doesn't make sense for a quick single-resource check). Output is every
+  possible opening-hand count (0, 1, 2, ...) as a row: keepP vs mulliganP vs
+  verdict -- literally `mulligan.ts`'s existing per-hand strategy table,
+  scoped to one group's axis, not a new computation.
+
+- **Draw/scry merges into "how many cantrips should I run" -- a genuinely
+  different, harder question than either alone**, needing a stated scope:
+  each drawn cantrip contributes its bonus looks (M-1 for a "look M, keep
+  best" effect) independently; NOT modeled: a cantrip's own reveal chaining
+  into casting another cantrip (real value is somewhat higher than this
+  computes). Tractable because "how many cantrips drawn by turn T" is itself
+  hypergeometric, so it's a weighted sum across "drew 0 / drew 1 / drew 2..."
+  scenarios, each a known shift on the existing curve machinery. Full exact
+  modeling of cascading is comparable in scope to the mana-curve MDP already
+  parked -- not attempted here. Headline output is a table (N cantrips -> P%,
+  delta); secondary metrics (avg cards seen, P% conditional on having drawn a
+  cantrip, distribution of what a look actually contains) belong under a
+  "more details" disclosure, not the main view.
+
+- **"Enough setup for my payoffs" (Allure of Darkness / dark monsters) is a
+  genuinely NEW query shape, but not new hard math.** Different from Primitive
+  B ("copies vs a fixed threshold"): this is "copies of a consumed RESOURCE
+  vs. copies of the PAYOFF that consumes it," i.e. P(darks drawn >= Allures
+  drawn) -- answerable directly from the same joint multivariate distribution
+  mulligan.ts already computes elsewhere (sum joint probability over every
+  (a,d) pair where d>=a). Worth generalizing Primitive B's family to cover
+  "resource vs. another random count from the same deck," not just "resource
+  vs. a fixed number."
+
+- **Tapped-land damage as a distribution, not one number** -- same
+  `P(Untapped=0 & Tapped>=T)` computation, shown across every turn AND across
+  "how many untapped would make you feel safe" (not just needing exactly 1).
+  Presentation change on top of existing math, not new math.
+
+- **Cantrips in a FIXED-size deck have a real critical mass -- deck dilution
+  was missing from the model above.** Every cantrip added has to come from
+  somewhere. Two regimes: replacing "Others" (filler, already a derived count
+  the app tracks) is close to free digging power; once Others is exhausted,
+  further cantrips must replace the QUERIED resource itself (lands, combo
+  pieces), which directly lowers the base draw rate even while raising
+  digging power -- net effect can go either way per copy, producing a real
+  peak. No new hard math needed, and no extra "wasted look" penalty either --
+  an earlier draft of this plan proposed scaling each cantrip's yield by deck-
+  wide cantrip density to force a peak before Others ran out; numerically
+  tested directly and confirmed UNNECESSARY. The straightforward model
+  already produces a real, sharp peak exactly where dilution reaches the
+  actual resource, with no fudge factor:
+    1. For a given cantrip count N: cut from filler first, then from the
+       resource itself once filler is exhausted (this determines the diluted
+       resource count at each N).
+    2. P(exactly k cantrips drawn by turn T) -- plain hypergeometric on the
+       cantrip group.
+    3. Weighted sum over k of P(k) * curve[cards-seen-by-T + k*bonus], using
+       the DILUTED curve for that N (bonus = M-1 for a "look M, keep 1"
+       effect).
+  Confirmed with real numbers on a 40-card deck, 8-copy wincon, 12 filler
+  slots: 0->12 cantrips (filler only) rises smoothly 89.7%->97.6%; past 12
+  (now cutting the wincon itself) it falls sharply -- 94.9% -> 87.8% -> 67.4%
+  by 18 cantrips. The peak IS the critical mass answer, and it can land much
+  earlier than the deck's total filler count once the "Others" pool itself
+  is small (matches the concern that with only a couple tracked groups, real
+  decks often exhaust filler well under 20-30 cantrips). Full sequential
+  treatment (exact composition at the precise moment each cantrip resolves,
+  true cascading) stays parked as a separate, larger project -- this
+  turn-by-turn weighted model is exact within its own two stated
+  simplifications (no cascading; flat per-cantrip bonus), not a new
+  approximation layered on top. UI should show WHERE cantrips start cutting
+  into the real resource, not just the resulting numbers, and should
+  headline "success rate given you've actually drawn a cantrip vs. given you
+  haven't" as its own stat, not buried under "more details" -- that gap is
+  most of a cantrip's real value.
+
+### Rail: per-group count/target toggle (SUPERSEDED, see revision below)
+
+[Original mode-toggle design kept for history -- replaced after review found
+it both over-explained (a written "space available" note for arithmetic the
+Others row already shows) and under-communicated (a bare #/% switch doesn't
+convey which mode means what without a label).]
+
+Each group row gets a switch: "by count" (today's behavior) or "by target %"
+(type a target success rate, the tool solves for the count). Multiple groups
+CAN be in target mode simultaneously -- deliberately not mutually exclusive.
+[...conflict handling via a red input + written note, see git history...]
+
+### Rail: count + % always both visible, no toggle (SETTLED, 2026-07-30 revision)
+
+No mode switch. Every group row shows BOTH numbers at once, always, live:
+the hard count (plain bordered input) and the resulting success % by the
+current goal turn (dashed-underline input, reusing the SAME visual style the
+advisor strip's own goal inputs already use elsewhere in this app -- "this is
+a target" is conveyed by an EXISTING pattern, not a new label or word).
+Editing either one recomputes the other; nothing needs a label to say which
+field means what, because the styling difference already carries that
+meaning consistently across the app.
+
+Zero explanatory text anywhere in the row. The conflict case (typed % isn't
+reachable given what other groups currently hold) is conveyed the same way
+running out of room already reads elsewhere: the count silently caps at the
+max the remaining space allows, the % field shows the ACTUAL resulting rate
+(not the impossible ask), and the Others row -- already visible, no new UI --
+reaching 0 IS the "no more room" signal. No red text, no written note. A
+brief shake on Others when a further push is attempted was raised as an
+optional micro-interaction, explicitly not required for the design to be
+self-explanatory.
+
+Same underlying independent-solve semantics as the superseded toggle design
+(each row solves against every OTHER group's CURRENT count, not jointly;
+recomputes live on any change; not a simultaneous solver). Global/joint mode
+(`minSlotsForTarget`, already built, not yet surfaced in the rail) remains
+deferred for the same reason as before -- it's the one that can quietly ask
+for more total cards than the deck has room for once several independent
+targets overlap, which needs the multi-role-card primitive first.
+
+Each row's % is labeled, in small muted text, "in opening hand" -- and is
+computed against the rail's OWN hand-size setting, not the advisor strip's
+turn-T goal, deliberately. Keeps the row self-contained: changing T elsewhere
+in the app must not silently change what these numbers mean without the row
+itself saying so. If a by-turn-T version is wanted later, it should say so
+explicitly in the same muted style, not share a meaning with a setting that
+lives somewhere else on the page.
