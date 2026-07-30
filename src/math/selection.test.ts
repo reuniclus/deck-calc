@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { evaluate } from './evaluate';
 import { bruteSelectionP } from './bruteSelection';
 import {
-  assertDrawShaped, drawEffect, exactDrawCurve, exactDrawCurveUnsplit, impulseEffect,
+  assertDrawShaped, drawEffect, exactDrawCurve, exactDrawCurveUnsplit,
+  exactScryCurveSingleGroup, exactSelectionCurveSingleGroup, impulseEffect, ponderEffect,
   scryEffect, slotDistribution, UnsupportedSelectionError,
 } from './selection';
 import type { Dnf } from './expr';
@@ -144,5 +145,123 @@ describe('the rejected closed forms, pinned as wrong', () => {
     );
     expect(brute - flat).toBeGreaterThan(0.03);
     expect(exactDrawCurve(atLeast(1, A), { A }, N, C, E, 8)[n]!).toBeCloseTo(brute, 12);
+  });
+});
+
+describe('all four effect shapes vs brute force', () => {
+  // The brute force plays the no-shuffle policy and treats bottomed cards as
+  // unreachable, matching the model's stated scope, so these are exact checks
+  // rather than approximate ones.
+  const configs: Array<[number, number, number, number]> = [[12, 3, 2, 2], [11, 2, 3, 2], [10, 4, 2, 3]];
+  const shapes = (E: number) => [
+    ['draw', drawEffect('C', E)],
+    ['scry', scryEffect('C', E)],
+    ['impulse', impulseEffect('C', E)],
+    ['ponder (no shuffle)', { ...ponderEffect('C', E), canShuffle: false }],
+  ] as const;
+
+  for (const [N, A, C, E] of configs) {
+    for (const t of [1, 2]) {
+      for (const [name, eff] of shapes(E)) {
+        it(`${name}: N=${N} A=${A} copies=${C} examined=${E}, needs A>=${t}`, () => {
+          const dp = exactSelectionCurveSingleGroup(N, A, t, eff, C, 7);
+          for (const n of [1, 2, 3, 5, 7]) {
+            const brute = bruteSelectionP(
+              { A, C, '': N - A - C }, n,
+              {
+                group: 'C', examined: eff.examined, keepMax: eff.keepMax,
+                keptCostsDraw: eff.keptCostsDraw, nonKeptLeavesPool: eff.nonKeptLeavesPool,
+              },
+              { A: t },
+            );
+            expect(dp[n]!).toBeCloseTo(brute, 12);
+          }
+        });
+      }
+    }
+  }
+});
+
+describe('independent derivations of the same numbers agree', () => {
+  // exactDrawCurve is a slot DP with no group dimensions; the atomic-window
+  // engine carries group state and enumerates whole windows. Two different
+  // derivations, so agreement is evidence rather than tautology.
+  it('slot DP == atomic engine for draw effects', () => {
+    for (const [N, A, C, E] of [[12, 3, 2, 2], [11, 2, 3, 2]] as const) {
+      for (const t of [1, 2]) {
+        const slot = exactDrawCurve(atLeast(t, A), { A }, N, C, E, 7);
+        const atomic = exactSelectionCurveSingleGroup(N, A, t, drawEffect('C', E), C, 7);
+        for (let n = 0; n <= 7; n++) expect(atomic[n]!).toBeCloseTo(slot[n]!, 12);
+      }
+    }
+  });
+
+  it('card-by-card scry DP == atomic engine for scry effects', () => {
+    for (const [N, A, C, E] of [[12, 3, 2, 2], [10, 4, 2, 3]] as const) {
+      for (const t of [1, 2]) {
+        const cardwise = exactScryCurveSingleGroup(N, A, t, C, E, 7);
+        const atomic = exactSelectionCurveSingleGroup(N, A, t, scryEffect('C', E), C, 7);
+        for (let n = 0; n <= 7; n++) expect(atomic[n]!).toBeCloseTo(cardwise[n]!, 12);
+      }
+    }
+  });
+});
+
+describe('effect shapes are ordered by how much they actually help', () => {
+  // Not decoration: this ordering is derivable from the mechanics, so a
+  // violation means a shape's window resolution is wrong even if every
+  // individual number looks plausible. It is what caught the brute force's
+  // ponder ordering bug (pondering came out WORSE than not pondering).
+  it('plain <= ponder(no shuffle) <= ponder <= scry <= draw', () => {
+    for (const [N, A, C, E] of [[12, 3, 2, 2], [11, 2, 3, 2], [10, 4, 2, 3]] as const) {
+      for (const t of [1, 2]) {
+        const noShuffle = { ...ponderEffect('C', E), canShuffle: false };
+        const plain = evaluate(N, { A }, atLeast(t, A)).curve;
+        const pNo = exactSelectionCurveSingleGroup(N, A, t, noShuffle, C, 7);
+        const pYes = exactSelectionCurveSingleGroup(N, A, t, ponderEffect('C', E), C, 7);
+        const scry = exactSelectionCurveSingleGroup(N, A, t, scryEffect('C', E), C, 7);
+        const draw = exactSelectionCurveSingleGroup(N, A, t, drawEffect('C', E), C, 7);
+        for (let n = 1; n <= 7; n++) {
+          expect(pNo[n]!).toBeGreaterThanOrEqual(plain[n]! - 1e-12);
+          expect(pYes[n]!).toBeGreaterThanOrEqual(pNo[n]! - 1e-12);
+          expect(scry[n]!).toBeGreaterThanOrEqual(pYes[n]! - 1e-12);
+          expect(draw[n]!).toBeGreaterThanOrEqual(scry[n]! - 1e-12);
+        }
+      }
+    }
+  });
+
+  it('the shuffle option is worth something, not nothing', () => {
+    // If canShuffle were wired up but inert, the bracket test above would still
+    // pass (>= is satisfied by equality), so pin the strict gain separately.
+    const withOpt = exactSelectionCurveSingleGroup(12, 3, 1, ponderEffect('C', 2), 2, 7);
+    const without = exactSelectionCurveSingleGroup(12, 3, 1, { ...ponderEffect('C', 2), canShuffle: false }, 2, 7);
+    expect(withOpt[3]!).toBeGreaterThan(without[3]! + 0.01);
+  });
+});
+
+describe('the no-cascading scope, measured rather than asserted', () => {
+  it('costs real value for put-back effects and is inert for the others', () => {
+    const N = 12, A = 3, C = 6, E = 3, t = 1, n = 5;
+    const counts = { A, C, '': N - A - C };
+    const be = (e: ReturnType<typeof drawEffect>) => ({
+      group: 'C', examined: e.examined, keepMax: e.keepMax,
+      keptCostsDraw: e.keptCostsDraw, nonKeptLeavesPool: e.nonKeptLeavesPool,
+    });
+    // Ponder puts unwanted copies BACK on top, so they get drawn and cast for
+    // real -- measured at over 8 points here, which is why the scope statement
+    // says real values are higher rather than pretending the gap is tiny.
+    const ponderNo = bruteSelectionP(counts, n, be({ ...ponderEffect('C', E), canShuffle: false }), { A: t }, false);
+    const ponderYes = bruteSelectionP(counts, n, be({ ...ponderEffect('C', E), canShuffle: false }), { A: t }, true);
+    expect(ponderYes - ponderNo).toBeGreaterThan(0.08);
+    // For the others a window copy is bottomed, exiled, or already in hand, so
+    // this particular cascade path cannot occur at all. The OTHER cascade path
+    // (casting a copy drawn into hand) is not modeled by the brute force
+    // either, so it stays a stated caveat, not a measured zero.
+    for (const eff of [drawEffect('C', E), scryEffect('C', E), impulseEffect('C', E)]) {
+      const off = bruteSelectionP(counts, n, be(eff), { A: t }, false);
+      const on = bruteSelectionP(counts, n, be(eff), { A: t }, true);
+      expect(on - off).toBe(0);
+    }
   });
 });

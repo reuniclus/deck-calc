@@ -1412,3 +1412,78 @@ scry (kept-costs-a-draw), then impulse (keepMax with the commit-choice max),
 then ponder (shuffle option), and only then main-deck integration.
 `assertDrawShaped` makes every not-yet-implemented shape throw rather than
 silently borrowing the draw path.
+
+### All four selection shapes, exact and brute-force verified (2026-07-30)
+
+Staging carried through: scry, then impulse, then ponder, each gated on its own
+brute-force case before the next. All four now agree with a full play-out of
+every distinct deck ordering to 2.2e-16, for a single-group threshold query.
+
+Two implementations exist on purpose, cross-checked against each other:
+`exactDrawCurve` (slot DP, no group dimensions) and
+`exactSelectionCurveSingleGroup` (atomic-window engine carrying group state),
+plus `exactScryCurveSingleGroup` (card-by-card scry) as a third derivation of
+the scry numbers. Agreement between derivations that don't share a formulation
+is evidence; agreement between a function and itself isn't.
+
+**Scry needed group state back, and three things kept it small.** Unlike the
+draw case the PLAY depends on card identity (keep what you need, bottom the
+rest), so the query can't be factored out. But success absorbs (live states
+always hold fewer than `threshold`), no needed card is ever bottomed (so
+acquired and consumed coincide for that group), and running out of scheduled
+draws absorbs too -- the last of those IS "kept cards cost a draw", the fact a
+flat additive bonus cannot express.
+
+**Windows resolve atomically** (enumerate the whole window's composition, then
+decide) rather than card-by-card. Required for ponder, whose shuffle decision is
+made with the whole window visible; as a bonus it removes the credits-owed
+dimension for the other shapes.
+
+**Ponder: the reorder branch's two halves cancel exactly, as predicted.**
+Consuming the window as draws with the useful cards ordered first has zero net
+advance, so all of ponder's value is the OPTION to shuffle instead, plus
+best-of-window when the goal turn cuts through the window. Pinned by a test
+that the shuffle option is worth >1 point, since a bracket test alone would
+pass even if `canShuffle` were wired up but inert.
+
+**Three bugs, and only one of them was in the model.**
+
+1. *Impulse (model).* Exiled copies weren't leaving the pool: the remaining
+   count was derived from ACQUIRED rather than CONSUMED, and an impulse capped
+   at one keep exiles the second useful card it sees. Overstated impulse by up
+   to 2 points. `aCons` is now its own dimension.
+2. *Ponder (brute force).* The simulator put the rejected cards back on top
+   ABOVE the kept ones, i.e. drew the duds first -- and it had no shuffle
+   option at all. Caught not by the diff but by an impossible ORDERING: brute's
+   ponder (0.586) came out below not pondering at all (0.618), which no
+   optional effect can do. Fixed, and the ordering invariant
+   (plain <= ponder-no-shuffle <= ponder <= scry <= draw) is now a test, since
+   it catches a wrong window resolution even when every individual number looks
+   plausible.
+3. *Bottoming (brute force).* Rejected cards were pushed to the END of the
+   array, which is genuinely reachable when an 11-card deck sees 7 draws plus
+   windows -- and only that configuration mismatched. Bottomed now means
+   unreachable, matching the model's own assumption.
+
+**The no-cascading scope is now measured, not asserted.** The brute force takes
+a `cascade` flag: with it off it checks the model exactly, and with it on it
+prices the assumption. A copy that ponder puts BACK on top really does get
+drawn and cast later, worth up to +15.45 points at 6 copies of a look-3 effect
+(+1.4 to +1.9 at 4 copies of look-2). For draw/scry/impulse the same flag moves
+nothing at all (0.00pt) because a window copy there is bottomed, exiled, or
+already in hand -- so this instrument prices ONE cascade path. The other path,
+casting a copy drawn into hand, isn't modeled by the brute force either and
+therefore stays a stated caveat rather than a measured zero. Recorded that way
+deliberately: "cascading costs 0.00 for three of four shapes" would be a true
+sentence and a misleading one.
+
+**Still open, and the reason this stops here: multi-group queries.** Everything
+above is a single-group threshold query. Generalizing needs the keep DECISION to
+become a max over which cards to commit, evaluated against the shifted DNF --
+the same machinery reveal.ts's doc comment already flags as belonging to the
+caller. For an AND of `>=` thresholds, greedy "keep anything still needed" is
+optimal and the extension is mechanical. For an OR, it genuinely isn't: keeping
+a card commits you toward one clause at the cost of draws that might have served
+another, so the choice is a real optimization and the state has to carry
+per-group acquired counts. That is the next piece of work, and the last one
+before main-deck integration.
