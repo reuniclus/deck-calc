@@ -1226,3 +1226,70 @@ the tooltip's own intentional `transform: translate(10px, 10px)` CSS (10px
 * 1.5 zoom = 15px) -- correctly still zoom-scaled since that value is
 static, not derived from clientX. Confirms the fix is complete, not just
 improved.
+
+### Cantrips into the deck builder: scoping discussion, corrected (2026-07-30)
+
+Raised: should card-selection effects (cantrips) move from the Questions
+tab's exploratory "what if" tool into real, tracked deck groups -- so the
+main Chart/Table/Grid/advisor reflect the ACTUAL deck's card-selection
+adjusted winrate, not just a side question. Reasoning: card selection
+genuinely affects global winrate, and the advisor could suggest "or add N
+copies of a cantrip" the same way it already suggests other groups.
+
+Initial framing of the cost/complexity was corrected on three points, each
+worth recording precisely rather than smoothing over:
+
+1. **"Why branch?"** -- correct pushback. Treating this as a special-case
+   branch in the core computation was the wrong framing. If cantrips are
+   real tracked groups, the model should use them UNCONDITIONALLY, the same
+   way every other group already works -- not "does this deck have
+   cantrips, if so take a different path." Zero cantrips in the deck is
+   just the normal case where that part of the computation contributes
+   nothing, not a special path being skipped. The generalization should
+   subsume the simple case automatically, not sit beside it as an if/else.
+
+2. **Dilution is not, and was never, the interesting question.** Correct,
+   and this reframes a real amount of engineering effort from this same
+   session. `bestDilutionChoice` and the auto-dilute variants exist
+   entirely because of the Questions tab's HYPOTHETICAL framing -- "what if
+   I added N cantrips without yet deciding what to cut." That ambiguity is
+   an artifact of exploring a change to a deck that doesn't exist yet. Once
+   cantrips are real tracked groups, there is nothing to resolve: the user
+   sets every group's count directly, "Others" reflects whatever's left,
+   exactly like every other group today. The actual interesting question,
+   now and always, was never "which group absorbs the cost" -- it's simply
+   "how much does including N real copies of this effect change my
+   winrate," i.e. the direct impact of card-selection inclusion. The
+   dilution machinery remains useful ONLY for the exploratory Questions-tab
+   version (deciding whether to add cantrips to a deck at all, before
+   committing real slots to them) -- it should not be treated as core
+   infrastructure the main-deck integration depends on or inherits.
+
+3. **The mulligan/cantrip overlap means reconciliation is required, not
+   optional.** Agreed without qualification. Both models are fundamentally
+   the same idea (condition on a hypothetical reveal, project forward under
+   optimal keep-the-useful-cards play) applied at different moments -- the
+   opening hand specifically (mulligan.ts) versus an ongoing draw-by-turn
+   process (cantrips.ts). Building the main-deck integration without
+   unifying these into one coherent framework would mean the two
+   "compatible in spirit" systems staying uncomposed forever, or attempting
+   a plausible sequence like "keep decision, THEN cantrip-adjusted draws"
+   as an afterthought that gives an approximate rather than exact answer.
+   The unification is part of the core scope of this project, not a nice-
+   to-have layered on top afterward.
+
+Given all three corrections, the actual shape of this project is: (a)
+generalize the core curve computation to treat card-selection groups as an
+ordinary part of the model, no branching; (b) do NOT bring the dilution/
+auto-select machinery along -- it has no role once cantrips are real
+groups; (c) unify mulligan.ts's opening-hand model and cantrips.ts's
+ongoing-draw model into one framework before wiring either into the main
+computation, since building on two divergent models would need redoing
+later anyway. Still a substantial project -- comparable in scope to
+mulligan.ts's original build -- but smaller and better-shaped than
+initially framed, once dilution is correctly recognized as belonging only
+to the exploratory tool, not the core integration.
+
+Not started. This is the next scoped piece of work whenever picked back up
+-- a good starting point for a fresh session, since everything needed to
+resume is written here rather than living only in conversation history.
