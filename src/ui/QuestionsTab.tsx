@@ -16,6 +16,7 @@
  * always states what it hasn't done yet instead of leaving a confusing gap.
  */
 import { MulliganHandTable } from './MulliganHandTable';
+import { CantripsCard } from './CantripsCard';
 
 export function QuestionsTab() {
   return (
@@ -27,11 +28,7 @@ export function QuestionsTab() {
 
       <div className="panel" style={{ marginBottom: 12 }}>
         <p className="q-title">How many cantrips should I run?</p>
-        <p className="hint">
-          Not built yet &mdash; needs a real model for how card-selection effects compound and dilute a
-          fixed-size deck. See PLAN.md for the design (marginal value per effect type, an exact mix builder,
-          and why "always run the biggest effect" isn&apos;t the right answer).
-        </p>
+        <CantripsCard />
       </div>
 
       <div className="panel">

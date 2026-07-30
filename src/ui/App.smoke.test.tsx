@@ -837,14 +837,20 @@ describe('Questions tab (real end-to-end, not just the component in isolation)',
     goToQuestions();
     const panel = document.querySelector('.tab-panel-questions')!;
     expect(panel.textContent).toContain('Set Mull. above 0');
-    expect(panel.querySelector('table.num-table')).toBeNull();
+    // The cantrip card has its own (unrelated) table regardless of mulligan
+    // count -- check specifically for the mulligan/verdict table's absence,
+    // not the absence of any table anywhere in the tab.
+    const verdictTable = [...panel.querySelectorAll('table.num-table')].find((t) => t.textContent!.includes('verdict'));
+    expect(verdictTable).toBeUndefined();
   });
 
-  it('cantrips and payoffs are honest "not built yet" placeholders, not silently missing or fake data', () => {
+  it('payoffs is still an honest "not built yet" placeholder; cantrips is real now and shows its own marginal-value table', () => {
     render(<App />);
     goToQuestions();
     const panel = document.querySelector('.tab-panel-questions')!;
-    expect(panel.textContent).toContain('Not built yet');
+    expect(panel.textContent).toContain('Not built yet'); // payoffs only
+    expect(panel.textContent).toContain('value/copy'); // cantrips' real table header
+    expect(panel.textContent).toContain('Dilutes:');
   });
 
   it('with mulligans set, "is my hand safe" shows the SAME table data as the Suggestions tab -- shared computation, not a second independent one', async () => {
@@ -1034,10 +1040,99 @@ describe('MulliganHandTable truncation: stop at the actual breaking point, not l
     const suggestionsSummary = document.querySelector('.tab-panel-suggestions')!.textContent!.match(/\+ (\d+) more/)?.[1];
 
     fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
-    const questionsRows = document.querySelectorAll('.tab-panel-questions table.num-table tbody tr').length;
+    const questionsTable = [...document.querySelectorAll('.tab-panel-questions table.num-table')]
+      .find((t) => t.textContent!.includes('verdict'))!;
+    const questionsRows = questionsTable.querySelectorAll('tbody tr').length;
     const questionsSummary = document.querySelector('.tab-panel-questions')!.textContent!.match(/\+ (\d+) more/)?.[1];
 
     expect(questionsRows).toBe(suggestionsRows);
     expect(questionsSummary).toBe(suggestionsSummary);
+  });
+});
+
+describe('Cantrips card (real math, real UI interaction)', () => {
+  function cantripPanel() {
+    return document.querySelector('.tab-panel-questions')!;
+  }
+  function marginalTable() {
+    return [...cantripPanel().querySelectorAll('table.num-table')].find((t) => t.textContent!.includes('value/copy'))!;
+  }
+
+  it('shows the default 3 effect types with real, distinct marginal values and "copies needed" figures', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
+    const rows = [...marginalTable().querySelectorAll('tbody tr')];
+    expect(rows.length).toBe(3);
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td');
+      expect(cells[1]!.textContent).toMatch(/%$/); // marginal value
+      expect(cells[2]!.textContent).toMatch(/^\d+$|not reachable/); // copies needed
+    }
+  });
+
+  it('a bigger "sees N" bonus gives a bigger (or equal) marginal value for that row', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
+    const firstRowBonusInput = marginalTable().querySelectorAll('tbody tr')[0]!.querySelector('input[type="number"]') as HTMLInputElement;
+    const firstRowMarginalBefore = marginalTable().querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[1]!.textContent;
+    fireEvent.change(firstRowBonusInput, { target: { value: '10' } });
+    const firstRowMarginalAfter = marginalTable().querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[1]!.textContent;
+    expect(firstRowMarginalAfter).not.toBe(firstRowMarginalBefore);
+  });
+
+  it('the dilution picker lists every tracked group and its value changes when selected -- wired to real state, not decorative', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
+    const select = cantripPanel().querySelector('select') as HTMLSelectElement;
+    const optionValues = [...select.options].map((o) => o.value);
+    expect(optionValues.length).toBeGreaterThanOrEqual(2); // matches the default 2 tracked groups
+    const otherOption = optionValues.find((v) => v !== select.value)!;
+    fireEvent.change(select, { target: { value: otherOption } });
+    expect(select.value).toBe(otherOption);
+    // The actual numeric consequence of dilution (which group absorbs it,
+    // and how much that shifts the resulting success rate) is already
+    // covered directly and thoroughly by cantrips.test.ts's math-level
+    // tests -- this test's job is only to confirm the picker is wired to
+    // real component state, not to re-derive that math through the UI.
+  });
+
+  it('adding and removing an effect type works', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
+    const before = marginalTable().querySelectorAll('tbody tr').length;
+    fireEvent.click([...cantripPanel().querySelectorAll('button')].find((b) => b.textContent === '+ add effect type')!);
+    expect(marginalTable().querySelectorAll('tbody tr').length).toBe(before + 1);
+    const removeBtn = marginalTable().querySelectorAll('tbody tr')[before]!.querySelector('.icon-btn') as HTMLButtonElement;
+    fireEvent.click(removeBtn);
+    expect(marginalTable().querySelectorAll('tbody tr').length).toBe(before);
+  });
+
+  it('the exact-mix builder shows a real overall success rate and a with/without-drawn conditional, both real numbers', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
+    const details = [...cantripPanel().querySelectorAll('details')].find((d) => d.textContent!.includes('Build and test'))!;
+    (details as HTMLDetailsElement).open = true;
+    fireEvent(details, new Event('toggle'));
+    const resultBlock = details.querySelector('.q-result')!;
+    expect(resultBlock.textContent).toMatch(/\d+% success rate by turn \d+, vs \d+% running none/);
+    expect(resultBlock.textContent).toMatch(/\d+% if drawn by turn \d+/);
+  });
+
+  it('running none in the mix (all rows removed) matches the raw curve with no cantrip adjustment', () => {
+    render(<App />);
+    fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
+    const details = [...cantripPanel().querySelectorAll('details')].find((d) => d.textContent!.includes('Build and test'))!;
+    (details as HTMLDetailsElement).open = true;
+    fireEvent(details, new Event('toggle'));
+    // remove every mix row
+    let removeButtons = [...details.querySelectorAll('.look-row .icon-btn')];
+    while (removeButtons.length > 0) {
+      fireEvent.click(removeButtons[0]!);
+      removeButtons = [...details.querySelectorAll('.look-row .icon-btn')];
+    }
+    const resultBlock = details.querySelector('.q-result')!;
+    const match = resultBlock.textContent!.match(/(\d+)% success rate by turn \d+, vs (\d+)% running none/);
+    expect(match).toBeTruthy();
+    expect(match![1]).toBe(match![2]); // with an empty mix, "with mix" must equal "running none"
   });
 });

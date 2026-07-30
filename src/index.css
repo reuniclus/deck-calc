@@ -57,6 +57,17 @@ input[type="number"].advisor-inline {
    never something in the middle of this phrase. */
 .no-wrap-group { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .q-title { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+.q-blank { width: 40px; text-align: center; -moz-appearance: textfield; }
+.q-blank::-webkit-outer-spin-button, .q-blank::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.q-result { margin-top: 10px; padding: 10px 12px; background: var(--surface-2); border-radius: 6px; font-size: 13px; line-height: 1.5; }
+.q-result .also { color: var(--dim); font-size: 12px; display: block; margin-top: 4px; }
+.q-scope { font-size: 11px; color: var(--muted); margin: 8px 0 0; padding: 6px 8px; background: var(--bg); border-radius: 4px; border-left: 2px solid var(--flag); }
+details.q-more { margin-top: 10px; }
+details.q-more summary { font-size: 12px; color: var(--dim); cursor: pointer; }
+details.q-more .q-inner { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.look-list { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.look-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.add-look-btn { font-size: 12px; color: var(--dim); background: none; border: none; padding: 4px 0; text-align: left; cursor: pointer; }
 .inline-field { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); }
 
 input, select, textarea, button {

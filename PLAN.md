@@ -1109,3 +1109,44 @@ folded directly into the third column's own header, "copies needed for X%
 success," with the shared-goal input embedded inline. Verified directly
 (not assumed) that this doesn't overflow even at 390px mobile width, the
 tightest case in the app.
+
+### Cantrips: implemented (2026-07-30), including a real bug caught only by real-browser verification
+
+Built exactly to the settled design: `cantrips.ts` (dilutedResourceCount,
+cantripSuccessRate as the joint multi-effect model, marginalValuePerCopy
+telescoping to (P(4)-P(0))/4, copiesNeededForTarget, successGivenDrawnVsNot)
+plus CantripsCard.tsx wiring it into the Questions tab. The open design
+question from earlier -- which group absorbs dilution when a query
+references several -- resolved as an explicit dropdown, never assumed.
+
+Cross-validated against an independent brute-force computation for two
+simultaneous effect types, and against the exact numerically-confirmed
+dilution curve from the original design discussion (now a permanent test
+instead of a one-off script result).
+
+**Real bug, caught only by the real-browser verification pass, not by any
+jsdom test beforehand:** `effectiveN = cardsSeenByT + k*bonus` can be a
+non-integer once the UI pools several effect types into one average-bonus
+summary stat for the "with one drawn vs without" conditional (e.g.
+(6*3+1*4)/7 = 3.142857...). Indexing a Float64Array with a non-integer
+silently returns `undefined` in JS -- confirmed directly -- and the existing
+`?? 0` fallback (there for a different, legitimate reason: an out-of-range
+index) turned that into a WRONG near-zero result rather than a visible
+error. Measured impact before the fix: "68% if drawn" was actually showing
+"0%", and worse, the "given drawn" conditional was coming out LOWER than
+"given not drawn" -- backwards for a monotone query, which is what made it
+visually obvious something was wrong during verification rather than a
+subtle off-by-a-little value. Fixed with Math.round() at every curve-index
+site in cantrips.ts. All prior tests used integer bonus values exclusively
+and could not have caught this -- added two dedicated regression tests
+using the exact non-integer bonus value that exposed it, one for each
+affected function (cantripSuccessRate's joint path, successGivenDrawnVsNot).
+
+Lesson worth generalizing (see CLAUDE.md): whenever a "curve" (Float64Array
+indexed by cards-seen) gets indexed by a value derived from an average,
+ratio, or other non-count-like arithmetic -- not just a raw draw count --
+check whether that value can be non-integer before shipping. jsdom cannot
+catch this class of bug either, for an unrelated reason (it's a pure math
+bug, not a DOM/layout one) -- it was caught because the UI's own visual
+result looked implausible on inspection, not because any automated check
+flagged it.
