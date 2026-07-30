@@ -967,7 +967,7 @@ describe('MulliganHandTable truncation: stop at the actual breaking point, not l
     fireEvent.change(input, { target: { value: String(n) } });
   }
 
-  it('truncates right after the LAST mulligan verdict in sorted order, and shows a summary line for the dropped all-keep tail', async () => {
+  it('truncates right after the FIRST keep following the last mulligan verdict (so the actual flip is visible, not just asserted), and shows a summary line for the dropped all-keep tail', async () => {
     render(<App />);
     setMulligans(1);
     fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Suggestions')!);
@@ -978,18 +978,19 @@ describe('MulliganHandTable truncation: stop at the actual breaking point, not l
     const table = [...document.querySelectorAll('.tab-panel-suggestions table.num-table')]
       .find((t) => t.textContent!.includes('verdict'))!;
     const rows = [...table.querySelectorAll('tbody tr')];
-    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
 
-    // The last VISIBLE row must itself be a mulligan verdict -- otherwise
-    // truncation cut off before the real breaking point, or the summary
-    // logic is wrong.
-    const lastRow = rows[rows.length - 1]!;
-    expect(lastRow.textContent).toContain('mulligan');
-    expect(lastRow.className).not.toContain('hit');
+    // Second-to-last visible row is the actual last mulligan; the very last
+    // visible row is the first keep right after it -- together they prove
+    // the transition happens, rather than the table just asserting it did
+    // in a summary line with nothing to back it up.
+    const secondToLast = rows[rows.length - 2]!;
+    const last = rows[rows.length - 1]!;
+    expect(secondToLast.textContent).toContain('mulligan');
+    expect(secondToLast.className).not.toContain('hit');
+    expect(last.textContent).toContain('keep');
+    expect(last.className).toContain('hit');
 
-    // No row before the cut should be an all-keep tail element -- every
-    // visible row is either a mulligan, or a keep that appears BEFORE the
-    // last mulligan in sorted order (both legitimate).
     const summary = document.querySelector('.tab-panel-suggestions')!.textContent!;
     expect(summary).toMatch(/more hands? beyond this point, all keep/);
   });

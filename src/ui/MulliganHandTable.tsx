@@ -52,7 +52,9 @@ export function MulliganHandTable() {
    * picking a cutoff point would not be.
    */
   const lastMulliganIndex = sortedRows.reduce((last, r, i) => (r.shouldKeep ? last : i), -1);
-  const visibleRows = lastMulliganIndex === -1 ? [] : sortedRows.slice(0, lastMulliganIndex + 1);
+  // Show the last mulligan AND the first keep right after it -- proves the
+  // actual flip happens instead of just asserting it in the summary line.
+  const visibleRows = lastMulliganIndex === -1 ? [] : sortedRows.slice(0, lastMulliganIndex + 2);
   const hiddenCount = sortedRows.length - visibleRows.length;
 
   if (lastMulliganIndex === -1) {
