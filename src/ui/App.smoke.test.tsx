@@ -265,6 +265,13 @@ describe('Deck size combobox, others alignment, chart axis labels/gridlines', ()
     expect(optionValues).toEqual(['40', '60', '99']);
   });
 
+  it('REGRESSION: the deck size combobox uses type=text (not type=number) -- type=number has confirmed inconsistent cross-browser datalist rendering (Safari in particular often shows only the current value, not the full option list), which was reported as a real bug ("only has 40")', () => {
+    render(<App />);
+    const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
+    expect(deckInput.type).toBe('text');
+    expect(deckInput.inputMode).toBe('numeric');
+  });
+
   it('setting the deck size (typing directly, or picking a datalist option -- both look identical to the DOM) updates the deck size', () => {
     render(<App />);
     const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
@@ -1079,14 +1086,14 @@ describe('Cantrips card (real math, real UI interaction)', () => {
     expect(firstRowMarginalAfter).not.toBe(firstRowMarginalBefore);
   });
 
-  it('there is no dilution picker -- the best group to dilute is chosen automatically and shown as read-only text in the exact-mix scope note', () => {
+  it('there is no dilution picker and no dilution scope note -- the best group to dilute is chosen automatically and silently', () => {
     render(<App />);
     fireEvent.click([...document.querySelectorAll('.tab-strip button')].find((b) => b.textContent === 'Questions')!);
     expect(cantripPanel().querySelector('select')).toBeNull();
     const details = [...cantripPanel().querySelectorAll('details')].find((d) => d.textContent!.includes('Build and test'))!;
     (details as HTMLDetailsElement).open = true;
     fireEvent(details, new Event('toggle'));
-    expect(details.textContent).toMatch(/Cantrips dilute (Blink ETB|Blink Spell) once your \d+ filler slots run out/);
+    expect(details.textContent).not.toContain('Cantrips dilute');
   });
 
   it('adding and removing an effect type works', () => {

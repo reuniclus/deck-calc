@@ -89,7 +89,6 @@ export function CantripsCard() {
   const conditional = totalMixCount > 0
     ? successGivenDrawnVsNot(dnf, sizes, deckSize, cardsSeenByT, othersCount, mixDilution.group, totalMixCount, avgBonus)
     : null;
-  const mixDilutionName = groups.find((g) => g.id === mixDilution.group)?.name ?? mixDilution.group;
 
   return (
     <div>
@@ -177,13 +176,6 @@ export function CantripsCard() {
               <span className="also">{pct(conditional.givenDrawn)} if drawn by turn {adviseTurn}.</span>
             )}
           </div>
-
-          <p className="q-scope">
-            Cantrips dilute {mixDilutionName} once your {othersCount} filler slots run out (whichever tracked
-            group is actually best to dilute, computed automatically -- not always the most populous one).
-            Cascading (one cantrip&apos;s own look revealing another cantrip) isn&apos;t modeled &mdash; real
-            values are likely somewhat higher throughout.
-          </p>
         </div>
       </details>
     </div>

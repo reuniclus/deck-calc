@@ -112,13 +112,18 @@ export function DeckEditor() {
           <span>Deck</span>
           <input
             className="deck-num deck-size-combo"
-            type="number"
-            min={1}
-            max={1024}
+            type="text"
+            inputMode="numeric"
             list="deck-size-presets"
             value={deckSize}
             onChange={(e) => dispatch({ type: 'setDeckSize', deckSize: parseNumOr0(e.target.value) })}
           />
+          {/* type=text + inputMode=numeric, not type=number -- type=number
+              has real, confirmed cross-browser inconsistency showing
+              datalist suggestions (Safari in particular often only shows
+              the current value, not the full option list). This keeps the
+              numeric keyboard on mobile while making the combobox actually
+              reliable. */}
           {/* Native combobox: type any size directly, or open the list for
               the common ones. Deliberately not 4 separate boxes (a plain
               value + 3 preset buttons) -- that layout could show the SAME

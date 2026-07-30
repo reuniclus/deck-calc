@@ -1179,3 +1179,21 @@ another's. The UI now shows which group got auto-selected as read-only
 text in the exact-mix scope note, not as an editable picker -- transparency
 without asking the user to make a decision the tool can make correctly
 itself.
+
+### Two real fixes (2026-07-30)
+
+- **Deck size combobox bug: reported as "only has 40," confirmed as a
+  browser-compatibility issue, not a markup bug.** The DOM/datalist itself
+  always had all 3 options (verified directly) -- the problem is
+  `type="number"` + `<datalist>` having known, real cross-browser
+  inconsistency (Safari in particular often only shows the current value,
+  not the full suggestion list). Fixed by switching to `type="text"` +
+  `inputMode="numeric"` (keeps the numeric keyboard on mobile; datalist
+  support for text inputs is far more reliable across browsers). This
+  changed which CSS selectors apply -- `input[type="number"].deck-num` and
+  `input[type="number"].deck-size-combo` no longer match a type=text
+  element at all, so the width rule needed to drop the now-irrelevant
+  attribute selector (confirmed no other rule was competing for a bare
+  type=text width before simplifying it).
+- Removed the cantrip exact-mix scope note ("Cantrips dilute X once your N
+  filler slots run out...") -- unnecessary per direct feedback.
