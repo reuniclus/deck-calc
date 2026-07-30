@@ -36,9 +36,9 @@
  * modeling the mulligan's cascading effect on every LATER draw (not just
  * the opening hand) is a substantially bigger problem, out of scope here.
  */
-import { evaluate } from './evaluate';
 import type { Curve } from './boxdp';
-import type { Box, Dnf, GroupId, Interval, Sizes } from './expr';
+import type { Dnf, GroupId, Sizes } from './expr';
+import { enumerateReveals, poolAfter, projectForward, projectForwardAt, type PoolState } from './reveal';
 
 export class MulliganTooLargeError extends Error {}
 
@@ -79,87 +79,32 @@ function choose(n: number, k: number): number {
   return result;
 }
 
-interface DeckState {
-  /** Remaining count per TRACKED group only. */
-  sizes: Sizes;
-  deckSize: number;
-}
+/** Remaining unseen pool. Kept as a local alias so this file reads the same
+ * as before the reveal.ts extraction. */
+type DeckState = PoolState;
 
-/** Every feasible hand composition drawable from `state`, each with its
- * EXACT multivariate-hypergeometric probability. Untracked ("other") cards
- * fill whatever's left of the hand implicitly, same convention as the rest
- * of this app. */
+/** Opening hands are just reveals of `handSize` cards -- the enumeration
+ * lives in reveal.ts now, shared with the selection-effect model. */
 function enumerateHands(
   groupIds: GroupId[],
   state: DeckState,
   handSize: number,
 ): Array<{ hand: Record<GroupId, number>; probability: number }> {
-  const trackedTotal = groupIds.reduce((s, g) => s + (state.sizes[g] ?? 0), 0);
-  const otherCount = state.deckSize - trackedTotal;
-  const denom = choose(state.deckSize, handSize);
-  const out: Array<{ hand: Record<GroupId, number>; probability: number }> = [];
-
-  function recurse(idx: number, current: Record<GroupId, number>, remainingHand: number): void {
-    if (idx === groupIds.length) {
-      if (remainingHand > otherCount) return; // not enough "other" cards to fill the rest
-      let numerator = choose(otherCount, remainingHand);
-      for (const g of groupIds) numerator *= choose(state.sizes[g] ?? 0, current[g] ?? 0);
-      const probability = denom > 0 ? numerator / denom : 0;
-      if (probability > 0) out.push({ hand: { ...current }, probability });
-      return;
-    }
-    const g = groupIds[idx]!;
-    const maxTake = Math.min(state.sizes[g] ?? 0, remainingHand);
-    for (let take = 0; take <= maxTake; take++) {
-      recurse(idx + 1, { ...current, [g]: take }, remainingHand - take);
-    }
-  }
-  recurse(0, {}, handSize);
-  return out;
-}
-
-/** "You already have hand[g] of group g secured -- you now only need
- * (lo-hand[g]) MORE, capped at (hi-hand[g]) MORE." Returns null if the box
- * is already violated (hand[g] alone exceeds hi for some g): future draws
- * only ever ADD to a count, never remove, so an upper-bound violation from
- * the hand alone can never be undone by anything drawn afterward. */
-function shiftBox(box: Box, hand: Record<GroupId, number>): Box | null {
-  const shifted: Record<GroupId, Interval> = {};
-  for (const g of Object.keys(box)) {
-    const h = hand[g] ?? 0;
-    const { lo, hi } = box[g]!;
-    const newHi = hi - h;
-    if (newHi < 0) return null;
-    shifted[g] = { lo: Math.max(0, lo - h), hi: newHi };
-  }
-  return shifted;
-}
-
-function remainingSizes(state: DeckState, groupIds: GroupId[], hand: Record<GroupId, number>): Sizes {
-  const out: Record<GroupId, number> = { ...state.sizes };
-  for (const g of groupIds) out[g] = (state.sizes[g] ?? 0) - (hand[g] ?? 0);
-  return out;
+  return enumerateReveals(groupIds, state, handSize).map(({ comp, probability }) => ({
+    hand: comp,
+    probability,
+  }));
 }
 
 /** P(success by turn T) if `hand` is kept as-is (no more mulligans), given
  * `extraDraws` more cards get drawn from the remaining deck before turn T.
- * Reuses evaluate() directly on a shifted DNF over the SMALLER remaining
- * deck -- no re-parsing, no re-normalizing; evaluate()'s own existing
- * handling of an empty clause (already satisfied -> curve of 1s) and an
- * empty clause LIST (every clause violated -> curve of 0s) covers both
- * edge cases here for free. */
+ * A kept opening hand is exactly reveal.ts's base case: everything seen
+ * leaves the pool AND counts toward the query. */
 function keepValue(
   dnf: Dnf, groupIds: GroupId[], state: DeckState,
   hand: Record<GroupId, number>, handSize: number, extraDraws: number,
 ): number {
-  const shiftedClauses = dnf.clauses
-    .map((c) => shiftBox(c, hand))
-    .filter((c): c is Box => c !== null);
-  const shifted: Dnf = { clauses: shiftedClauses, monotone: dnf.monotone };
-  const remSizes = remainingSizes(state, groupIds, hand);
-  const remDeckSize = state.deckSize - handSize;
-  const result = evaluate(remDeckSize, remSizes, shifted);
-  return result.curve[Math.min(Math.max(0, extraDraws), remDeckSize)]!;
+  return projectForwardAt(dnf, groupIds, state, { comp: hand, total: handSize }, extraDraws);
 }
 
 /** V(state, mulligansLeft): best achievable P(success by turn T) from a
@@ -191,10 +136,7 @@ function optimalValue(
     const keepP = keepValue(dnf, groupIds, state, hand, handSize, extraDraws);
     let best = keepP;
     if (mulligansLeft > 0) {
-      const nextState: DeckState = {
-        sizes: remainingSizes(state, groupIds, hand),
-        deckSize: state.deckSize - handSize,
-      };
+      const nextState: DeckState = poolAfter(state, groupIds, hand, handSize);
       best = Math.max(best, optimalValue(dnf, groupIds, nextState, handSize, extraDraws, mulligansLeft - 1, cache));
     }
     total += probability * best;
@@ -203,22 +145,13 @@ function optimalValue(
   return total;
 }
 
-/** Whole-curve version of keepValue: same shifted-DNF-on-the-smaller-deck
- * trick, but returns evaluate()'s FULL curve (indexed by extraDraws, i.e.
- * additional cards drawn after this hand) instead of one point from it.
- * evaluate() computes the whole curve internally regardless -- the scalar
- * version was simply discarding everything except one index. */
+/** Whole-curve version of keepValue -- same reveal, every extraDraws value
+ * at once instead of one index out of it. */
 function keepCurve(
   dnf: Dnf, groupIds: GroupId[], state: DeckState,
   hand: Record<GroupId, number>, handSize: number,
 ): Curve {
-  const shiftedClauses = dnf.clauses
-    .map((c) => shiftBox(c, hand))
-    .filter((c): c is Box => c !== null);
-  const shifted: Dnf = { clauses: shiftedClauses, monotone: dnf.monotone };
-  const remSizes = remainingSizes(state, groupIds, hand);
-  const remDeckSize = state.deckSize - handSize;
-  return evaluate(remDeckSize, remSizes, shifted).curve;
+  return projectForward(dnf, groupIds, state, { comp: hand, total: handSize });
 }
 
 /** Pointwise max of two curves over the SAME "extraDraws" axis, even though
@@ -255,10 +188,7 @@ function optimalCurveRec(
     const kc = keepCurve(dnf, groupIds, state, hand, handSize);
     let best = kc;
     if (mulligansLeft > 0) {
-      const nextState: DeckState = {
-        sizes: remainingSizes(state, groupIds, hand),
-        deckSize: state.deckSize - handSize,
-      };
+      const nextState: DeckState = poolAfter(state, groupIds, hand, handSize);
       const mc = optimalCurveRec(dnf, groupIds, nextState, handSize, mulligansLeft - 1, cache);
       best = pointwiseMaxExtend(kc, mc);
     }
@@ -303,10 +233,7 @@ export function optimalMulliganCurve(
     const kc = keepCurve(dnf, groupIds, fullState, hand, handSize);
     let best = kc;
     if (maxMulligans > 0) {
-      const nextState: DeckState = {
-        sizes: remainingSizes(fullState, groupIds, hand),
-        deckSize: deckSize - handSize,
-      };
+      const nextState: DeckState = poolAfter(fullState, groupIds, hand, handSize);
       const mc = optimalCurveRec(dnf, groupIds, nextState, handSize, maxMulligans - 1, cache);
       best = pointwiseMaxExtend(kc, mc);
     }
@@ -371,10 +298,7 @@ export function optimalMulliganStrategy(
     const keepP = keepValue(dnf, groupIds, fullState, hand, handSize, extraDrawsForT);
     let mulliganP = 0;
     if (maxMulligans > 0) {
-      const nextState: DeckState = {
-        sizes: remainingSizes(fullState, groupIds, hand),
-        deckSize: deckSize - handSize,
-      };
+      const nextState: DeckState = poolAfter(fullState, groupIds, hand, handSize);
       mulliganP = optimalValue(dnf, groupIds, nextState, handSize, extraDrawsForT, maxMulligans - 1, cache);
     }
     const shouldKeep = keepP >= mulliganP;

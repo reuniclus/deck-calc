@@ -1293,3 +1293,122 @@ to the exploratory tool, not the core integration.
 Not started. This is the next scoped piece of work whenever picked back up
 -- a good starting point for a fresh session, since everything needed to
 resume is written here rather than living only in conversation history.
+
+### Unifying mulligan.ts and cantrips.ts: reveal.ts, and both closed forms proved wrong (2026-07-30)
+
+Correction 3 of the scoping discussion above (the mulligan/cantrip overlap
+makes reconciliation required, not optional) done first, before any main-deck
+wiring, exactly as that entry argued.
+
+**`src/math/reveal.ts`** is the shared primitive: a reveal is THREE separate
+facts, and conflating any two is where the two previous implementations
+diverged -- (1) which cards left the unseen pool (`comp`/`total`: hand,
+bottomed, exiled and milled are ONE fact for a query about what you draw),
+(2) which of them count toward the query (`secured`, a subset -- a card kept
+on top is yours only once a draw is spent collecting it), and (3) how many
+further cards get drawn, which isn't part of the reveal at all, hence
+`projectForward` returning a whole curve. mulligan.ts's `shiftBox`,
+`enumerateHands`, `keepValue`, `keepCurve` and `remainingSizes` are now thin
+callers of it. Verified BYTE-IDENTICAL output (not merely a passing suite)
+across 4 configurations including a non-monotone one, by snapshotting before
+and after the refactor and diffing.
+
+**Effect taxonomy, settled.** The axes are mechanical, so the table has four
+columns instead of a row per card name:
+
+| effect | examined | keepMax | kept costs a draw | non-kept leaves pool |
+|---|---|---|---|---|
+| draw X | X | X (all) | no (goes to hand) | -- |
+| scry/preordain X | X | inf | YES (sits on top) | yes |
+| impulse/surveil X | X | 1 | no (hand/exile) | yes |
+| ponder/portent X | X | inf | yes | NO + shuffle option |
+
+Two consequences recorded during that discussion. First, a flat additive
+`bonus` is only exact for `>=1` queries: scry's kept cards cost draws, so for
+`>=2` with few draws left the additive model claims cards you never got to
+collect. Advance must be DERIVED from {examined, keepMax, fate}, never
+supplied as a number. Second, impulse's "which of the two pieces do I take" is
+a max over commit choices against the shifted DNF -- the same shape as
+mulligan's keep decision -- not a heuristic to encode; "take the rarer one"
+is an OUTPUT.
+
+Ponder's stall was briefly deferred and then un-deferred: in the no-shuffle
+branch the two halves CANCEL EXACTLY (reordering the top 3 doesn't change
+which cards you acquire, since you'd have drawn them anyway), so its whole
+modelable value is the shuffle option plus best-of-window when the goal turn
+cuts through the window. No draw-schedule coupling, no MDP.
+
+**Both candidate closed forms are wrong -- the real finding.** Built
+`src/math/bruteSelection.ts` (TEST-ONLY, like exact.ts/brute.ts): enumerate
+every distinct ordering of a small labelled deck, play each out with the real
+mechanics (top of library, bottoming, exiling, hand), count successes. No
+hypergeometric anywhere in it, so a disagreement indicts the closed form
+rather than being a shared bug. Validated first against `evaluate()` with the
+effect disabled: agrees to 5e-16.
+
+Measured error in percentage points (N=12, A=3, 2 copies):
+
+| case | flat (today's cantrips.ts) | conditioned |
+|---|---|---|
+| draw2, A>=1, n=3 | -3.30 | -5.64 |
+| draw2, A>=2, n=5 | -2.57 | -6.64 |
+| scry2, A>=1, n=3 | +1.05 | -1.30 |
+| scry2, A>=2, n=3 | **+8.15** | +4.05 |
+| impulse3, A>=2, n=3 | +4.55 | +1.19 |
+
+Neither is exact anywhere, and the SIGN FLIPS by effect type and threshold.
+The per-k breakdown (n=3, E=2) shows why:
+
+| copies drawn k | brute | flat | conditioned |
+|---|---|---|---|
+| 0 | 0.70833 | 0.61818 | 0.61818 |
+| 1 | 0.80556 | 0.84091 | 0.78788 |
+| 2 | 0.91667 | 0.95455 | 0.91667 |
+
+k=0 and k=2 both match a THIRD form (pool = deck minus every effect copy)
+exactly; k=1 matches nothing. Conditioning on "k copies among the first n"
+mixes two different pools: the n-k other scheduled cards come from the
+non-effect pool, while the k*examined window cards come from the remainder,
+which still holds the other copies. One hypergeometric cannot express that, so
+no single-index closed form can be right -- and at k=0 and k=2 the two pools
+coincide, which is exactly why the original single-effect validation looked
+clean. Both forms were deleted rather than left as options; the shipped
+cantrips.ts flat form is therefore known-wrong by single-digit points, in a
+direction depending on whether "look 3" is read as draw-like (understates) or
+scry-like (overstates).
+
+**The exact model: a sequential slot DP, and it needs no group dimensions.**
+The structural simplification that makes it cheap: the query's own group
+composition is conditionally hypergeometric GIVEN the slot structure, because
+the mechanics only care about WHERE the effect copies fall (a copy in a
+scheduled slot triggers; a copy inside another copy's window does not), which
+is independent of which non-effect cards fill the remaining positions. So the
+DP tracks (cards consumed, copies consumed, scheduled slots used, window
+credits owed) and NOTHING about groups; composition comes from one ordinary
+`evaluate()` on the pool with every copy removed. "No cascading" stops being
+an assumption and becomes the `credits > 0` branch -- one line to change if the
+fuller model is ever wanted.
+
+`exactDrawCurve` matches bruteSelection.ts to ~1e-15 across 32 cases (4 deck
+configs x 2 thresholds x 4 draw counts) where the flat form is off by up to 7
+points. Zero copies is an EXACT passthrough of `evaluate()` (=== , not
+toBeCloseTo), so the generalization subsumes the plain case rather than
+sitting beside it -- correction 1 of the scoping entry, satisfied structurally.
+
+The slot DP is query-INDEPENDENT, so it's split out (`slotDistribution`) and
+cached: measured 117ms cold / 11.5ms warm at 99 cards with 12 copies, meaning
+a grid sweep or a target change pays it once, not per row. At ~160ms
+uncached this is the same order as the mulligan computation that already
+needed the Worker (CLAUDE.md #13), so main-thread use should go through the
+same worker infrastructure rather than being assumed cheap.
+
+One test expectation was written wrong and the DP was right (`examined=0`
+should reproduce the FULL deck's curve -- a dead card occupying a slot, 6/40 on
+the first draw -- not the deck-minus-copies pool at 6/36). Recorded because
+that's the correct direction for a check like this to fail.
+
+Staging from here, each step gated on its own brute-force case before the next:
+scry (kept-costs-a-draw), then impulse (keepMax with the commit-choice max),
+then ponder (shuffle option), and only then main-deck integration.
+`assertDrawShaped` makes every not-yet-implemented shape throw rather than
+silently borrowing the draw path.
