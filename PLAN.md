@@ -1892,3 +1892,34 @@ PER-TRIGGER rather than as a global factor -- condition on trigger positions and
 purge each window forward only. That removes exactly the wrongly-kept mass. Cost
 estimate stands at ~1.4k position splits for t<=4, n=15, which would spend much
 of the current 74x speedup.
+
+### Cantrips card swapped onto the exact engine (2026-07-30)
+
+The Questions-tab cantrip card ran the disproven flat form until now. Swapped to
+`exactDrawCurveMulti`, keeping the public API of `cantripSuccessRate` unchanged
+so `CantripsCard.tsx` needed no edit, and keeping the dilution wrapper exactly
+where it belongs (dilution decides GROUP COUNTS; the engine takes counts as
+given -- correction 2 of the original scoping, still honoured).
+
+Verified independently rather than trusted: `cantripSuccessRate` now agrees with
+`exactSelectionCurveDnf` to 1e-10 across four configurations that previously
+diverged by 0.74-1.74pt, and marginal value per copy reports 1.735pt where the
+flat form said 1.498pt -- the ~10% systematic understatement is gone.
+
+Multi-type support needed a multi-type slot DP (`slotDistributionMulti` /
+`exactDrawCurveMulti`), since a mixed cantrip list has different look sizes per
+type and each drawn copy grants credits according to its own type. The brute
+force gained a multi-effect play-out to check it.
+
+Cost is comfortable because the slot DP is invariant across dilution candidates
+-- deck size and copy count don't change when dilution moves counts between
+groups -- so each candidate costs one extra `evaluate()`, not a fresh DP.
+Measured: marginal value 3-12ms, `bestDilutionChoice` 0-7ms, and the worst case
+is the 99-card "copies needed for target" search at 222ms for 13 counts. Fine
+for a live column.
+
+Note for whoever reads the card's numbers: `bonus` means cards EXAMINED, which
+is draw-shaped in the settled taxonomy. Someone entering Preordain is really
+scrying, and draw dominates scry on monotone queries, so the card is an upper
+bound for those cards. Splitting `bonus` into an effect-shape selector is a UI
+change, still not scoped.

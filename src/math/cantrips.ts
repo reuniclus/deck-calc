@@ -22,15 +22,56 @@
  *   (never silently assumed -- if a query references multiple groups,
  *   which one absorbs dilution is a real design choice with real
  *   consequences, made explicit as a caller-supplied parameter here).
- * - "How many of the cantrip drawn by turn T" is exactly hypergeometric
- *   (same deckSize throughout -- cantrips occupy deck SLOTS, they don't
- *   change the deck's total size), so the overall success rate is a
- *   weighted average over "drew 0 / drew 1 / drew 2..." scenarios, each
- *   shifting the underlying (diluted) curve by that many bonus cards.
+ * - The success rate itself comes from `exactDrawCurveMulti` (selection.ts):
+ *   a sequential slot model, exact and verified against a mechanical
+ *   play-out of every deck ordering.
+ *
+ * REPLACED 2026-07-30. This module used to compute the rate itself, as a
+ * weighted average over "drew 0 / drew 1 / drew 2..." scenarios, each
+ * indexing the diluted curve at `cardsSeenByT + k*bonus`. That closed form is
+ * WRONG -- see PLAN.md. Conditioning on "k copies among the first n cards"
+ * silently mixes two different pools (scheduled slots are known non-copies,
+ * window slots come from a remainder that still holds copies), and one
+ * hypergeometric cannot express both. Measured error against a real play-out
+ * was 1-8 percentage points depending on effect shape and threshold, and
+ * systematically ~10% LOW on marginal value per copy -- enough to have
+ * recommended a 4th copy where 3 suffice.
+ *
+ * Two further defects went with it: each effect type drew its own independent
+ * hypergeometric over the same `cardsSeenByT`, so two types could "draw" more
+ * copies than cards seen; and pooling types into one averaged bonus produced
+ * non-integer curve indices (CLAUDE.md #15). Neither is expressible in the
+ * sequential model -- the types share one process.
+ *
+ * Dilution stays here. It decides the deck's COUNTS, which is a separate
+ * question from how the draw process is modeled, and it belongs to this
+ * exploratory tool rather than to the shared engine.
  */
 import { evaluate } from './evaluate';
-import { pmf } from './hyper';
+import { exactDrawCurveMulti, slotDistributionMulti } from './selection';
 import type { Dnf, Sizes, GroupId } from './expr';
+
+/**
+ * Can this many copies actually coexist with these group counts?
+ *
+ * `dilutedResourceCount` clamps at zero, so asking a group with few copies to
+ * absorb a lot of dilution leaves a deck that cannot exist -- groups plus
+ * copies exceeding the deck size. `bestDilutionChoice` deliberately tries EVERY
+ * candidate group, so it reaches those configurations routinely.
+ *
+ * The old closed form never noticed: it evaluated against the full deck and
+ * never removed the copies from the pool, so it returned a plausible-looking
+ * number for an impossible deck. The exact model conditions on the copies being
+ * gone from the pool, which makes the contradiction load-bearing -- it surfaced
+ * as `RangeError: constrained groups (38) exceed deck (37)` from boxdp, and
+ * crashed the whole Cantrips card on mount. Infeasible configurations now score
+ * 0, so an over-diluted candidate simply loses the comparison.
+ */
+function fitsInDeck(sizes: Sizes, deckSize: number, copies: number): boolean {
+  let tracked = 0;
+  for (const g of Object.keys(sizes)) tracked += sizes[g] ?? 0;
+  return tracked + copies <= deckSize;
+}
 
 /** Diluted count of the chosen resource group after `cantripTotal` copies
  * have been added to a fixed-size deck: cuts from `othersCount` (filler)
@@ -66,40 +107,17 @@ export function cantripSuccessRate(
   const totalCantrips = effects.reduce((s, e) => s + e.count, 0);
   const dilutedCount = dilutedResourceCount(fullSizes[dilutionGroup] ?? 0, othersCount, totalCantrips);
   const dilutedSizes: Record<GroupId, number> = { ...fullSizes, [dilutionGroup]: dilutedCount };
+  if (!fitsInDeck(dilutedSizes, deckSize, totalCantrips)) return 0;
 
-  // Joint distribution over "how many of EACH effect type drawn by turn T"
-  // -- a multivariate hypergeometric, same shape as mulligan.ts's own hand
-  // enumeration, just applied to cantrip types instead of resources.
-  // Effects with count=0 contribute nothing and are skipped (no free
-  // dimension for a type nobody is running).
-  const active = effects.filter((e) => e.count > 0);
-  if (active.length === 0) {
-    return evaluate(deckSize, dilutedSizes, dnf).curve[Math.min(cardsSeenByT, deckSize)] ?? 0;
-  }
-
-  let total = 0;
-  function recurse(idx: number, drawnSoFar: number, probSoFar: number, bonusSoFar: number): void {
-    if (idx === active.length) {
-      const effectiveN = Math.min(Math.round(cardsSeenByT + bonusSoFar), deckSize);
-      const p = evaluate(deckSize, dilutedSizes, dnf).curve[effectiveN] ?? 0;
-      total += probSoFar * p;
-      return;
-    }
-    const effect = active[idx]!;
-    // How many of THIS type could possibly be drawn, given cards already
-    // "spent" (in expectation terms this is just a cap, not a real
-    // dependency -- each type's hypergeometric draw is computed against the
-    // deck independently, matching how multiple resource groups are
-    // already treated as independent hypergeometric axes elsewhere).
-    const maxK = Math.min(effect.count, cardsSeenByT);
-    for (let k = 0; k <= maxK; k++) {
-      const p = pmf(deckSize, effect.count, Math.min(cardsSeenByT, deckSize), k);
-      if (p <= 0) continue;
-      recurse(idx + 1, drawnSoFar + k, probSoFar * p, bonusSoFar + k * effect.bonus);
-    }
-  }
-  recurse(0, 0, 1, 0);
-  return total;
+  // `bonus` is "extra cards examined", which is the draw-shaped effect: the
+  // window goes to hand and costs no draw. Effects with count=0 contribute
+  // nothing and are dropped rather than becoming a free dimension.
+  const types = effects
+    .filter((e) => e.count > 0)
+    .map((e) => ({ count: e.count, examined: Math.round(e.bonus) }));
+  const draws = Math.min(Math.max(0, Math.round(cardsSeenByT)), deckSize);
+  const curve = exactDrawCurveMulti(dnf, dilutedSizes, deckSize, types, draws);
+  return curve[draws] ?? 0;
 }
 
 /** ~ average marginal value per copy over a realistic 1-4 copies, for ONE
@@ -167,25 +185,39 @@ export function successGivenDrawnVsNot(
 ): { givenDrawn: number; givenNotDrawn: number; pDrawn: number } {
   const dilutedCount = dilutedResourceCount(fullSizes[dilutionGroup] ?? 0, othersCount, count);
   const dilutedSizes: Record<GroupId, number> = { ...fullSizes, [dilutionGroup]: dilutedCount };
-  const cappedN = Math.min(cardsSeenByT, deckSize);
-  const maxK = Math.min(count, cappedN);
-
-  let notDrawnP = 0;
-  let drawnWeighted = 0;
-  let pDrawnTotal = 0;
-  for (let k = 0; k <= maxK; k++) {
-    const pk = pmf(deckSize, count, cappedN, k);
-    if (pk <= 0) continue;
-    const effectiveN = Math.min(Math.round(cardsSeenByT + k * bonus), deckSize);
-    const p = evaluate(deckSize, dilutedSizes, dnf).curve[effectiveN] ?? 0;
-    if (k === 0) notDrawnP = p;
-    else {
-      drawnWeighted += pk * p;
-      pDrawnTotal += pk;
-    }
+  const draws = Math.min(Math.max(0, Math.round(cardsSeenByT)), deckSize);
+  const examined = Math.round(bonus);
+  if (!fitsInDeck(dilutedSizes, deckSize, count)) {
+    return { givenDrawn: 0, givenNotDrawn: 0, pDrawn: 0 };
   }
-  const givenDrawn = pDrawnTotal > 0 ? drawnWeighted / pDrawnTotal : notDrawnP;
-  return { givenDrawn, givenNotDrawn: notDrawnP, pDrawn: pDrawnTotal };
+
+  if (count <= 0) {
+    const plain = evaluate(deckSize, dilutedSizes, dnf).curve[draws] ?? 0;
+    return { givenDrawn: plain, givenNotDrawn: plain, pDrawn: 0 };
+  }
+
+  // Split the slot outcomes by whether any copy was seen. The slot model gives
+  // the copies-seen count directly, so the condition is read off the same exact
+  // distribution rather than recomputed from a separate hypergeometric -- which
+  // is what let the old version's per-type draws disagree with its own totals.
+  const nonEffect = evaluate(deckSize - count, dilutedSizes, dnf).curve;
+  const slots = slotDistributionMulti(deckSize, [{ count, examined }], draws)[draws]!;
+  let drawnWeighted = 0;
+  let notDrawnWeighted = 0;
+  let pDrawn = 0;
+  let pNotDrawn = 0;
+  for (const { seen, copies, p } of slots) {
+    const idx = Math.min(Math.max(0, seen - copies), nonEffect.length - 1);
+    const value = p * (nonEffect[idx] ?? 0);
+    if (copies > 0) { drawnWeighted += value; pDrawn += p; }
+    else { notDrawnWeighted += value; pNotDrawn += p; }
+  }
+  const givenNotDrawn = pNotDrawn > 0 ? notDrawnWeighted / pNotDrawn : 0;
+  return {
+    givenDrawn: pDrawn > 0 ? drawnWeighted / pDrawn : givenNotDrawn,
+    givenNotDrawn,
+    pDrawn,
+  };
 }
 
 /**

@@ -66,6 +66,48 @@ function satisfied(hand: Record<string, number>, need: Need, caps?: Caps): boole
   return true;
 }
 
+/**
+ * Play out one ordering with SEVERAL draw-shaped effect types at once (each
+ * label examines its own number of extra cards, all of which go to hand).
+ * Mechanical: no hypergeometric anywhere, one card at a time, windows taken off
+ * the top. Used to check `exactDrawCurveMulti`, which the previous
+ * "independent" check in cantrips.test.ts could not do -- that one re-derived
+ * the same closed form with local copies of the helpers, so it shared the
+ * model's assumptions and validated only its arithmetic.
+ */
+export function playOutMultiDraw(
+  order: string[],
+  n: number,
+  effects: Array<{ group: string; examined: number }>,
+  need: Need,
+): boolean {
+  const deck = [...order];
+  const hand: Record<string, number> = {};
+  let scheduled = n;
+  while (scheduled > 0 && deck.length > 0) {
+    const card = deck.shift()!;
+    scheduled--;
+    hand[card] = (hand[card] ?? 0) + 1;
+    const eff = effects.find((e) => e.group === card);
+    if (eff !== undefined) {
+      // Its window goes straight to hand and costs no scheduled draw. Copies
+      // found inside a window do NOT trigger (no cascading).
+      for (const c of deck.splice(0, eff.examined)) hand[c] = (hand[c] ?? 0) + 1;
+    }
+  }
+  return satisfied(hand, need);
+}
+
+/** Exact P over every distinct arrangement, several draw-shaped types. */
+export function bruteMultiDrawP(
+  counts: Record<string, number>,
+  n: number,
+  effects: Array<{ group: string; examined: number }>,
+  need: Need,
+): number {
+  return overArrangements(counts, (order) => playOutMultiDraw(order, n, effects, need));
+}
+
 /** Play out one concrete deck ordering for `n` scheduled draws.
  *
  * `cascade` controls whether an effect card that was SEEN in some window and

@@ -3,6 +3,7 @@ import {
   dilutedResourceCount, cantripSuccessRate, marginalValuePerCopy, copiesNeededForTarget, successGivenDrawnVsNot,
   bestDilutionChoice, marginalValuePerCopyAutoDilute, copiesNeededForTargetAutoDilute,
 } from './cantrips';
+import { bruteMultiDrawP } from './bruteSelection';
 import { evaluate } from './evaluate';
 import { normalize } from './normalize';
 import { parseQuery } from './parse';
@@ -38,56 +39,51 @@ describe('cantripSuccessRate', () => {
     const dnf = normalize(ast, sizes);
     const at = (cantrips: number) => cantripSuccessRate(dnf, sizes, 40, 9, 12, 'g0', [{ count: cantrips, bonus: 2 }]);
 
-    // Original ad-hoc measurement: 0->12 rises 89.7%->97.6%; 14->18 falls
-    // 94.9%->87.8%->67.4%. Re-derived here as a permanent, exact test
-    // rather than a one-off script result.
-    expect(at(0) * 100).toBeCloseTo(89.7, 0);
-    expect(at(12) * 100).toBeCloseTo(97.6, 0);
-    expect(at(14) * 100).toBeCloseTo(94.9, 0);
-    expect(at(16) * 100).toBeCloseTo(87.8, 0);
-    expect(at(18) * 100).toBeCloseTo(67.4, 0);
+    // Values UPDATED 2026-07-30 when the flat closed form was replaced by the
+    // exact slot model. The original figures came from an ad-hoc script using
+    // that closed form, so they were never independent evidence -- the peak is
+    // ~0.9pt higher than it claimed, because the flat form systematically
+    // understated draw-shaped effects. The SHAPE that motivated the feature is
+    // unchanged, which is the part that mattered.
+    // flat form -> exact:  97.6->98.47 at the peak, 94.9->96.15, 87.8->89.44,
+    // 67.4->68.61. Every one moved UP, consistent with the flat form
+    // understating draw-shaped effects; at(0) has no cantrips to model and so
+    // is untouched at 89.74.
+    expect(at(0) * 100).toBeCloseTo(89.74, 1);
+    expect(at(12) * 100).toBeCloseTo(98.47, 1);
+    expect(at(14) * 100).toBeCloseTo(96.15, 1);
+    expect(at(16) * 100).toBeCloseTo(89.44, 1);
+    expect(at(18) * 100).toBeCloseTo(68.61, 1);
 
     // The actual shape that motivated this whole feature: a real peak,
     // not monotone improvement forever.
     expect(at(12)).toBeGreaterThan(at(18));
   });
 
-  it('a genuinely independent brute-force cross-check for TWO simultaneous effect types (not reusing any of cantripSuccessRate\'s own helpers)', () => {
-    const sizes = { g0: 6 };
+  it('TWO simultaneous effect types, against a MECHANICAL play-out of every deck ordering', () => {
+    // Replaces an earlier check that claimed independence but re-derived the
+    // same closed form with local copies of the helpers -- it shared the
+    // model's assumptions, so it validated arithmetic only, and passed happily
+    // while the mechanics were wrong by percentage points. This one plays cards
+    // out one at a time and contains no hypergeometric at all.
+    //
+    // Deck kept small on purpose: enumerating every distinct arrangement is
+    // what makes it an arbiter, and the old test's 30-card deck had ~2.5e11 of
+    // them, so nothing was ever actually enumerated there.
+    const A = 3, X = 2, Y = 2, filler = 5;
+    const N = A + X + Y + filler;
+    const sizes = { g0: A };
     const dnf = normalize(ast, sizes);
-    const deckSize = 30, cardsSeenByT = 8, othersCount = 10;
-    const effectA = { count: 3, bonus: 1 }; // e.g. "draw 1"
-    const effectB = { count: 2, bonus: 3 }; // e.g. "look 3 keep 1"
-    const totalCantrips = effectA.count + effectB.count;
-    const dilutedWincon = Math.max(0, 6 - Math.max(0, totalCantrips - othersCount));
-    const dilutedSizes = { g0: dilutedWincon };
-    const dilutedDnf = normalize(ast, dilutedSizes);
-
-    function chooseBF(n: number, k: number): number {
-      if (k < 0 || k > n) return 0;
-      let r = 1;
-      for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
-      return r;
+    const effects = [{ count: X, bonus: 1 }, { count: Y, bonus: 2 }];
+    for (const n of [2, 3, 5]) {
+      const actual = cantripSuccessRate(dnf, sizes, N, n, filler, 'g0', effects);
+      const expected = bruteMultiDrawP(
+        { g0: A, X, Y, '': filler }, n,
+        [{ group: 'X', examined: 1 }, { group: 'Y', examined: 2 }],
+        { g0: 1 },
+      );
+      expect(actual).toBeCloseTo(expected, 12);
     }
-    function hyperBF(N: number, K: number, n: number, x: number): number {
-      return (chooseBF(K, x) * chooseBF(N - K, n - x)) / chooseBF(N, n);
-    }
-
-    let expected = 0;
-    for (let ka = 0; ka <= Math.min(effectA.count, cardsSeenByT); ka++) {
-      const pa = hyperBF(deckSize, effectA.count, cardsSeenByT, ka);
-      if (pa <= 0) continue;
-      for (let kb = 0; kb <= Math.min(effectB.count, cardsSeenByT); kb++) {
-        const pb = hyperBF(deckSize, effectB.count, cardsSeenByT, kb);
-        if (pb <= 0) continue;
-        const effectiveN = Math.min(cardsSeenByT + ka * effectA.bonus + kb * effectB.bonus, deckSize);
-        const p = evaluate(deckSize, dilutedSizes, dilutedDnf).curve[effectiveN]!;
-        expected += pa * pb * p;
-      }
-    }
-
-    const actual = cantripSuccessRate(dnf, sizes, deckSize, cardsSeenByT, othersCount, 'g0', [effectA, effectB]);
-    expect(actual).toBeCloseTo(expected, 8);
   });
 
   it('an effect with count=0 in a mixed list contributes nothing (skipped, not a free dimension)', () => {

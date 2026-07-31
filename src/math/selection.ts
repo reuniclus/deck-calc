@@ -840,3 +840,121 @@ export function exactSelectionCurveAnd(
     maxDraws,
   );
 }
+
+/** One draw-shaped effect type: `count` copies that each examine `examined`
+ * extra cards, all of which go to hand. */
+export interface DrawEffectType {
+  count: number;
+  examined: number;
+}
+
+const multiSlotCache = new Map<string, SlotOutcome[][]>();
+
+/**
+ * `slotDistribution` for SEVERAL draw-shaped effect types at once -- what
+ * cantrips.ts needs, since a deck runs "draw 1" and "look 3" side by side.
+ *
+ * Still query-independent, so still cached. Types are tracked separately
+ * because they grant different numbers of window slots, but the outcome only
+ * reports the TOTAL copies seen: for the query's purposes every copy is just a
+ * non-resource card, and the composition of the rest is conditionally
+ * hypergeometric given the slot structure (the same factorization that makes
+ * the single-type version cheap).
+ *
+ * This also removes a whole bug class by construction. The old flat form drew
+ * each type's count from its own independent hypergeometric over the same draw
+ * count, so two types could "draw" more copies than cards seen; and pooling
+ * types into one average bonus produced non-integer curve indices (CLAUDE.md
+ * #15). Here the types share one sequential process, so neither is expressible.
+ */
+export function slotDistributionMulti(
+  deckSize: number,
+  types: DrawEffectType[],
+  maxDraws: number,
+): SlotOutcome[][] {
+  const cacheKey = `${deckSize}|${types.map((t) => `${t.count}:${t.examined}`).join(';')}|${maxDraws}`;
+  const hit = multiSlotCache.get(cacheKey);
+  if (hit !== undefined) return hit;
+
+  const T = types.length;
+  const byDraws: SlotOutcome[][] = [];
+  for (let n = 0; n <= maxDraws; n++) {
+    const outcomes: SlotOutcome[] = [];
+    // key: seen counts per type, then scheduled used, then credits owed
+    let live = new Map<string, number>();
+    live.set(`${new Array(T).fill(0).join(',')}|0|0`, 1);
+    let consumed = 0;
+
+    while (live.size > 0) {
+      const next = new Map<string, number>();
+      for (const [key, p] of live) {
+        const [seenPart, sPart, ePart] = key.split('|');
+        const seen = seenPart!.split(',').map(Number);
+        const s = Number(sPart);
+        const e = Number(ePart);
+        const remDeck = deckSize - consumed;
+        if ((s >= n && e === 0) || remDeck <= 0) {
+          outcomes.push({ seen: consumed, copies: seen.reduce((a, x) => a + x, 0), p });
+          continue;
+        }
+        const add = (seen2: number[], s2: number, e2: number, w: number): void => {
+          if (w <= 0) return;
+          const k = `${seen2.join(',')}|${s2}|${e2}`;
+          next.set(k, (next.get(k) ?? 0) + w);
+        };
+        let copyProb = 0;
+        for (let i = 0; i < T; i++) {
+          const remCopies = types[i]!.count - seen[i]!;
+          if (remCopies <= 0) continue;
+          const pi = remCopies / remDeck;
+          copyProb += pi;
+          const seen2 = [...seen];
+          seen2[i] = seen[i]! + 1;
+          // A copy found inside a window is consumed without triggering.
+          if (e > 0) add(seen2, s, e - 1, p * pi);
+          else add(seen2, s + 1, e + types[i]!.examined, p * pi);
+        }
+        const pOther = 1 - copyProb;
+        if (pOther > 0) {
+          if (e > 0) add(seen, s, e - 1, p * pOther);
+          else add(seen, s + 1, e, p * pOther);
+        }
+      }
+      live = next;
+      consumed++;
+    }
+    byDraws.push(outcomes);
+  }
+  multiSlotCache.set(cacheKey, byDraws);
+  return byDraws;
+}
+
+/** Exact curve for any number of draw-shaped effect types. Zero types, or all
+ * counts zero, reproduces `evaluate()` exactly. */
+export function exactDrawCurveMulti(
+  dnf: Dnf,
+  sizes: Sizes,
+  deckSize: number,
+  types: DrawEffectType[],
+  maxDraws: number,
+): Curve {
+  const active = types.filter((t) => t.count > 0);
+  const totalCopies = active.reduce((a, t) => a + t.count, 0);
+  const nonEffect = evaluate(deckSize - totalCopies, sizes, dnf).curve;
+  const out = new Float64Array(maxDraws + 1);
+  if (active.length === 0) {
+    const plain = evaluate(deckSize, sizes, dnf).curve;
+    for (let n = 0; n <= maxDraws; n++) out[n] = plain[Math.min(n, plain.length - 1)] ?? 0;
+    return out;
+  }
+  const slots = slotDistributionMulti(deckSize, active, maxDraws);
+  for (let n = 0; n <= maxDraws; n++) {
+    let total = 0;
+    for (const { seen, copies, p } of slots[n]!) {
+      const idx = Math.min(Math.max(0, seen - copies), nonEffect.length - 1);
+      total += p * nonEffect[idx]!;
+    }
+    out[n] = total;
+  }
+  return out;
+}
