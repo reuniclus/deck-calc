@@ -10,17 +10,22 @@
  *    OR-plus-brick corner (+1.38pt) that earlier notes called the worst -- few
  *    draws means keeps steal a large fraction of them. Only a 20-draw config
  *    lands in bar (+0.099pt).
- *  - Cost: it is SLOWER than the exact DP in four of five heavy configurations
- *    (3351ms vs 181ms, 4469ms vs 392ms, 2310ms vs 134ms, 2583ms vs 1107ms) and
- *    faster only on the OR-plus-brick corner (5533ms vs 21931ms). The earlier
- *    "74x faster" figure came from the single-pass version measured against the
- *    DP's single worst configuration; the fixed-point iteration costs 7-12
- *    passes, and that corner is cheap here while being expensive there.
+ *  - Cost: correct profile for a SUPPLEMENT -- much faster where the exact DP is
+ *    expensive (375ms vs 15327ms on the OR-plus-brick corner, 215ms vs 635ms with
+ *    one bounded clause), and slower where the DP is already cheap (290ms vs
+ *    146ms on a plain monotone query). Use it only in the corner it is for.
  *
- * So this is a research module: `exactSelectionCurveDnf` is the only shipping path
- * for scry, and is also the FASTER one nearly everywhere. Kept as a real file
- * because it was previously rebuilt from scratch inside throwaway test files six
- * times in one session, which made cross-variant comparisons unreliable.
+ * The cost history is worth keeping, because the middle measurement was
+ * misleading: a single uncorrected pass was ~370ms, the fixed point naively
+ * implemented was ~3800ms (10 iterations x a full pass), and it is back to ~380ms
+ * now that convergence iterations skip the query evaluation entirely. Keeps depend
+ * only on window composition and collectable draws, never on the query's
+ * probability, so every iteration but the last was paying for `evaluate()` calls
+ * it discarded. Values are bit-identical before and after.
+ *
+ * `exactSelectionCurveDnf` remains the only SHIPPING path for scry. Kept as a real
+ * file because it was previously rebuilt from scratch inside throwaway test files
+ * six times in one session, which made cross-variant comparisons unreliable.
  *
  * The identity it rests on: `hold = seen - ditched`. Whatever a look effect made
  * you let go simply shifts the query -- lower bounds and brick caps alike.
@@ -133,6 +138,12 @@ export function scryModifiedQueryPass(
   examined: number,
   draws: number,
   slotDraws: number,
+  /** Skip the query evaluation and accumulate only the keep count. The fixed
+   * point converges on KEEPS, which depend solely on the window composition and
+   * the draws available to collect them -- never on the query's probability. So
+   * every iteration but the last was paying for `evaluate()` calls it discarded,
+   * which is where the ~10x went. */
+  keepsOnly = false,
 ): ScryPassResult {
   assertInvertible(deckSize, copies, examined, draws);
   const G = counts.length;
@@ -169,9 +180,11 @@ export function scryModifiedQueryPass(
     const windowNonCopy = Math.min(triggers * examined - copiesInWindows, pool);
 
     if (triggers === 0 || windowNonCopy <= 0) {
-      const curve = evaluate(pool, fullSizes, dnf).curve;
       mass += outcome.p;
-      p += outcome.p * (curve[Math.min(Math.max(0, scheduled), curve.length - 1)] ?? 0);
+      if (!keepsOnly) {
+        const curve = evaluate(pool, fullSizes, dnf).curve;
+        p += outcome.p * (curve[Math.min(Math.max(0, scheduled), curve.length - 1)] ?? 0);
+      }
       continue;
     }
 
@@ -194,15 +207,18 @@ export function scryModifiedQueryPass(
           spent = kept.reduce((a, x) => a + x, 0);
         }
 
-        const secured: Record<GroupId, number> = {};
-        kept.forEach((k, i) => { secured[ids[i]!] = k; });
-        const remaining: Record<GroupId, number> = {};
-        counts.forEach((c, i) => { remaining[ids[i]!] = c - window[i]!; });
-        const curve = evaluate(pool - windowNonCopy, remaining, shiftDnf(dnf, secured)).curve;
-        const idx = Math.min(Math.max(0, scheduled - spent), curve.length - 1);
-        mass += outcome.p * pWindow;
-        expectedKeeps += outcome.p * pWindow * spent;
-        p += outcome.p * pWindow * (curve[idx] ?? 0);
+        const wgt = outcome.p * pWindow;
+        mass += wgt;
+        expectedKeeps += wgt * spent;
+        if (!keepsOnly) {
+          const secured: Record<GroupId, number> = {};
+          kept.forEach((k, i) => { secured[ids[i]!] = k; });
+          const remaining: Record<GroupId, number> = {};
+          counts.forEach((c, i) => { remaining[ids[i]!] = c - window[i]!; });
+          const curve = evaluate(pool - windowNonCopy, remaining, shiftDnf(dnf, secured)).curve;
+          const idx = Math.min(Math.max(0, scheduled - spent), curve.length - 1);
+          p += wgt * (curve[idx] ?? 0);
+        }
         return;
       }
       for (let take = 0; take <= Math.min(counts[g]!, left); take++) {
@@ -239,24 +255,37 @@ export function scryModifiedQuery(
   maxIterations = 12,
 ): ScryEstimate {
   let keeps = 0;
-  let last: ScryPassResult = { p: 0, expectedKeeps: 0, mass: 0 };
   let iterations = 0;
 
+  // Converge the keep count first, WITHOUT evaluating the query: keeps depend on
+  // the window composition and the collectable draws only.
   for (; iterations < maxIterations; iterations++) {
     const effective = draws - keeps;
     const lo = Math.floor(effective);
     const hi = Math.ceil(effective);
     const frac = effective - lo;
-    const a = scryModifiedQueryPass(deckSize, counts, clauses, copies, examined, draws, lo);
-    const b = frac === 0 ? a : scryModifiedQueryPass(deckSize, counts, clauses, copies, examined, draws, hi);
-    const blend = (x: number, y: number): number => x + frac * (y - x);
-    last = {
-      p: blend(a.p, b.p),
-      expectedKeeps: blend(a.expectedKeeps, b.expectedKeeps),
-      mass: blend(a.mass, b.mass),
-    };
-    if (Math.abs(last.expectedKeeps - keeps) < 1e-10) break;
-    keeps = last.expectedKeeps;
+    const a = scryModifiedQueryPass(deckSize, counts, clauses, copies, examined, draws, lo, true);
+    const b = frac === 0 ? a
+      : scryModifiedQueryPass(deckSize, counts, clauses, copies, examined, draws, hi, true);
+    const next = a.expectedKeeps + frac * (b.expectedKeeps - a.expectedKeeps);
+    if (Math.abs(next - keeps) < 1e-10) break;
+    keeps = next;
   }
-  return { ...last, keeps, iterations };
+
+  // One full pass at the converged keep count.
+  const effective = draws - keeps;
+  const lo = Math.floor(effective);
+  const hi = Math.ceil(effective);
+  const frac = effective - lo;
+  const a = scryModifiedQueryPass(deckSize, counts, clauses, copies, examined, draws, lo);
+  const b = frac === 0 ? a
+    : scryModifiedQueryPass(deckSize, counts, clauses, copies, examined, draws, hi);
+  const blend = (x: number, y: number): number => x + frac * (y - x);
+  return {
+    p: blend(a.p, b.p),
+    expectedKeeps: blend(a.expectedKeeps, b.expectedKeeps),
+    mass: blend(a.mass, b.mass),
+    keeps,
+    iterations,
+  };
 }

@@ -91,7 +91,9 @@ it('scry method: standard validation report', () => {
     Math.abs(b.candidateValue - b.referenceValue) > Math.abs(a.candidateValue - a.referenceValue) ? b : a
   ));
   expect(worst.config).toContain('draws-min');       // NOT the OR+brick corner
-  const slower = rows.filter((r) => r.candidateMs !== undefined && r.referenceMs !== undefined
-    && r.candidateMs > r.referenceMs);
-  expect(slower.length).toBeGreaterThan(3);          // not a fast path
+  // Cost profile: this is a SUPPLEMENT, so what matters is that it wins big
+  // where the exact DP is expensive, not that it wins everywhere. It is slower
+  // on cheap monotone configs and that is fine.
+  const corner = rows.find((r) => r.config.startsWith('OR+brick'))!;
+  expect(corner.candidateMs!).toBeLessThan(corner.referenceMs! / 10);
 }, 900000);

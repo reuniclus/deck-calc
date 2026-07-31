@@ -2336,3 +2336,34 @@ mostly not fast. Any further work on it needs to beat the exact DP on cost in
 configurations that are not the DP's worst case, which the fixed-point version
 does not. The remaining accuracy lead (cross-window timing) would also make it
 slower still. Worth weighing against simply running the exact DP in a worker.
+
+### Recovering the scry method's speed: convergence was paying for discarded work (2026-07-30)
+
+The previous entry reported the method as slower than the exact DP nearly
+everywhere, which was true as implemented but not intrinsic. Diagnosis: a single
+pass costs ~370ms, the fixed point ran 10 iterations of a FULL pass, and warm
+repeats did not help -- so it was not slot-distribution cache misses, just
+iteration count.
+
+The fix follows from what the iteration is actually converging: KEEPS, which
+depend only on the window composition and the draws available to collect them,
+never on the query's probability. So every iteration but the last was computing
+`evaluate()` calls it threw away. Convergence now runs with the query evaluation
+skipped, followed by one full pass at the converged keep count. **Values are
+bit-identical; cost drops ~10x (3827ms -> 383ms).**
+
+Corrected cost profile -- and this is the right shape for a supplement:
+
+| config | method | exact DP | |
+|---|---|---|---|
+| OR + brick | 375ms | 15327ms | 41x faster |
+| 1 clause + brick | 215ms | 635ms | 3x faster |
+| monotone, 8 copies | 290ms | 146ms | 2x slower |
+| monotone, 6 draws | 248ms | 75ms | 3x slower |
+
+Faster exactly where the exact DP is expensive, slower where the DP is already
+cheap. The report test now asserts that shape (>=10x on the corner) rather than
+the earlier "not a fast path" claim.
+
+Accuracy is unchanged by any of this: still 8 of 10 configs outside the 0.1pt bar,
+worst +2.61pt at low draw counts.
