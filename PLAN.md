@@ -2591,3 +2591,52 @@ Invariants it must preserve, both already in the suite: one copy stays EXACT
 (a single trigger is its own first and last), and `nothing ever kept` stays EXACT
 (no keeps, so no budget interaction). Worth writing as a fresh module rather than
 patched into `scryModifiedQueryPass`, since it replaces the trigger layer wholesale.
+
+### Forward mass propagation ("wave function collapse"): exact, but not faster (2026-07-30)
+
+Proposed as an alternative framing: give each draw a distribution over group
+counts, collapse into distinct states, advance each, weighted-average. That IS
+dynamic programming with state merging, so as stated it converges back to
+`exactSelectionCurveDnf` -- whose state is exactly (pool per group, hand per group,
+draws left, credits) and which already applies the lossy collapses worth having
+(saturating hand counts at the threshold, folding satisfied unbounded groups into
+filler, absorbing success and dead clauses).
+
+The real idea underneath it is DIRECTION. The DP is BACKWARD (value function from
+the horizon); the proposal is FORWARD (mass pushed out from the opening hand).
+Forward carries probability mass explicitly, which unlocks something backward
+induction cannot do: error-bounded pruning with a rigorous interval.
+
+Implemented as `forwardScry.ts` (test-only) and measured:
+
+| case (deck 60, 8 copies) | forward, eps=1e-9 | backward DP | interval |
+|---|---|---|---|
+| one group, 12 draws | 222ms | 195ms | +0.0018pt |
+| one group, 6 draws | 28ms | 39ms | +0.0002pt |
+| one group, look 5 | 380ms | 186ms | +0.0043pt |
+| two groups | 412ms | 700ms | +0.0037pt |
+| one group, 20 draws | 457ms | 155ms | +0.0045pt |
+
+At eps=0 it matches the DP to floating point on every case. With pruning the
+interval is rigorous and tiny. But it is faster only on the two-group row.
+
+**Why it cannot be pushed:** interval width is roughly (pruned states x epsilon),
+so keeping it inside the 0.1pt bar with ~50k states caps epsilon near 2e-8, which
+removes only 30-35% of states. The mass is not concentrated enough for pruning to
+pay, and explicit mass propagation costs more per state than memoised backward
+recursion.
+
+**Kept anyway, for a different reason:** it is an INDEPENDENT exact implementation
+that works at 60 cards. `bruteSelection.ts` is the strongest check available but
+caps out near 12 cards, so until now nothing verified the DP at realistic sizes
+except analytic oracles. Forward propagation shares no code with the backward DP
+and agrees to 1e-12, which is a validation capability the project did not have.
+
+Scope limit worth remembering: forward propagation cannot take a max over
+decisions, since it cannot see future value. Greedy keep is provably optimal for
+monotone AND queries, so it is exact there; for OR or upper-bound queries it would
+evaluate a fixed policy and yield a lower bound. The expensive corner is exactly
+the OR-plus-bricks case, so forward alone could never have covered it.
+
+Returning to the modified-query method and the natively hypergeometric trigger
+layer scoped above.
