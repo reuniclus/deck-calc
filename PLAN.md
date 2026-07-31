@@ -1800,3 +1800,64 @@ which shapes are exact vs bracketed, the no-cascading assumption priced at up to
 +15pt for ponder, why looking beats drawing under a brick, and that casting is
 modeled as optional. This matches the project's convention of stating modeling
 limits in the UI rather than only in the repo.
+
+### The modified-query method: shipped for impulse, still short for scry (2026-07-30)
+
+Proposed in session: instead of walking the process, note that `hold = seen -
+ditched`, so whatever you had to let go simply SHIFTS the query. Ditch an A and
+`A>=2` becomes `A>=3` over the seen population; bottom a brick and `C<1` becomes
+`C<2`. Lower bounds and caps move by the same rule, so bricks need no special
+case. Enumerate window contents, weight by hypergeometric, average.
+
+Verified in stages before trusting any of it:
+- the accounting identity itself: `hold = scheduled + windows-holding-one`,
+  checked against every one of 7920 arrangements, zero disagreements;
+- the slot-structure factor `P(triggers, copies-inside-windows)`: matches
+  enumeration to 1e-17;
+- the position split of needed cards between scheduled and window slots:
+  matches enumeration term by term;
+- one copy: matches the exact DP to 1e-15;
+- ANY copy count with need=1: exact to 1e-15, confirming that impulse and draw
+  differ ONLY when more than one still-missing piece appears in a window.
+
+**Shipped as `modifiedQuery.ts`, for capped-keep effects only.** It is a
+RELAXATION, hence a rigorous upper bound: the keep budget is pooled across
+windows (it can keep two from one window when another was barren) and keeps are
+chosen with every window visible at once. Every measured deviation is positive,
+as that predicts. Accuracy depends on the draw horizon as much as the deck:
++0.02pt at 15 draws on a 60-card two-clause brick query, +0.20pt on the same
+query at 10 draws, +0.47pt on a small dense deck, +0.76pt at 12 cards. Since it
+is worst exactly where the exact DP is cheapest, the agreed split is: exact DP
+when affordable, this when not.
+
+**Tolerance, set explicitly:** one copy of a cantrip is worth ~1.5-4pt, so
+0.1pt is the bar (~5% of a copy-step), 0.05pt ideal, and 0.5pt is NOT
+acceptable -- that is a quarter of the quantity being measured and is exactly
+the size that flipped a "4 copies" recommendation to 3 in the legacy comparison.
+A known-direction bound at 0.02pt beats an unsigned +-0.5pt estimate.
+
+**Scry does not work yet, and three variants were measured on the wall query**
+(60 cards, `(A>=2 & C<1) | (B>=2 & C<1)`, 8 copies of look-3, 15 draws; exact
+DP = 0.332260 in ~24s):
+
+| variant | value | vs exact | time |
+|---|---|---|---|
+| pooled-budget max over keeps | 0.364908 | +3.27pt | 5.4s |
+| fixed rule, bottomed cards REMOVED from pool | 0.357416 | +2.52pt | 371ms (74x) |
+| fixed rule, brick CAP BUMPED instead | 0.396328 | +6.41pt | 596ms |
+
+Two findings there. First, dropping the max was right: scry forces no discard,
+so there is nothing to choose -- keep every missing piece, bottom the rest --
+and that was both 16x faster and 0.75pt more accurate. Second, cap-bumping is
+strictly WORSE than removal, for a precise reason: a raised cap forgives bricks
+wherever they were seen, including ones drawn into hand from scheduled slots,
+while only bricks inside a window can actually be bottomed. Removal leaves the
+cap at 0, so a brick reaching hand still fails, and the benefit appears where it
+really is -- a less brick-dense remaining pool.
+
+The residual +2.52pt on the removal variant is a TIMING leak, not a keep-rule
+leak: every window's cards are purged from the pool up front, so a turn-8 scry's
+cleanup is retroactively credited to the turn-3 draws. The fix is to condition
+on trigger POSITIONS and credit each window's bottoming only to the draws that
+follow it (~1.4k position splits at t<=4, n=15, so it would spend much of the
+74x). Not attempted yet.
