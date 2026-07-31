@@ -63,12 +63,26 @@
  * on {0,1,2} and the map is not nonlinear enough over that range). That variant
  * was deleted; see PLAN.md.
  *
- * What remains is cross-window TIMING: all windows are pooled into a single
- * composition and a single keep decision, so keeps from a window that resolved
- * after the draws were already spent still get credited. The composition sampling
- * itself is sound (conditional on the window contents, the remaining pool really
- * does hold `counts - window`, which is why the no-keeps case is exact) -- the
- * unjustified step is treating every window as resolving before every draw.
+ * What remains is TRIGGER POSITION. This code caps keeps at `draws - triggers`,
+ * assuming every draw after a cast can collect them -- but a copy drawn on the
+ * last draw has none left, one drawn second-to-last has one, and so on. Averaging
+ * over positions without that cap credits keeps that were never collectable, a
+ * consistent overestimate.
+ *
+ * Proven, not conjectured: conditioning on the position makes the SINGLE-COPY case
+ * exact to floating point across four configurations (see
+ * `modifiedQueryScry.position.test.ts`), where this code is +0.24 to +0.44pt out.
+ *
+ * That also retires the earlier "cross-window timing" diagnosis recorded here: the
+ * defect shows up with a single window, so it is not windows interacting. The
+ * composition sampling is sound -- conditional on the window contents the
+ * remaining pool really does hold `counts - window`, which is why the no-keeps
+ * case is exact. Only the collectable-draw cap is wrong.
+ *
+ * Generalising to many copies is open: positions interact, because collecting the
+ * first trigger's keeps shifts when the second copy is drawn -- the same feedback
+ * the fixed point already handles in aggregate, so it likely needs position
+ * conditioning INSIDE the iteration.
  *
  * Also inherited: no cascading (a copy inside a window is bottomed and never
  * chains), which both this and the exact DP assume, so real play is somewhat

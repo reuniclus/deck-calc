@@ -2406,3 +2406,43 @@ where the answer is 0 was added alongside it.
 Corrected summary: trustworthy where it is USED (bounded queries, which are the
 expensive ones for the DP), out of bar on plain monotone queries by up to 0.75pt,
 and slower than the exact DP everywhere except the OR-plus-brick corner.
+
+### The scry residual is TRIGGER POSITION, and one copy becomes exact (2026-07-30)
+
+Prompted by the obvious question the standard table raised: why is the simplest
+case -- one copy, monotone `A>=2` -- out of bar at all? It should be exact.
+
+It is, once trigger position is respected. The method caps keeps at
+`draws - triggers`, assuming every draw after a cast can collect them. But a copy
+drawn on the LAST draw has none left, one drawn second-to-last has one, and so on.
+Averaging over positions without that cap credits keeps that were never
+collectable -- a consistent overestimate.
+
+| config | shipped method | with position conditioning |
+|---|---|---|
+| deck=60 A=10 need=2 look=3 draws=12 | +0.240pt | **0.000pt** |
+| deck=60 A=10 need=2 look=5 draws=12 | +0.370pt | **0.000pt** |
+| deck=40 A=8 need=2 look=3 draws=10 | +0.436pt | **-0.000pt** |
+| deck=60 A=10 need=3 look=3 draws=15 | +0.252pt | **0.000pt** |
+
+Exact, not merely closer. Pinned in `modifiedQueryScry.position.test.ts`.
+
+**This retires the "cross-window timing" diagnosis** recorded in the previous two
+entries. The defect appears with a SINGLE window, so it is not windows
+interacting or crediting each other's draws. The composition sampling remains
+sound (conditional on window contents the remaining pool really does hold
+`counts - window`, which is why the no-keeps row is exact). Only the
+collectable-draw cap is wrong, and it is wrong per-trigger:
+`collectable = draws - position`, not `draws - triggers`.
+
+Why this lead is better than the previous ones: it is exact rather than improved,
+it is a local change (a position-dependent cap) rather than a reformulation, and
+there is cost headroom -- the corner runs 601ms against the DP's 20115ms, so
+paying a factor of ~n for position enumeration still lands far under the
+reference.
+
+Open: multi-copy. Positions interact, since collecting the first trigger's keeps
+shifts when the second copy is drawn -- the same feedback the fixed point handles
+in aggregate, so it probably needs position conditioning inside the iteration.
+Expect trickle-down: the sweep rows all involve keeps, so every one of them should
+move.
