@@ -35,8 +35,15 @@ export interface BruteEffect {
   nonKeptLeavesPool: boolean;
 }
 
-function satisfied(hand: Record<string, number>, need: Need): boolean {
+/** Upper bounds: label -> most that may be in hand. A brick/garnet group is
+ * `{ K: 0 }`. Absent labels are unbounded. */
+export type Caps = Record<string, number>;
+
+function satisfied(hand: Record<string, number>, need: Need, caps?: Caps): boolean {
   for (const g of Object.keys(need)) if ((hand[g] ?? 0) < need[g]!) return false;
+  if (caps !== undefined) {
+    for (const g of Object.keys(caps)) if ((hand[g] ?? 0) > caps[g]!) return false;
+  }
   return true;
 }
 
@@ -60,6 +67,7 @@ export function playOut(
   effect: BruteEffect,
   need: Need,
   cascade = false,
+  caps?: Caps,
 ): boolean {
   interface Card { l: string; seen: boolean }
   const deck: Card[] = order.map((l) => ({ l, seen: false }));
@@ -83,6 +91,8 @@ export function playOut(
     const rejected: Card[] = [];
     for (const c of window) {
       const alreadyKept = kept.filter((k) => k.l === c.l).length;
+      // A brick has need 0, so it is never "wanted" and gets refused wherever
+      // refusing is possible -- which is the whole asymmetry under test.
       const wanted = need[c.l] !== undefined && (hand[c.l] ?? 0) + alreadyKept < need[c.l]!;
       if (kept.length < effect.keepMax && (keepsEverything || wanted)) kept.push(c);
       else rejected.push(c);
@@ -104,7 +114,7 @@ export function playOut(
       for (const c of kept) hand[c.l] = (hand[c.l] ?? 0) + 1;
     }
   }
-  return satisfied(hand, need);
+  return satisfied(hand, need, caps);
 }
 
 /**
@@ -118,6 +128,7 @@ export function bruteSelectionP(
   effect: BruteEffect,
   need: Need,
   cascade = false,
+  caps?: Caps,
 ): number {
   const labels = Object.keys(counts);
   const remaining: Record<string, number> = { ...counts };
@@ -134,7 +145,7 @@ export function bruteSelectionP(
   function recurse(depth: number): void {
     if (depth === total) {
       arrangements++;
-      if (playOut(order, n, effect, need, cascade)) weighted++;
+      if (playOut(order, n, effect, need, cascade, caps)) weighted++;
       return;
     }
     for (const l of labels) {
@@ -166,12 +177,16 @@ export function playOutClairvoyant(
   n: number,
   effect: BruteEffect,
   need: Need,
+  caps?: Caps,
 ): boolean {
   interface Card { l: string; seen: boolean }
 
   function rec(deck: Card[], hand: Record<string, number>, scheduled: number): boolean {
-    if (satisfied(hand, need)) return true;
-    if (scheduled <= 0 || deck.length === 0) return false;
+    // With upper bounds, being satisfied now is not the end -- a later forced
+    // draw can bust it -- so only a satisfied state at the HORIZON counts.
+    const okNow = satisfied(hand, need, caps);
+    if (okNow && caps === undefined) return true;
+    if (scheduled <= 0 || deck.length === 0) return okNow;
     const rest = [...deck];
     const card = rest.shift()!;
     if (!(card.l === effect.group && !card.seen)) {
@@ -210,6 +225,7 @@ export function bruteSelectionUpperP(
   n: number,
   effect: BruteEffect,
   need: Need,
+  caps?: Caps,
 ): number {
   const labels = Object.keys(counts);
   const remaining: Record<string, number> = { ...counts };
@@ -221,7 +237,7 @@ export function bruteSelectionUpperP(
   function recurse(depth: number): void {
     if (depth === total) {
       arrangements++;
-      if (playOutClairvoyant(order, n, effect, need)) weighted++;
+      if (playOutClairvoyant(order, n, effect, need, caps)) weighted++;
       return;
     }
     for (const l of labels) {

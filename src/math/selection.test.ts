@@ -346,3 +346,82 @@ describe('multi-group AND of thresholds', () => {
       .toThrow(UnsupportedSelectionError);
   });
 });
+
+describe('upper bounds: bricks you do not want to draw', () => {
+  // A group with hi=0 is a brick/garnet: drawing one breaks the query. This is
+  // the regime where looking and drawing stop being interchangeable, so it gets
+  // its own verification rather than riding on the monotone cases.
+  const N = 12, A = 3, K = 2, C = 2, E = 2;
+  const counts = { A, K, C, '': N - A - K - C };
+  const groups = [{ count: A, need: 1 }, { count: K, need: 0, hi: 0 }];
+  const need = { A: 1, K: 0 };
+  const caps = { K: 0 };
+  const be = (e: ReturnType<typeof drawEffect>) => ({
+    group: 'C', examined: e.examined, keepMax: e.keepMax,
+    keptCostsDraw: e.keptCostsDraw, nonKeptLeavesPool: e.nonKeptLeavesPool,
+  });
+
+  it('draw is exact: its window is forced into hand, so there is no choice at all', () => {
+    const dp = exactSelectionCurveAnd(N, groups, drawEffect('C', E), C, 7);
+    for (const n of [2, 3, 5]) {
+      const greedy = bruteSelectionP(counts, n, be(drawEffect('C', E)), need, false, caps);
+      expect(dp[n]!).toBeCloseTo(greedy, 12);
+    }
+  });
+
+  it('every shape that can refuse or reorder is sandwiched', () => {
+    // Note ponder CHANGES exactness class here. With no upper bound its window
+    // order is irrelevant (every card is welcome), so a fixed policy is optimal.
+    // With a brick, ordering it below the draw horizon is a real decision, so
+    // greedy stops being exact -- the exactness class depends on the QUERY
+    // regime, not only on the effect's mechanics.
+    for (const eff of [
+      scryEffect('C', E),
+      impulseEffect('C', E),
+      { ...ponderEffect('C', E), canShuffle: false },
+    ]) {
+      const dp = exactSelectionCurveAnd(N, groups, eff, C, 7);
+      for (const n of [2, 3, 5]) {
+        const greedy = bruteSelectionP(counts, n, be(eff), need, false, caps);
+        const clair = bruteSelectionUpperP(counts, n, be(eff), need, caps);
+        expect(dp[n]!).toBeGreaterThanOrEqual(greedy - 1e-12);
+        expect(dp[n]!).toBeLessThanOrEqual(clair + 1e-12);
+      }
+    }
+  }, 30000);
+
+  it('reverses the monotone ordering: looking beats drawing, and drawing is worse than nothing', () => {
+    // The headline consequence. With no upper bound, draw >= scry (cards are
+    // free rather than costing draws). With a brick, drawing FORCES cards into
+    // hand and cannot refuse, so scry overtakes it -- and plain draws fall below
+    // running no effect at all.
+    const base = evaluate(N, { A, K }, {
+      clauses: [{ A: { lo: 1, hi: A }, K: { lo: 0, hi: 0 } }], monotone: false,
+    }).curve;
+    const draw = exactSelectionCurveAnd(N, groups, drawEffect('C', E), C, 7);
+    const scry = exactSelectionCurveAnd(N, groups, scryEffect('C', E), C, 7);
+    for (const n of [3, 5]) {
+      expect(scry[n]!).toBeGreaterThan(draw[n]!);
+      expect(draw[n]!).toBeLessThan(base[n]!);
+      expect(scry[n]!).toBeGreaterThan(base[n]!);
+    }
+    // and the gap is large, not a rounding artifact
+    expect(scry[5]! - draw[5]!).toBeGreaterThan(0.15);
+  });
+
+  it('produces a curve that DECREASES in draws', () => {
+    // Forced draws mean more cards can be strictly worse. Anything downstream
+    // that assumes a nondecreasing curve (thresholds like "draws needed to hit
+    // 80%") is invalid for a bounded query, hence this pinned explicitly.
+    const draw = exactSelectionCurveAnd(N, groups, drawEffect('C', E), C, 7);
+    let decreases = false;
+    for (let n = 1; n <= 7; n++) if (draw[n]! < draw[n - 1]! - 1e-12) decreases = true;
+    expect(decreases).toBe(true);
+  });
+
+  it('hi at or above the group count is the same as no bound', () => {
+    const withHi = exactSelectionCurveAnd(N, [{ count: A, need: 2, hi: A }], scryEffect('C', E), C, 7);
+    const without = exactSelectionCurveAnd(N, [{ count: A, need: 2 }], scryEffect('C', E), C, 7);
+    for (let n = 0; n <= 7; n++) expect(withHi[n]!).toBe(without[n]!);
+  });
+});

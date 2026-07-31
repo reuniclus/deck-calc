@@ -1600,3 +1600,60 @@ Recommended instead of XOR: per-combo CONTRIBUTION percentages (each combo's own
 probability alongside the union). Monotone, cheap, reuses existing math, and it's
 what isolating combos is actually for. Exactly-one deferred until something
 concrete needs it.
+
+### Upper bounds / bricks: implemented, and they invert the effect ranking (2026-07-30)
+
+Requested and correct: a deck has cards you actively don't want (bricks,
+garnets), which is a `hi` bound -- usually `=0`, sometimes "at most k". The key
+observation driving it: LOOKING saves you from a brick, DRAWING cannot, because
+scheduled draws are forced. That asymmetry is unapproximable, so `TrackedGroup`
+now takes an optional `hi` (defaults to `count` = unbounded).
+
+**Measured consequence, N=12, A=3, 2 bricks, 2 copies of look-2, P(A>=1 and no
+brick):**
+
+| draws | no effect | draw 2 | scry 2 | impulse |
+|---|---|---|---|---|
+| 3 | 0.386 | 0.352 | 0.463 | 0.459 |
+| 5 | 0.292 | **0.163** | 0.339 | 0.313 |
+
+Drawing is WORSE THAN HAVING NO EFFECT (0.163 vs 0.292) because its window is
+forced into hand. Looking roughly doubles it. This exactly inverts the monotone
+ordering (where draw >= scry, cards being free rather than costing draws), so
+the ordering test is now regime-specific rather than global.
+
+**What upper bounds change structurally** (not just an extra check):
+- success stops absorbing -- satisfied on turn 3, busted on turn 4 -- so bounded
+  branches run to the draw horizon;
+- a bounded group can never be folded into the filler pool, since a later copy
+  can still bust it (folding being the main speedup);
+- keeping a useful card stops being automatically right, and DECLINING becomes a
+  real move. `hi=0` buys some cost back: busting is absorbing FAILURE, which
+  prunes hard and needs no state dimension.
+
+**The exactness CLASS depends on the query regime, not just the effect.**
+Ponder-no-shuffle has no meaningful choice under monotone queries (every card is
+welcome, so window order is irrelevant) and matched the brute force exactly.
+With a brick, ordering it below the draw horizon is a real decision, so greedy
+stops being optimal and it moves into the sandwiched group. Only `draw` stays
+exactly checkable, its window being wholly forced.
+
+**One bug, caught by the sandwich rather than by a diff.** In ponder's truncated
+window (fewer draws left than window size) I let the commit vector take FEWER
+cards than the remaining draws. But the window sits on top of the library: you
+choose WHICH cards you draw, never HOW MANY. That let an already-satisfied state
+decline a brick it was really forced to draw, putting the DP 0.001 ABOVE the
+clairvoyant upper bound -- impossible by construction, which is what flagged it.
+Now the untracked window cards have to absorb the remaining forced draws, and the
+split is rejected when there aren't enough of them.
+
+**Perf in this regime** (60-card, two groups, 15 draw counts): `hi=0` bricks are
+CHEAPER than the monotone case at 627ms (absorbing failure prunes), while "at
+most 2" is the expensive shape at 1762ms -- it can bust but neither absorbs early
+nor folds. Worth knowing which bound a user typed before assuming the cost.
+
+**Downstream consequence to handle before this is wired into the UI: bounded
+curves DECREASE in draws.** Pinned by a test. Anything phrased as "draws needed
+to reach 80%" or that assumes a nondecreasing curve is invalid for a bounded
+query, and `frontier.ts`/the advisor are monotone-only, so they must stay dark
+for these queries rather than silently returning nonsense.

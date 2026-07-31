@@ -469,8 +469,23 @@ export function exactSelectionCurveSingleGroup(
 export interface TrackedGroup {
   /** Copies in the deck. */
   count: number;
-  /** How many must reach hand for this group's part of the query. */
+  /** How many must reach hand for this group's part of the query (the `>=`). */
   need: number;
+  /** Most that may reach hand. Defaults to `count` (no upper bound). Set 0 for
+   * a brick/garnet group you want to AVOID drawing, or k for "at most k".
+   *
+   * Upper bounds change the model's character, they don't just add a check:
+   *   - success stops absorbing (satisfied on turn 3, busted on turn 4), so
+   *     bounded branches run to the draw horizon instead of returning early;
+   *   - a bounded group can never be folded into the filler pool, since a later
+   *     copy can still bust it (folding is the main speedup, so mixed queries
+   *     keep it for their unbounded groups only);
+   *   - keeping a useful card stops being automatically right, and DECLINING is
+   *     a real move -- which is exactly why look-and-bottom effects protect you
+   *     here while drawing cannot. Scheduled draws are forced.
+   * A bound of 0 buys some of that back: busting is absorbing FAILURE, which
+   * prunes hard, and the group needs no state dimension at all. */
+  hi?: number;
 }
 
 /**
@@ -504,6 +519,13 @@ export function exactSelectionCurveAnd(
   maxDraws: number,
 ): Curve {
   const G = groups.length;
+  const hiOf = (g: TrackedGroup): number => g.hi ?? g.count;
+  const unbounded = groups.map((g) => hiOf(g) >= g.count);
+  /** How high each group's in-hand count has to be tracked: to `need` when it
+   * can't bust, to `hi` when it can (anything beyond is an immediate failure,
+   * so it never gets stored). */
+  const caps = groups.map((g, i) => (unbounded[i]! ? g.need : hiOf(g)));
+  const anyBounded = unbounded.some((u) => !u);
   const trackedTotal = groups.reduce((s, g) => s + g.count, 0);
   const others0 = deckSize - trackedTotal - copies;
   if (others0 < 0) throw new UnsupportedSelectionError('group counts exceed the deck');
@@ -513,7 +535,7 @@ export function exactSelectionCurveAnd(
   // reaches millions, and string building plus per-transition array copies
   // dominated the runtime (7.5s for a 60-card deck before this change).
   const radices: number[] = [];
-  for (const g of groups) radices.push(g.count + 1, g.need + 1);
+  for (let i = 0; i < G; i++) radices.push(groups[i]!.count + 1, caps[i]! + 1);
   // The filler field must be sized for the FOLDED maximum, not `others0`:
   // canonicalizing a satisfied group moves its copies into the filler pool, so
   // remO can exceed others0. Sizing it at others0+1 made distinct states
@@ -555,8 +577,11 @@ export function exactSelectionCurveAnd(
   function V(rem: number[], remC: number, remO: number, acq: number[], sLeft: number): number {
     let done = true;
     for (let g = 0; g < G; g++) if (acq[g]! < groups[g]!.need) { done = false; break; }
-    if (done) return 1;
-    if (sLeft <= 0) return 0;
+    // Success absorbs ONLY when nothing left in the deck can still bust the
+    // query. With an upper bound in play, more cards can un-satisfy it, so the
+    // branch has to keep going to the draw horizon.
+    if (done && !anyBounded) return 1;
+    if (sLeft <= 0) return done ? 1 : 0;
 
     // Canonicalize: a group whose threshold is already met is indistinguishable
     // from filler -- nothing about the remaining decisions or outcomes can tell
@@ -566,7 +591,9 @@ export function exactSelectionCurveAnd(
     // 60-card two-group case went from 3.1s to well under a second), because at
     // two groups most reachable states have one group already done.
     for (let g = 0; g < G; g++) {
-      if (acq[g]! >= groups[g]!.need && rem[g]! > 0) {
+      // Only an UNBOUNDED satisfied group is indistinguishable from filler; a
+      // bounded one still matters, because drawing another copy can bust it.
+      if (unbounded[g]! && acq[g]! >= groups[g]!.need && rem[g]! > 0) {
         const spare = rem[g]!;
         rem[g] = 0;
         const folded = V(rem, remC, remO + spare, acq, sLeft);
@@ -593,8 +620,9 @@ export function exactSelectionCurveAnd(
       const oldR = rem[g]!;
       if (oldR <= 0) continue;
       const oldA = acq[g]!;
+      if (oldA + 1 > hiOf(groups[g]!)) continue; // forced draw busts it: worth 0
       rem[g] = oldR - 1;
-      acq[g] = Math.min(groups[g]!.need, oldA + 1);
+      acq[g] = Math.min(caps[g]!, oldA + 1);
       value += (oldR / pool) * V(rem, remC, remO, acq, d);
       rem[g] = oldR;
       acq[g] = oldA;
@@ -660,6 +688,15 @@ export function exactSelectionCurveAnd(
       if (!keptCostsDraw) {
         // draw / impulse: what you take is free, so the only question is which
         // cards to take when keepMax binds. Maximize over commit vectors.
+        // A DRAW effect has no choice -- its whole window is forced into hand,
+        // so `pick`'s bust guard genuinely eliminates those branches (value 0)
+        // rather than letting it decline. That is the asymmetry: looking saves
+        // you from a brick, drawing does not.
+        if (keepMax >= windowSize) {
+          let busts = false;
+          for (let g = 0; g < G; g++) if (acq[g]! + wComp[g]! > hiOf(groups[g]!)) { busts = true; break; }
+          if (busts) { restorePool(); return 0; }
+        }
         let best = -1;
         const saved: number[] = new Array(G).fill(0) as number[];
         const pick = (g: number, budget: number): void => {
@@ -667,10 +704,10 @@ export function exactSelectionCurveAnd(
             best = Math.max(best, V(rem, remCAfter, remOAfter, acq, drawsLeft));
             return;
           }
-          const maxTake = Math.min(wComp[g]!, budget);
+          const maxTake = Math.min(wComp[g]!, budget, hiOf(groups[g]!) - acq[g]!);
           for (let k = 0; k <= maxTake; k++) {
             saved[g] = acq[g]!;
-            acq[g] = Math.min(groups[g]!.need, acq[g]! + k);
+            acq[g] = Math.min(caps[g]!, acq[g]! + k);
             pick(g + 1, budget - k);
             acq[g] = saved[g]!;
           }
@@ -691,10 +728,10 @@ export function exactSelectionCurveAnd(
             best = Math.max(best, V(rem, remCAfter, remOAfter, acq, drawsLeft - spent));
             return;
           }
-          const maxTake = Math.min(wComp[g]!, budget);
+          const maxTake = Math.min(wComp[g]!, budget, hiOf(groups[g]!) - acq[g]!);
           for (let k = 0; k <= maxTake; k++) {
             saved[g] = acq[g]!;
-            acq[g] = Math.min(groups[g]!.need, acq[g]! + k);
+            acq[g] = Math.min(caps[g]!, acq[g]! + k);
             pick(g + 1, budget - k, spent + k);
             acq[g] = saved[g]!;
           }
@@ -708,22 +745,41 @@ export function exactSelectionCurveAnd(
       // advance, the two halves cancel), versus shuffling it back.
       let reorder: number;
       if (drawsLeft >= windowSize) {
-        const savedAcq: number[] = new Array(G).fill(0) as number[];
-        for (let g = 0; g < G; g++) {
-          savedAcq[g] = acq[g]!;
-          acq[g] = Math.min(groups[g]!.need, acq[g]! + wComp[g]!);
+        let busts = false;
+        for (let g = 0; g < G; g++) if (acq[g]! + wComp[g]! > hiOf(groups[g]!)) { busts = true; break; }
+        if (busts) {
+          // Reordering can't refuse the window: everything in it gets drawn.
+          // Only the shuffle option escapes, which is where ponder's value
+          // against bricks comes from.
+          reorder = 0;
+        } else {
+          const savedAcq: number[] = new Array(G).fill(0) as number[];
+          for (let g = 0; g < G; g++) {
+            savedAcq[g] = acq[g]!;
+            acq[g] = Math.min(caps[g]!, acq[g]! + wComp[g]!);
+          }
+          reorder = V(rem, remCAfter, remOAfter, acq, drawsLeft - windowSize);
+          for (let g = 0; g < G; g++) acq[g] = savedAcq[g]!;
         }
-        reorder = V(rem, remCAfter, remOAfter, acq, drawsLeft - windowSize);
-        for (let g = 0; g < G; g++) acq[g] = savedAcq[g]!;
       } else {
         // Not enough draws to clear the window: take the best `drawsLeft` of it.
+        // The window is on TOP of the library, so exactly `drawsLeft` of it gets
+        // drawn -- you choose WHICH, not how many. Allowing a smaller commit let
+        // an already-satisfied state dodge a brick it would really have been
+        // forced to draw, which pushed the value above the clairvoyant upper
+        // bound (0.41313 vs 0.41212) -- impossible, and the tell.
         let best = -1;
         const take: number[] = new Array(G).fill(0) as number[];
+        const untrackedInWindow = wC + wO;
         const pick = (g: number, budget: number): void => {
           if (g === G) {
+            // The rest of the forced draws come out of the window's untracked
+            // cards; if there aren't enough of them, this split is impossible.
+            if (budget > untrackedInWindow) return;
             let satisfied = true;
             for (let i = 0; i < G; i++) {
-              if (Math.min(groups[i]!.need, acq[i]! + take[i]!) < groups[i]!.need) { satisfied = false; break; }
+              const held = acq[i]! + take[i]!;
+              if (held < groups[i]!.need || held > hiOf(groups[i]!)) { satisfied = false; break; }
             }
             best = Math.max(best, satisfied ? 1 : 0);
             return;
