@@ -94,6 +94,30 @@ import { slotDistribution } from './selection';
 import type { SelectionClause } from './selection';
 import type { Dnf, GroupId } from './expr';
 
+/**
+ * P(the earliest of `t` trigger positions falls at `p`), positions being a
+ * uniform t-subset of 1..draws. Closed form: the remaining t-1 triggers must all
+ * sit after p, so `C(draws - p, t - 1) / C(draws, t)`.
+ *
+ * Used to cap keeps by the draws that actually FOLLOW a cast. At t=1 this is the
+ * trigger's own position and the result is exact (see
+ * modifiedQueryScry.position.test.ts). At t>1 it uses the EARLIEST trigger, which
+ * is optimistic -- keeps belonging to a later trigger have fewer draws behind them
+ * than the first one does -- so the remaining error is still an over-credit, just
+ * a much smaller one than assuming all `draws - triggers` are collectable.
+ */
+function firstTriggerPosition(draws: number, triggers: number): Array<{ p: number; weight: number }> {
+  if (triggers <= 0) return [{ p: 0, weight: 1 }];
+  const denom = comb(draws, triggers);
+  if (denom <= 0) return [{ p: 0, weight: 1 }];
+  const out: Array<{ p: number; weight: number }> = [];
+  for (let p = 1; p <= draws - triggers + 1; p++) {
+    const weight = comb(draws - p, triggers - 1) / denom;
+    if (weight > 0) out.push({ p, weight });
+  }
+  return out;
+}
+
 function comb(n: number, k: number): number {
   if (k < 0 || k > n) return 0;
   let r = 1;
@@ -202,6 +226,7 @@ export function scryModifiedQueryPass(
       continue;
     }
 
+    const positions = firstTriggerPosition(draws, triggers);
     const window: number[] = new Array(G).fill(0) as number[];
     const walk = (g: number, left: number, ways: number): void => {
       if (g === G) {
@@ -209,11 +234,15 @@ export function scryModifiedQueryPass(
         const pWindow = (ways * comb(fillerPool, left)) / comb(pool, windowNonCopy);
         if (pWindow <= 0) return;
 
+        for (const { p: firstPos, weight: pPos } of positions) {
         // Keep every still-missing piece, bottom the rest. Scry forces no
         // discard, so there is no choice to maximise over.
         let kept = window.map((have, gi) => Math.min(have, maxLo[gi]!));
         let spent = kept.reduce((a, x) => a + x, 0);
-        const collectable = Math.max(0, scheduled);
+        // Keeps are collected by draws that come AFTER the cast, so the cap is
+        // set by the trigger's position -- not by `draws - triggers`, which
+        // assumed the whole remainder was available and over-credited late casts.
+        const collectable = Math.max(0, Math.min(scheduled, draws - firstPos));
         if (spent > collectable) {
           // Correction 1: cannot keep what there is no draw left to collect.
           let over = spent - collectable;
@@ -221,7 +250,7 @@ export function scryModifiedQueryPass(
           spent = kept.reduce((a, x) => a + x, 0);
         }
 
-        const wgt = outcome.p * pWindow;
+        const wgt = outcome.p * pWindow * pPos;
         mass += wgt;
         expectedKeeps += wgt * spent;
         if (!keepsOnly) {
@@ -232,6 +261,7 @@ export function scryModifiedQueryPass(
           const curve = evaluate(pool - windowNonCopy, remaining, shiftDnf(dnf, secured)).curve;
           const idx = Math.min(Math.max(0, scheduled - spent), curve.length - 1);
           p += wgt * (curve[idx] ?? 0);
+        }
         }
         return;
       }

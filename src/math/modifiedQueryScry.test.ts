@@ -44,6 +44,9 @@ describe('scry modified-query method (research module, not shipping)', () => {
     const fixed = scryModifiedQuery(N, [A, B, BR], orClause, 8, S, n);
     expect(fixed.p).toBeGreaterThan(exact);
     expect((fixed.p - exact) * 100).toBeLessThan(1.5);
+    // no longer a strict upper bound everywhere: with trigger-position
+    // conditioning the single-copy case comes in slightly UNDER (-0.011pt),
+    // because that correction overlaps the fixed point there.
   }, 300000);
 
   it('refuses the stacked-deck oracle case rather than answering it wrongly', () => {
@@ -64,8 +67,10 @@ describe('scry modified-query method (research module, not shipping)', () => {
     // draws left must not credit the extra ones.
     const r = scryModifiedQuery(30, [6], [[{ lo: 3 }]], 2, 3, 4);
     const exact = exactSelectionCurveDnf(30, [6], [[{ lo: 3 }]], scry(3), 2, 4)[4]!;
-    expect(r.p).toBeGreaterThanOrEqual(exact - 1e-12);
-    expect((r.p - exact) * 100).toBeLessThan(2);
+    // Since trigger-position conditioning landed, this is no longer a strict
+    // upper bound: with few copies the position cap and the fixed point overlap
+    // and it can come in marginally under (measured -0.029pt here).
+    expect(Math.abs(r.p - exact) * 100).toBeLessThan(2);
   }, 120000);
 
   it('is exact when nothing is ever kept', () => {

@@ -66,9 +66,16 @@ it('trigger position explains the one-copy gap, and fixes it exactly', () => {
     const current = scryModifiedQuery(N, [A], [[{ lo: need }]], 1, S, n).p;
     const positional = onePositional(N, A, need, S, n);
     console.log(`N=${N} A=${A} need=${need} look=${S} n=${n}: exact=${exact.toFixed(6)} current=${((current - exact) * 100).toFixed(3)}pt positional=${((positional - exact) * 100).toFixed(3)}pt`);
-    // position conditioning is EXACT here, not merely closer
+    // Position conditioning is EXACT here, not merely closer. This is the
+    // reference derivation: one trigger, positions enumerated directly, no fixed
+    // point.
     expect(positional).toBeCloseTo(exact, 9);
-    // and the shipped method is measurably worse, so this is a real difference
-    expect(current - exact).toBeGreaterThan(0.002);
+    // The module now applies position conditioning too, so it is close -- but
+    // slightly UNDER, because it also runs the fixed point, and the two overlap
+    // at one copy: keeps happen AFTER a trigger, so they cannot reduce the chance
+    // of drawing that copy, only later ones. Before the change this gap was
+    // +0.24 to +0.44pt.
+    expect(Math.abs(current - exact) * 100).toBeLessThan(0.1);
+    expect(current).toBeLessThan(exact); // the overlap makes it pessimistic here
   }
 }, 120000);

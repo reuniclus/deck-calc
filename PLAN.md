@@ -2446,3 +2446,49 @@ shifts when the second copy is drawn -- the same feedback the fixed point handle
 in aggregate, so it probably needs position conditioning inside the iteration.
 Expect trickle-down: the sweep rows all involve keeps, so every one of them should
 move.
+
+### Trigger-position conditioning applied: every row improved, three pins moved (2026-07-30)
+
+Applied to the module, capping keeps by the draws that follow a cast rather than by
+`draws - triggers`. Exact position enumeration is combinatorial beyond one
+trigger, so this conditions on the EARLIEST trigger's position, whose marginal is
+closed-form (`C(draws-p, t-1)/C(draws, t)`). Exact at one copy; optimistic above
+it, since keeps belonging to a later trigger have fewer draws behind them than the
+first.
+
+| case | before | after |
+|---|---|---|
+| no copies | +0.000 EXACT | +0.000 EXACT |
+| nothing ever kept | +0.000 EXACT | -0.000 EXACT |
+| one copy | +0.240 OUT | **-0.011 WITHIN BAR** |
+| many copies | +0.987 OUT | +0.606 OUT |
+| smallest look | +0.618 OUT | +0.493 OUT |
+| largest look | +0.794 OUT | **+0.180 OUT** |
+| fewest draws | +2.609 OUT | **+1.054 OUT** |
+| most draws | +0.099 WITHIN | +0.077 WITHIN |
+| one clause + bound | +1.146 OUT | +1.085 OUT |
+| OR + bound | +1.376 OUT | +1.302 OUT |
+
+Every row improved or held. The two degenerate rows stayed exact, which is the
+invariant that matters: they have no keeps, so the cap must never apply to them.
+
+**Three consequences, all real movement rather than regression:**
+
+1. **The worst case moved** from the fewest-draws sweep (+2.609pt) to the OR
+   corner (+1.302pt), so the pin asserting the former had to change.
+2. **It is no longer a strict upper bound.** One copy now comes in slightly UNDER
+   (-0.011pt). Diagnosis: position conditioning and the fixed point OVERLAP at low
+   copy counts, because keeps happen after a trigger and therefore cannot reduce
+   the chance of drawing THAT copy -- only later ones. The single-copy prototype
+   without the fixed point is exactly 0.000, so the fixed point is spurious there.
+   Assertions in three files assumed one-sided error and now bound both directions.
+3. **Cost rose ~10x** (corner 601ms -> 7508ms) because the position loop sits
+   inside the window enumeration. Still 3.1x faster than the exact DP on the corner
+   (7508ms vs 23543ms) but the margin fell from ~40x. The caps depend only on
+   position and kept counts, not on the full window composition, so hoisting the
+   loop outside should recover most of it -- the obvious next step.
+
+Next leads, in order: hoist the position loop (pure speed, no accuracy change);
+make the fixed point apply only to copies AFTER the first trigger, which should
+remove the overlap and may restore exactness at low copy counts; then consider
+conditioning on later trigger positions for the remaining over-credit.
