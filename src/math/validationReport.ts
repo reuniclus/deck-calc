@@ -40,14 +40,60 @@ export type Verdict =
   /** Candidate makes no claim here; reported so the gap is visible. */
   | 'N/A REGIME';
 
+/** Why this row is in the table. Controlled vocabulary, because labels like
+ * "look-min" told a reader nothing:
+ *  - `degenerate`: a configuration where the model MUST reduce to something
+ *    already trusted (no copies, nothing ever kept, keepMax >= look, need=1).
+ *    These must come out EXACT; if one does not, the shared machinery is broken
+ *    and nothing else in the table means anything.
+ *  - `sweep`: one parameter pushed to an extreme, with `swept` naming which.
+ *    Present because error scales with copies, look size and draw count, so a
+ *    single mid-range configuration hides the worst case.
+ *  - `shape`: a query STRUCTURE worth isolating (one clause, OR of clauses,
+ *    with or without an upper bound), holding the numbers fixed.
+ *  - `oracle`: an answer derived analytically, independent of all code here.
+ */
+export type ValidationRole = 'degenerate' | 'sweep' | 'shape' | 'oracle';
+
+/** The initial conditions, structured rather than hand-formatted, so every row
+ * states the same facts in the same order and none can be quietly omitted. */
+export interface ValidationConditions {
+  /** Cards in the deck. */
+  deck: number;
+  /** Tracked group -> copies in the deck. */
+  groups: Record<string, number>;
+  effect: 'none' | 'draw' | 'scry' | 'impulse' | 'ponder';
+  /** Cards examined per cast. */
+  look: number;
+  /** Cards keepable per window; `'all'` means uncapped. */
+  keep: number | 'all';
+  /** Copies of the effect in the deck. */
+  copies: number;
+  /** Scheduled draws: opening hand plus draw steps. */
+  draws: number;
+}
+
+/** One line, fixed field order. */
+export function formatConditions(c: ValidationConditions): string {
+  const groups = Object.entries(c.groups).map(([g, n]) => `${g}=${n}`).join(',');
+  const effect = c.effect === 'none'
+    ? 'effect=none'
+    : `effect=${c.effect} look=${c.look} keep=${c.keep} copies=${c.copies}`;
+  return `deck=${c.deck} groups(${groups}) ${effect} draws=${c.draws}`;
+}
+
 export interface ValidationRow {
-  /** Compact, complete config: deck, group counts, copies, look size, draws.
-   * Errors scale with these, so a row without them cannot be compared. */
-  config: string;
-  /** The actual query, written out (`A>=2 & brick<=0`, `(A>=2) | (B>=2)`).
-   * Rendered on its own line inside the config cell: a label like "1cl+brick"
-   * says which case it is, but only the expression says what was asked. */
-  query?: string;
+  /** Short human label for the case. */
+  label: string;
+  /** Why the row exists -- see `ValidationRole`. */
+  role: ValidationRole;
+  /** For `sweep` rows, which parameter is at an extreme. */
+  swept?: 'copies' | 'look' | 'draws' | 'deck' | 'groups';
+  /** Initial conditions, structured. */
+  conditions: ValidationConditions;
+  /** The query, written out: `A>=2 & brick<=0`, `(A>=2) | (B>=2)`. A label says
+   * which case it is; only the expression says what was asked. */
+  query: string;
   reference: Reference;
   referenceValue: number;
   candidateValue: number;
@@ -73,15 +119,16 @@ const cell = (text: string): string => text.replace(/\|/g, '\\|');
 /** Column headers, in fixed order. Emitted as a markdown table so reports can be
  * pasted or parsed rather than read as prose. */
 export const VALIDATION_COLUMNS = [
-  'config', 'reference', 'ref value', 'candidate', 'd (pt)', 'mass', 'verdict',
-  'cand ms', 'ref ms', 'note',
+  'case / role / conditions / query', 'reference', 'ref value', 'candidate',
+  'd (pt)', 'mass', 'verdict', 'cand ms', 'ref ms', 'note',
 ] as const;
 
 /** One markdown table row. Signed error always; worst case never averaged away. */
 export function validationRow(r: ValidationRow): string {
   const delta = r.candidateValue - r.referenceValue;
+  const roleCell = r.role === 'sweep' && r.swept !== undefined ? `${r.role}:${r.swept}` : r.role;
   const cells = [
-    cell(r.query === undefined ? r.config : `${r.config}<br>\`${r.query}\``),
+    cell(`**${r.label}**<br>${roleCell}<br>${formatConditions(r.conditions)}<br>\`${r.query}\``),
     r.reference,
     num(r.referenceValue, 6),
     num(r.candidateValue, 6),
@@ -109,6 +156,8 @@ export function validationTable(title: string, rows: ValidationRow[]): string {
   const worst = rows.reduce((a, b) => (
     Math.abs(b.candidateValue - b.referenceValue) > Math.abs(a.candidateValue - a.referenceValue) ? b : a
   ));
+  const missingRoles = (['degenerate', 'sweep', 'oracle'] as ValidationRole[])
+    .filter((role) => !rows.some((r) => r.role === role));
   const lines = [
     `### ${title}`,
     '',
@@ -116,10 +165,14 @@ export function validationTable(title: string, rows: ValidationRow[]): string {
     `|${VALIDATION_COLUMNS.map(() => '---').join('|')}|`,
     ...rows.map((r) => validationRow(r)),
     '',
-    `WORST: ${worst.config} at ${pt(worst.candidateValue - worst.referenceValue)}pt (${worst.verdict})`,
+    `WORST: ${worst.label} (${formatConditions(worst.conditions)}) `
+      + `at ${pt(worst.candidateValue - worst.referenceValue)}pt (${worst.verdict})`,
   ];
   if (!hasDegenerate) {
     lines.push('MISSING: no degenerate row -- the shared machinery is unverified here');
+  }
+  if (missingRoles.length > 0) {
+    lines.push(`MISSING ROLES: ${missingRoles.join(', ')}`);
   }
   return lines.join('\n');
 }

@@ -4,13 +4,13 @@ import { validationRow, validationTable } from './validationReport';
 describe('validation report format', () => {
   it('signs the error, so direction is never lost', () => {
     const over = validationRow({
-      config: 'N=60 A=10/2 C=8xlook3 n=15',
+      label: 'N=60 A=10/2 C=8xlook3 n=15', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2',
       reference: 'exact-dp', referenceValue: 0.33226, candidateValue: 0.34602,
       verdict: 'OUT OF BAR',
     });
     expect(over).toContain('| +1.376 |');
     const under = validationRow({
-      config: 'x', reference: 'exact-dp', referenceValue: 0.5, candidateValue: 0.49,
+      label: 'x', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'exact-dp', referenceValue: 0.5, candidateValue: 0.49,
       verdict: 'OUT OF BAR',
     });
     expect(under).toContain('| -1.000 |');
@@ -18,17 +18,17 @@ describe('validation report format', () => {
 
   it('reports mass explicitly, including when absent', () => {
     expect(validationRow({
-      config: 'x', reference: 'exact-dp', referenceValue: 1, candidateValue: 1,
+      label: 'x', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'exact-dp', referenceValue: 1, candidateValue: 1,
       verdict: 'EXACT', mass: 0.9497,
     })).toContain('| 0.949700 |');
     expect(validationRow({
-      config: 'x', reference: 'analytic', referenceValue: 1, candidateValue: 1, verdict: 'EXACT',
+      label: 'x', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'analytic', referenceValue: 1, candidateValue: 1, verdict: 'EXACT',
     })).toMatch(/\| -- \|/);
   });
 
   it('marks circular columns as not being evidence', () => {
     const row = validationRow({
-      config: 'x', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.3,
+      label: 'x', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.3,
       verdict: 'EXACT', circular: 'd*n/keeps = 2S holds by construction',
     });
     expect(row).toContain('CIRCULAR, not evidence');
@@ -36,16 +36,17 @@ describe('validation report format', () => {
 
   it('surfaces the worst row rather than an average', () => {
     const table = validationTable('scry method', [
-      { config: 'c=1', reference: 'degenerate', referenceValue: 0.3, candidateValue: 0.3, verdict: 'EXACT' },
-      { config: 'c=4', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.307, verdict: 'OUT OF BAR' },
-      { config: 'c=8', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.314, verdict: 'OUT OF BAR' },
+      { label: 'c=1', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'degenerate', referenceValue: 0.3, candidateValue: 0.3, verdict: 'EXACT' },
+      { label: 'c=4', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.307, verdict: 'OUT OF BAR' },
+      { label: 'c=8', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.314, verdict: 'OUT OF BAR' },
     ]);
-    expect(table).toContain('WORST: c=8 at +1.400pt');
+    expect(table).toContain('WORST: c=8');
+    expect(table).toContain('at +1.400pt');
   });
 
   it('flags a report with no degenerate row', () => {
     const table = validationTable('incomplete', [
-      { config: 'c=8', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.314, verdict: 'OUT OF BAR' },
+      { label: 'c=8', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.314, verdict: 'OUT OF BAR' },
     ]);
     expect(table).toContain('MISSING: no degenerate row');
   });
@@ -54,7 +55,7 @@ describe('validation report format', () => {
     // `(A>=2) | (B>=2)` contains a literal cell separator; unescaped it splits
     // the row and shifts every column after it.
     const row = validationRow({
-      config: 'OR case', query: '(A>=2 & brick<=0) | (B>=2 & brick<=0)',
+      label: 'OR case', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: '(A>=2 & brick<=0) | (B>=2 & brick<=0)',
       reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.31, verdict: 'OUT OF BAR',
     });
     expect(row).toContain('\\|');
