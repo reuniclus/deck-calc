@@ -73,7 +73,21 @@ export interface ValidationConditions {
   draws: number;
 }
 
-/** One line, fixed field order. */
+/** Deck size and group composition -- its own column, since it is the thing most
+ * often compared between rows. */
+export function formatDeck(c: ValidationConditions): string {
+  const groups = Object.entries(c.groups).map(([g, n]) => `${g}=${n}`).join(', ');
+  return `deck=${c.deck}<br>${groups}`;
+}
+
+/** Effect configuration and draw budget -- its own column. */
+export function formatEffect(c: ValidationConditions): string {
+  if (c.effect === 'none') return `none<br>draws=${c.draws}`;
+  return `${c.effect} look=${c.look}<br>keep=${c.keep} copies=${c.copies}<br>draws=${c.draws}`;
+}
+
+/** Both, on one line -- for the WORST summary line and anywhere a single string
+ * is needed rather than table cells. */
 export function formatConditions(c: ValidationConditions): string {
   const groups = Object.entries(c.groups).map(([g, n]) => `${g}=${n}`).join(',');
   const effect = c.effect === 'none'
@@ -119,8 +133,9 @@ const cell = (text: string): string => text.replace(/\|/g, '\\|');
 /** Column headers, in fixed order. Emitted as a markdown table so reports can be
  * pasted or parsed rather than read as prose. */
 export const VALIDATION_COLUMNS = [
-  'case / role / conditions / query', 'reference', 'ref value', 'candidate',
-  'd (pt)', 'mass', 'verdict', 'cand ms', 'ref ms', 'note',
+  'case / role', 'deck & groups', 'effect & draws', 'query',
+  'reference', 'ref value', 'candidate', 'd (pt)', 'mass', 'verdict',
+  'cand ms', 'ref ms', 'note',
 ] as const;
 
 /** One markdown table row. Signed error always; worst case never averaged away. */
@@ -128,7 +143,10 @@ export function validationRow(r: ValidationRow): string {
   const delta = r.candidateValue - r.referenceValue;
   const roleCell = r.role === 'sweep' && r.swept !== undefined ? `${r.role}:${r.swept}` : r.role;
   const cells = [
-    cell(`**${r.label}**<br>${roleCell}<br>${formatConditions(r.conditions)}<br>\`${r.query}\``),
+    cell(`**${r.label}**<br>${roleCell}`),
+    cell(formatDeck(r.conditions)),
+    cell(formatEffect(r.conditions)),
+    cell(`\`${r.query}\``),
     r.reference,
     num(r.referenceValue, 6),
     num(r.candidateValue, 6),

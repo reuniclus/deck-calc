@@ -61,7 +61,7 @@ describe('validation report format', () => {
     expect(row).toContain('\\|');
     // column count must survive: 10 columns => 11 splits on an unescaped pipe
     const unescaped = row.split(/(?<!\\)\|/).length;
-    expect(unescaped).toBe(12); // leading + 10 cells + trailing
+    expect(unescaped).toBe(15); // leading + 13 cells + trailing
   });
 
   it('refuses an empty report', () => {
