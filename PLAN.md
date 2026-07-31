@@ -3079,3 +3079,38 @@ Worth noting how close this came to shipping: two configs, a plausible mechanism
 ("keeping a needed card cannot be wrong"), and a 13x speedup all pointed the same
 way. The mechanism was even correct -- for free keeps. It was the extension to scry
 that was wrong, and only a wider sweep showed it.
+
+### MQ was recomputing the same hypergeometric constantly: 3-7x for free (2026-07-30)
+
+Observation: MQ evaluates the same formula many times, so precomputing or reusing
+should help. The simplest form of that turned out to be sitting in plain sight --
+`modifiedQuery.ts` (impulse) has always memoised its curve lookups and
+`modifiedQueryScry.ts` never did, calling `evaluate()` raw inside the window walk.
+
+Different window compositions frequently reduce to the SAME
+`(pool, remaining counts, secured, index)` call, so the memo is pure waste
+elimination:
+
+| case (deck 60, look 3, 8 copies) | before | after | speedup |
+|---|---|---|---|
+| monotone, 12 draws | 2167ms | **772ms** | 2.8x |
+| brick, 15 draws | 2437ms | **503ms** | 4.8x |
+| OR + brick, 15 draws | 4386ms | **746ms** | 5.9x |
+| monotone, 20 draws | 4552ms | **668ms** | 6.8x |
+
+Values identical to seven decimals, so nothing about the model changed.
+
+MQ now answers the corner in 746ms against the exact DP's ~16000ms, which is a 21x
+margin -- the widest of the session, and it comes from removing duplicate work
+rather than from any approximation.
+
+**On the wider idea (precomputed differentials / finite-difference recurrences):**
+worth knowing the boundary. The exact recurrences exist -- a hypergeometric curve
+satisfies one in each parameter -- so a lattice could in principle be stepped rather
+than recomputed. But the calls in MQ differ in POOL COMPOSITION and SHIFTED BOUNDS,
+not draws alone, so a draws-only transformation cannot map between them; and the
+DP's cost is state COUNT rather than per-state work, so it would gain little there.
+Memoisation captures the same "do not recompute what you already know" insight
+without needing the lattice. The remaining honest target for that idea is
+`evaluate` computing a whole curve `0..N` when callers want one index -- worth
+roughly N/n, and more useful to `frontier.ts` than to the selection engines.

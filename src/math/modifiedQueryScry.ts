@@ -208,6 +208,25 @@ export function scryModifiedQueryPass(
   /** The most any clause asks of a group: all a scry would bother keeping. */
   const maxLo = counts.map((_, gi) => Math.max(...clauses.map((cl) => cl[gi]?.lo ?? 0)));
 
+  // Memoise the curve lookups. Different window compositions frequently reduce to
+  // the SAME (pool, remaining counts, secured, index) call -- the impulse module
+  // has always memoised this and the scry one never did, so it was recomputing the
+  // same hypergeometric repeatedly inside the window walk.
+  const curveMemo = new Map<string, number>();
+  const curveAt = (
+    remPool: number, remSizes: Record<GroupId, number>,
+    secured: Record<GroupId, number>, idx: number,
+  ): number => {
+    const key = `${remPool}|${ids.map((g) => remSizes[g] ?? 0).join(',')}`
+      + `|${ids.map((g) => secured[g] ?? 0).join(',')}|${idx}`;
+    const hit = curveMemo.get(key);
+    if (hit !== undefined) return hit;
+    const curve = evaluate(remPool, remSizes, shiftDnf(dnf, secured)).curve;
+    const v = curve[Math.min(Math.max(0, idx), curve.length - 1)] ?? 0;
+    curveMemo.set(key, v);
+    return v;
+  };
+
   const effSlotDraws = Math.max(0, Math.round(slotDraws));
   let p = 0;
   let expectedKeeps = 0;
@@ -226,8 +245,7 @@ export function scryModifiedQueryPass(
     if (triggers === 0 || windowNonCopy <= 0) {
       mass += outcome.p;
       if (!keepsOnly) {
-        const curve = evaluate(pool, fullSizes, dnf).curve;
-        p += outcome.p * (curve[Math.min(Math.max(0, scheduled), curve.length - 1)] ?? 0);
+        p += outcome.p * curveAt(pool, fullSizes, {}, scheduled);
       }
       continue;
     }
@@ -264,9 +282,7 @@ export function scryModifiedQueryPass(
           kept.forEach((k, i) => { secured[ids[i]!] = k; });
           const remaining: Record<GroupId, number> = {};
           counts.forEach((c, i) => { remaining[ids[i]!] = c - window[i]!; });
-          const curve = evaluate(pool - windowNonCopy, remaining, shiftDnf(dnf, secured)).curve;
-          const idx = Math.min(Math.max(0, scheduled - spent), curve.length - 1);
-          p += wgt * (curve[idx] ?? 0);
+          p += wgt * curveAt(pool - windowNonCopy, remaining, secured, scheduled - spent);
         }
         }
         return;
