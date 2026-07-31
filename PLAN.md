@@ -2918,3 +2918,45 @@ Lesson worth keeping beyond this: reusing general machinery for a degenerate cas
 cost two failed attempts and a wrong conclusion. The tail's defining property --
 nothing is ever kept -- is exactly what makes the expensive part of the general
 pass unnecessary.
+
+### The cheap tail works: bounded queries from 5-6x slower to ~2x (2026-07-30)
+
+Built `cheapTail.ts` as the degenerate-case computation the last two attempts
+should have used, and wired it into the recursion.
+
+**Why it is cheap:** with no keeps, no draw is spent collecting, so the process is
+exactly DRAW-SHAPED and `slotDistribution` (cached, query-independent) applies
+unchanged. Window CONTENTS are irrelevant -- only that a window consumed cards --
+so the composition enumeration that dominates the general closed-form pass
+disappears. What remains per slot outcome is the chance that at most `cap` of the
+bricks in the seen prefix landed in a SCHEDULED position (into hand, counting
+against the bound) rather than a WINDOW position (bottomed, harmless): a positional
+hypergeometric.
+
+Verified exact standalone before wiring, per CLAUDE.md #21b: six configurations,
+agreement to floating point, at 4-22ms against the DP's 38-100ms, where the general
+pass costs seconds for the same answer.
+
+Wired into `triggerRecursionDnf`:
+
+| case | recursed tail | general-pass tail | cheap tail | exact DP | d (unchanged) |
+|---|---|---|---|---|---|
+| `A>=2 & brick<=0`, 8 draws | 446ms | 4663ms | **359ms** | 131ms | -0.097pt |
+| `A>=2 & brick<=0`, 15 draws | 3754ms | 61210ms | **1120ms** | 607ms | -0.136pt |
+| `A>=2 & brick<=2`, 15 draws | 12274ms | 135204ms | **2373ms** | 1128ms | -0.030pt |
+
+3.4-5.2x faster than recursing the tail, 13-57x faster than the general pass, and
+accuracy identical to the digit -- which confirms the tail contributes no error at
+all. The entire remaining residual is greedy keep.
+
+Still ~2x slower than the exact DP, so bounded queries are not yet recursion
+territory. Two things would close that:
+1. the tail currently handles ONE bounded group; several need the positional split
+   generalised to a multivariate form;
+2. greedy keep is the only source of error left (-0.03 to -0.14pt, always
+   negative), so a max over commit vectors would make the recursion exact -- at
+   some cost, which is why they must be measured together.
+
+Bounded OR is not yet wired: the handoff fires only for a single clause, because
+with an OR a busted clause can still be rescued by another, so the tail is a union
+over clauses rather than one clause's survival.

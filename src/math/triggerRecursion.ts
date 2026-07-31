@@ -29,6 +29,7 @@
  */
 import { evaluate } from './evaluate';
 import { shiftDnf } from './reveal';
+import { cheapTail } from './cheapTail';
 import type { Dnf } from './expr';
 
 export function comb(n: number, k: number): number {
@@ -175,6 +176,33 @@ export function triggerRecursionDnf(
 
   let calls = 0;
   const memo = new Map<string, number>();
+  const tailMemo = new Map<string, number>();
+  /** Exactly one group carries an upper bound -- the brick case, where the cheap
+   * tail applies. */
+  const boundedGroups = counts.map((n, g) => (hi[0]![g]! >= n ? -1 : g)).filter((g) => g >= 0);
+
+  /**
+   * Absorbing success for a bounded clause. Once every `lo` is met nothing is
+   * wanted, so no keep can happen again, and the remaining question -- surviving
+   * the upper bound -- is exactly what `cheapTail` computes in closed form.
+   *
+   * Two earlier attempts handed this to the GENERAL closed-form pass, which costs
+   * seconds per call and made the whole thing slower than recursing. The tail is a
+   * degenerate case: no keeps means no window-composition enumeration is needed.
+   */
+  const tail = (rem: number[], remC: number, remO: number, acq: number[], d: number): number => {
+    const g = boundedGroups[0]!;
+    const residual = hi[0]![g]! - acq[g]!;
+    if (residual < 0) return 0;
+    const key = `${rem.join(',')}|${remC}|${remO}|${residual}|${d}`;
+    const hit = tailMemo.get(key);
+    if (hit !== undefined) return hit;
+    const pool = rem.reduce((a, r) => a + r, 0) + remC + remO;
+    const v = cheapTail(pool, rem[g]!, residual, remC, look, d);
+    tailMemo.set(key, v);
+    return v;
+  };
+
   const met = (acq: number[], ci: number): boolean =>
     counts.every((_, g) => acq[g]! >= lo[ci]![g]! && acq[g]! <= hi[ci]![g]!);
   const alive = (acq: number[], ci: number): boolean =>
@@ -192,6 +220,10 @@ export function triggerRecursionDnf(
     }
     if (!anyAlive) return 0;
     if (d <= 0) return anyMet ? 1 : 0;
+    if (C === 1 && boundedGroups.length === 1 && !unbreakable[0]!
+      && counts.every((_, g) => acq[g]! >= lo[0]![g]!)) {
+      return tail(rem, remC, remO, acq, d);
+    }
     const pool = rem.reduce((a, r) => a + r, 0) + remC + remO;
     if (pool <= 0) return anyMet ? 1 : 0;
 
