@@ -1990,3 +1990,60 @@ Not cosmetic: pure scry's kept card costs a FUTURE draw, while Preordain's own
 draw collects it immediately at no cost. Same "scry 1", materially different
 value. So presets need a scry(S)+draw(D) composite in the engine before any UI
 can name real cards honestly.
+
+### Why the fast path cannot cover scry: a structural obstruction, not a missing term (2026-07-30)
+
+Chased the scry error to ground. Two findings, the second more important.
+
+**1. A real bug, found by a regime test.** The method fed `slotDistribution` --
+which is DRAW-shaped, computing `seen = n + triggers * examined` on the
+assumption that every examined card is a free extra -- into a SCRY model, where a
+kept card is collected by a scheduled draw. Keeps therefore consume draws that
+would otherwise have gone deeper and found more copies, so the draw-shaped
+trigger distribution over-counts triggers, and the over-count grows with the
+number kept.
+
+What proved it: a query where nothing is ever kept (`no bricks in hand`, no group
+with `lo > 0`) is EXACT at every copy count, to floating point. Add any group
+with `lo > 0` and the error appears and scales with copies. Two earlier
+hypotheses died here -- up-front pool purging (the partition argument is sound)
+and draw-cost clamping (would still bite in the brick-only case, which is exact).
+
+Error map before the fix (method minus exact, points):
+
+| query | 1 copy | 4 copies | 8 copies |
+|---|---|---|---|
+| 1 clause, no brick | 0.18 | 0.56 | 0.76 |
+| 1 clause + brick | 0.19 | 0.82 | 1.74 |
+| OR, no brick | 0.11 | 0.30 | 0.32 |
+| OR + brick | 0.22 | 1.05 | 2.52 |
+
+Note it scales with COPY COUNT, not with OR and not with bricks; those only
+amplify (bricks roughly double it, and mid-range probabilities compress error
+less than values near 1).
+
+**2. Fixing it exposes the obstruction.** Computing the trigger weight inside the
+window enumeration, where the keep count is known (`F = n - keeps` fresh draws,
+triggers found among those), makes brick-only exact with mass exactly 1 and flips
+the sign of the error -- but the weights then sum to only 0.92-0.99, with the
+missing mass tracking the keep count.
+
+That is not a bias to tune. `F = n - keeps` makes the PREFIX LENGTH depend on the
+window contents, while the window contents are drawn conditional on that prefix,
+so configurations with different prefix lengths are not a partition of one sample
+space and cannot sum to 1.
+
+The general statement: this whole family of fast methods rests on SLOT STRUCTURE
+BEING INDEPENDENT OF CARD COMPOSITION. That holds when windows are FREE -- draw
+and impulse, where the trigger count cannot depend on what you kept -- which is
+exactly why `exactDrawCurve` and `modifiedQuery` verify clean against a
+mechanical play-out. Scry's keep-cost closes a loop: keeps consume draws, draws
+determine triggers, triggers determine windows, windows determine keeps. A
+product of hypergeometrics cannot express that; it requires a sequential
+formulation, which is the exact DP.
+
+**Conclusion for the hard corner:** scry with bricks and OR stays on the exact DP
+(11-26s, worker territory). The 74x was never available for scry -- it was
+available for free-window effects, and scry does not have free windows. Anyone
+picking this up again should not re-attempt a factorized closed form for
+keep-costing effects without first explaining how it escapes this loop.
