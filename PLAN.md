@@ -2214,3 +2214,40 @@ general error (+0.819pt stays +0.819pt, +2.516pt stays +2.516pt at n=15), becaus
 two independent defects: a clamping bug that is catastrophic when it fires and
 invisible otherwise, and the trigger-feedback error that is always present and
 still unfixed.
+
+### Fixed-point iteration: the loop IS solvable, and my obstruction claim was wrong (2026-07-30)
+
+Retraction first: I called the keeps/triggers coupling a structural obstruction on
+the grounds that a one-shot joint lost 5-8% of its probability mass. That was an
+artifact of solving the loop in one shot, not evidence that it cannot be solved.
+
+The coupling -- keeps consume draws, so fewer fresh cards are revealed, so fewer
+copies are found, so fewer windows open, so fewer keeps -- is a FIXED POINT in a
+small discrete space, and iterating it converges in 7-10 passes:
+
+| case (60c, look 3, 15 draws) | one-shot | fixed point | mass |
+|---|---|---|---|
+| 1 clause, no brick, 4 copies | 0.560pt | 0.428pt | 1.000000 |
+| 1 clause, no brick, 8 copies | 0.759pt | 0.470pt | 1.000000 |
+| 1 clause + brick, 4 copies | 0.819pt | 0.652pt | 1.000000 |
+| 1 clause + brick, 8 copies | 1.742pt | 1.146pt | 1.000000 |
+| OR + brick, 4 copies | 1.047pt | 0.743pt | 1.000000 |
+| OR + brick, 8 copies | 2.516pt | 1.376pt | 1.000000 |
+
+Mass is exactly 1 throughout, because the iteration COMPOSES two proper
+distributions (slot structure at `n - keeps`, then window contents) rather than
+constructing a new joint. Error falls 25-45%. Also folded in the clamping fix
+(keeps capped at draws actually remaining), which the stacked-deck oracle
+demanded.
+
+**Remaining residual, and the diagnosis:** the iteration converges on E[K], a
+single mean, and feeds that into the slot distribution. The map from keeps to
+probability is nonlinear, so `f(E[K]) != E[f(K)]` -- a mean-field/Jensen bias
+whose size should grow with the SPREAD of K. That matches the data: the residual
+is worst at 8 copies in every row.
+
+**Next step, unattempted:** stop collapsing K to its mean. Enumerate K's
+distribution, weight each branch by P(K), and use `slotDistribution(n - K)` per
+branch. Same weighted-average principle the whole method rests on, applied one
+level up, and mass-preserving by the same argument. If that lands the worst case
+near 0.1pt, the method covers scry and the hard corner gets a fast path.
