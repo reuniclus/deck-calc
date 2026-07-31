@@ -2537,3 +2537,57 @@ combinatorial, but the per-trigger marginals are closed-form order statistics
 keeps can be capped by its own expected remaining draws without enumerating the
 joint. That should remove the last over-credit, and one copy must stay exact
 under it, since a single trigger is its own first and last.
+
+### Next: a natively hypergeometric trigger layer for the scry method (scoped, not started)
+
+Both remaining defects live at one seam: the method borrows `slotDistribution`,
+which is the DRAW-shaped slot DP, whose core assumption (windows are free, so the
+trigger count cannot depend on keeps) is exactly what scry violates. Everything
+bolted on since has been a patch to that mismatch:
+
+- `precedingKeeps(k, t) = k*(t-1)/(2t)` -- a SCALAR stand-in for "keeps before a
+  trigger stop you reaching it". Uniform across triggers, so the first is
+  over-penalised (true deduction: zero) and the last under-penalised.
+- `firstTriggerPosition` -- bolted on because the slot DP reports HOW MANY
+  triggers, never WHERE, so every keep is capped by the earliest trigger's
+  position and later triggers get credited draws they never had.
+
+These two errors were partly cancelling until 2026-07-30; removing the spurious
+one exposed the other at +2.138pt.
+
+**Replacement: a per-trigger recursion with closed-form hypergeometric
+transitions.** Not card-by-card (that is the exact DP) but trigger-by-trigger,
+and `t <= copies`, so roughly ten steps. The primitive is the NEGATIVE
+hypergeometric: given `c` copies among `m` pool cards, the number of non-copy
+cards drawn before the next copy is closed-form.
+
+Recursion over `(draws spent, copies left, pool left)`:
+1. draw the gap to the next copy (negative hypergeometric on the current pool);
+2. if `spent + gap >= draws`, no further trigger -- terminate, and the remainder
+   is a plain hypergeometric;
+3. otherwise the trigger's POSITION is known, so its keep cap is `draws - position`
+   exactly -- no first-trigger stand-in;
+4. enumerate that window's composition (hypergeometric on the current pool),
+   compute `kept`, spend `kept` draws, remove the whole window from the pool;
+5. recurse.
+
+Why this removes both patches rather than improving them: every trigger carries
+its own position (so `firstTriggerPosition` is unnecessary), and keeps spent in
+steps 1-4 have already reduced the budget before the next gap is drawn, so
+"future triggers never happening" becomes a consequence instead of a scalar
+correction (`precedingKeeps` is unnecessary). There is also no fixed point to
+solve, because nothing needs to agree with itself in the mean.
+
+**Mass is 1 by construction** -- a sequential decomposition of the permutation,
+each configuration reachable exactly one way. That is the property the earlier
+one-shot joint lost (0.92-0.99) and the reason a fixed point was needed at all.
+
+Subtlety that must not be fumbled: gaps are measured in LIBRARY POSITIONS, and
+window cards consume library positions without consuming draws. Step 5 reduces
+the pool by the whole window but the draw budget only by `kept`. Conflating those
+is precisely the trigger over-count this replaces.
+
+Invariants it must preserve, both already in the suite: one copy stays EXACT
+(a single trigger is its own first and last), and `nothing ever kept` stays EXACT
+(no keeps, so no budget interaction). Worth writing as a fresh module rather than
+patched into `scryModifiedQueryPass`, since it replaces the trigger layer wholesale.
