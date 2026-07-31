@@ -2703,3 +2703,48 @@ decisions appears. Upper bounds (bricks) and OR clauses need that max -- and the
 are the expensive corner, so extending this is now the highest-value next step:
 if it stays exact and fast with bounds and OR, it supersedes both the closed-form
 method AND the DP for scry rather than supplementing them.
+
+### Bricks and OR in the recursion: accuracy good, but bounds invert the speed win (2026-07-30)
+
+Extended `triggerRecursion` to several groups, upper bounds and an OR of clauses,
+with a GREEDY keep rule first as agreed.
+
+| case (deck 60, look 3, 8 copies) | exact DP | recursion | d | rec ms | dp ms | states |
+|---|---|---|---|---|---|---|
+| `A>=2 & brick<=0`, 15 draws | 0.30347254 | 0.30211318 | **-0.136pt** | 5707 | 727 | 31606 |
+| `A>=2 & brick<=0`, 8 draws | 0.34906578 | 0.34809744 | -0.097pt | 316 | 247 | 5863 |
+| `A>=2 & brick<=2`, 15 draws | 0.88298364 | 0.88268911 | -0.030pt | 13523 | 1829 | 70711 |
+| `(A>=2) \| (B>=2)`, 12 draws | 0.91857408 | 0.91760257 | -0.097pt | **362** | 880 | 1736 |
+| OR + brick, 15 draws | 0.33226013 | 0.33037661 | **-0.188pt** | 115527 | 16324 | 185724 |
+
+**Bricks needed no query editing**, unlike the closed-form method: the recursion
+tracks what is in hand, so a bottomed brick never enters `acq`, and greedy refuses
+it automatically because a brick is never "needed".
+
+**Greedy costs 0.03-0.19pt, always NEGATIVE** -- the signature of a suboptimal
+policy, since a fixed policy can only lose against the optimum. Two rows land
+inside the 0.1pt bar, three do not. A max over commit vectors would restore
+exactness at more cost.
+
+**Bounds invert the speed advantage, as flagged before starting.** Success can no
+longer absorb -- satisfied on one draw, busted on the next -- so every branch runs
+to the horizon: 5.7s against 0.7s, 13.5s against 1.8s, and 115s against 16s on the
+corner. State counts confirm it (31k-186k, against 32-792 for monotone). The one
+row that stays fast is the unbounded OR, whose clauses are unbreakable so
+absorption still applies.
+
+**Where each tool now wins:**
+
+| regime | best tool | why |
+|---|---|---|
+| monotone, single group | recursion | exact, 2-5x faster |
+| unbounded OR | recursion | 2.4x faster, -0.097pt from greedy |
+| any upper bound | exact DP | recursion is 3-7x slower AND inexact |
+| OR + bound (the corner) | exact DP | recursion is 7x slower |
+
+So the corner remains the DP's, and for the reason CLAUDE.md #21 already records:
+an upper bound removes early exit, and early exit is what every fast method here
+has been buying its speed with. Two independent approaches have now hit the same
+wall from opposite directions -- the closed form could not express keep timing, and
+the recursion cannot absorb success. That is worth treating as a property of the
+problem rather than of either implementation.
