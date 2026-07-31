@@ -2883,3 +2883,38 @@ So the CLAUDE.md #21 framing stands but one leg of it was wrong: query editing C
 express the bounded tail exactly. What it cannot do is make it cheap. Absorption
 under a bound remains available in principle and unaffordable in practice, which is
 a weaker and more accurate statement than "three mechanisms, one wall".
+
+### Why the tail handoff was slow, and how to make it cheap (2026-07-30)
+
+Asked how the closed form can be exact and cheap for impulse but not for the scry
+tail. It is NOT cheap for impulse either -- from its own report table the closed
+form costs 1.5-5.5s per invocation (5474ms against a 129ms DP, 3100ms against
+140ms, 3774ms against 158ms) and only looks good in the single row where the DP
+costs 14.5s. Called once for a whole query, seconds is acceptable. Called at every
+tail state -- 4248 distinct ones after memoisation -- it is fatal. Same computation,
+four thousand times the invocations.
+
+**The fix, which was available all along:** the tail is a DEGENERATE case of the
+general pass and should not use it. The general pass enumerates each window's
+composition because it must decide what to keep. In the tail nothing is ever kept,
+so window CONTENTS are irrelevant -- only that the window consumed cards. So the
+tail needs:
+
+1. the slot distribution (already cached, query-independent), and
+2. per outcome, the probability that every brick in the seen prefix landed in a
+   WINDOW slot (bottomed, harmless) rather than a SCHEDULED slot (in hand, busts)
+   -- a positional hypergeometric.
+
+A sum over slot outcomes with one closed-form factor each, no nested enumeration
+over groups. Exact for the same reason `tailEquivalence.test.ts` passes, and orders
+of magnitude cheaper than what was measured.
+
+Recorded rather than implemented. If it lands, the bounded rows flip from 5-6x
+slower than the exact DP to faster, and the accuracy is already verified -- the
+recursed version's -0.03 to -0.19pt comes entirely from greedy keep, not from the
+tail.
+
+Lesson worth keeping beyond this: reusing general machinery for a degenerate case
+cost two failed attempts and a wrong conclusion. The tail's defining property --
+nothing is ever kept -- is exactly what makes the expensive part of the general
+pass unnecessary.
