@@ -2978,3 +2978,38 @@ territory. Two things would close that:
 Bounded OR is not yet wired: the handoff fires only for a single clause, because
 with an OR a busted clause can still be rescued by another, so the tail is a union
 over clauses rather than one clause's survival.
+
+### Ponder is the CHEAPEST shape in the DP, which narrows what "the corner" is (2026-07-30)
+
+Measured all four shapes on identical queries (deck 60, A=10/B=6/brick=4, look 3,
+8 copies):
+
+| query | draw | impulse | scry | **ponder** |
+|---|---|---|---|---|
+| monotone, 12 draws | 142ms | 102ms | 135ms | **24ms** |
+| brick, 15 draws | 62ms | 749ms | 667ms | **21ms** |
+| OR + brick, 15 draws | 105ms | 14004ms | 15807ms | **64ms** |
+
+Ponder is 247x faster than scry on the corner, despite being the more complex
+effect -- it has a shuffle option and therefore a max over two branches.
+
+**So the corner is not "bounded OR".** It is BOTTOMING. Scry and impulse carry
+`nonKeptLeavesPool: true`, so every distinct window composition removes a different
+set of cards and spawns a distinct pool state; the state space fans out. Ponder's
+window either stays on top or shuffles back, so the pool barely changes and its
+transitions jump much further through the draw budget, leaving far fewer levels to
+memoise.
+
+Two consequences:
+1. **Ponder needs no recursion implementation.** The DP answers it in 64ms on the
+   worst query measured all session. Building it would buy nothing.
+2. **The expensive corner is narrower than reported throughout this file**: it is
+   bottoming + upper bound + OR, not bounded OR in general. Earlier entries saying
+   "bounded queries are DP territory" should be read as "bottoming effects with
+   bounds are expensive", which is a smaller and more actionable claim.
+
+Also worth noting for modelling sanity: ponder scores HIGHER than scry on the brick
+query (0.35467 against 0.30347). Both avoid drawing bricks, but by different means
+-- scry bottoms them at the cost of spending draws to collect what it keeps, while
+ponder can shuffle a brick-laden top away entirely. The DP is verified against the
+brute force for both shapes, so this ordering is a result rather than a suspicion.
