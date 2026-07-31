@@ -2047,3 +2047,50 @@ formulation, which is the exact DP.
 available for free-window effects, and scry does not have free windows. Anyone
 picking this up again should not re-attempt a factorized closed form for
 keep-costing effects without first explaining how it escapes this loop.
+
+### The scry defect is a shift in EFFECTIVE DRAWS, not a probability distortion (2026-07-30)
+
+Best result of the scry investigation, and it came from reframing the question as
+"is the defect a constant offset in some transformed space" rather than "how big
+is the error".
+
+Sound reasoning that got there, worth keeping: with NO keeps the method is exact,
+because bottoming a useless card and free-drawing it are indistinguishable --
+either way it is gone from the library and satisfies nothing. Keeps are the only
+defect. But the defect is not the DELAY (that is already modelled by subtracting
+kept cards from available draws) and not cascading (both the method and the exact
+DP exclude it, so it cancels). It is that the delay FEEDS BACK on trigger count:
+draws spent collecting known cards do not reveal new library cards, so fewer
+copies are found, so fewer windows open.
+
+Measured by inverting the exact curve to find the shift d with
+`method(n) = exact(n + d)`, monotone query, 60-card deck, look 3:
+
+| copies | d at n=8 | 10 | 12 | 15 | 18 | 22 |
+|---|---|---|---|---|---|---|
+| 2 | 0.098 | 0.099 | 0.100 | 0.102 | 0.105 | 0.110 |
+| 4 | 0.186 | 0.188 | 0.191 | 0.195 | 0.200 | 0.209 |
+| 8 | 0.336 | 0.342 | 0.347 | 0.355 | 0.363 | 0.378 |
+
+`d` is nearly FLAT in n (~10% drift over n=8..22) and linear in copies. Against
+expected keeps it is cleaner still: `d/keeps` is constant across copy counts at
+fixed n (0.41 / 0.40 / 0.40 at n=15 for 2/4/8 copies), and
+
+  **d * n / keeps = 5.6, 5.8, 5.9, 6.0, 6.3, 6.6** at n = 8, 10, 12, 15, 18, 22
+
+stable within +-10% over all 18 data points, with 6 = 2 * (look size 3). So
+`d ~= 2S * keeps / n`: keeps steal a fraction keeps/n of the fresh draws, and each
+lost fresh draw costs the window it would have found.
+
+Why this is worth more than the earlier `1.3 * copies * P(1-P)` fit: that was the
+same effect seen through the curve's slope, hence the arbitrary constant. This
+one corrects the model's INPUT -- evaluate the method at `n - d` -- which is
+defensible and needs no probability-space fudge. Expected residual is the +-10%
+coefficient drift, ~0.035 draws, which at a typical slope of 0.02/draw is ~0.07pt,
+inside the 0.1pt bar.
+
+TO VALIDATE before trusting: whether `d * n / keeps ~= 2S` holds for other look
+sizes (only S=3 measured, so the 2S reading may be coincidence), other deck
+sizes, and the BRICK queries -- those were excluded here because their curve is
+non-monotone and cannot be inverted, so they need the correction applied directly
+and the residual measured instead.
