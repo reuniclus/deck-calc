@@ -2251,3 +2251,39 @@ distribution, weight each branch by P(K), and use `slotDistribution(n - K)` per
 branch. Same weighted-average principle the whole method rests on, applied one
 level up, and mass-preserving by the same argument. If that lands the worst case
 near 0.1pt, the method covers scry and the hard corner gets a fast path.
+
+### The residual is NOT a mean-field bias (2026-07-30)
+
+Predicted that the ~1.4pt residual came from iterating the trigger/keeps fixed
+point on E[keeps] rather than on the distribution of keeps -- a Jensen bias, since
+probability is nonlinear in keeps. Implemented the distribution-level version
+(each candidate keep-count carries its own weight and its own slot distribution at
+`draws - K`) and measured:
+
+| case (60c, look 3, 15 draws) | raw | mean-field | distribution | dist time |
+|---|---|---|---|---|
+| 1 clause, no brick, 4 copies | 0.560pt | 0.428pt | 0.427pt | 616ms |
+| 1 clause, no brick, 8 copies | 0.759pt | 0.470pt | 0.467pt | 3.6s |
+| 1 clause + brick, 8 copies | 1.742pt | 1.146pt | 1.147pt | 3.0s |
+| OR + brick, 8 copies | 2.516pt | 1.376pt | 1.380pt | 10.4s |
+
+Differences of 0.001-0.004pt, i.e. nothing, for 3-10x the cost (the OR case ends
+up only 2.3x faster than the exact DP, which defeats the point). Prediction wrong:
+the keep distribution sits on {0,1,2} and the map is not nonlinear enough over
+that range for the mean to lose anything. Variant deleted, finding kept.
+
+**What the residual must be instead: cross-window timing.** All windows are pooled
+into one composition and one keep decision, so a keep from a window that resolved
+AFTER the draws were spent is still credited. Note the composition sampling itself
+is sound -- conditional on the window contents the remaining pool genuinely holds
+`counts - window`, which is exactly why the no-keeps case is exact to floating
+point. The unjustified step is treating every window as resolving before every
+draw. This was the first hypothesis of the session, abandoned too early because
+the partition argument appeared to rule it out; that argument only ever justified
+the composition sampling, not the keep timing.
+
+Next attempt, if resumed: condition on trigger POSITIONS (distribute the triggers
+among the scheduled draws) and credit each window's keeps only against the draws
+that follow it. Cost estimate ~1.4k position splits at 4 triggers over 15 draws,
+so it will spend much of the remaining speedup -- but unlike the two corrections
+already in, it targets the mechanism that is actually left.

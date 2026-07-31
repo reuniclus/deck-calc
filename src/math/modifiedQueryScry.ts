@@ -39,13 +39,19 @@
  *    lost 5-8% of its mass and was wrongly read as proof that the coupling could
  *    not be solved.
  *
- * KNOWN REMAINING BIAS: the iteration converges on E[keeps], a single mean, and
- * feeds that to the slot distribution. Probability is nonlinear in keeps, so
- * `f(E[K]) != E[f(K)]` -- a mean-field bias that should grow with the SPREAD of
- * keeps, which matches the residual being worst at high copy counts. The next
- * step is to stop collapsing keeps to a mean: enumerate the distribution of K,
- * weight each branch by P(K), and use the slot distribution at `n - K` per
- * branch. Mass-preserving by the same argument as the fixed point.
+ * KNOWN REMAINING RESIDUAL, ~1.4pt worst case: NOT a mean-field bias. Iterating
+ * on the full distribution of keeps instead of its mean was implemented and
+ * measured, and it changed the answer by 0.001-0.004pt while costing 3-10x more
+ * time -- so collapsing keeps to a mean is free here (the keep distribution sits
+ * on {0,1,2} and the map is not nonlinear enough over that range). That variant
+ * was deleted; see PLAN.md.
+ *
+ * What remains is cross-window TIMING: all windows are pooled into a single
+ * composition and a single keep decision, so keeps from a window that resolved
+ * after the draws were already spent still get credited. The composition sampling
+ * itself is sound (conditional on the window contents, the remaining pool really
+ * does hold `counts - window`, which is why the no-keeps case is exact) -- the
+ * unjustified step is treating every window as resolving before every draw.
  *
  * Also inherited: no cascading (a copy inside a window is bottomed and never
  * chains), which both this and the exact DP assume, so real play is somewhat
