@@ -8,22 +8,40 @@ describe('validation report format', () => {
       reference: 'exact-dp', referenceValue: 0.33226, candidateValue: 0.34602,
       verdict: 'OUT OF BAR',
     });
-    expect(over).toContain('| +1.376 |');
+    expect(over).toContain('**+1.376**');
     const under = validationRow({
       label: 'x', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'exact-dp', referenceValue: 0.5, candidateValue: 0.49,
       verdict: 'OUT OF BAR',
     });
-    expect(under).toContain('| -1.000 |');
+    expect(under).toContain('**-1.000**');
   });
 
-  it('reports mass explicitly, including when absent', () => {
+  it('surfaces a mass shortfall in the note, since the column is gone', () => {
     expect(validationRow({
       label: 'x', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'exact-dp', referenceValue: 1, candidateValue: 1,
       verdict: 'EXACT', mass: 0.9497,
-    })).toContain('| 0.949700 |');
+    })).toContain('NOT A PARTITION');
     expect(validationRow({
       label: 'x', role: 'shape' as const, conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 }, query: 'A>=2', reference: 'analytic', referenceValue: 1, candidateValue: 1, verdict: 'EXACT',
-    })).toMatch(/\| -- \|/);
+    })).not.toContain('NOT A PARTITION');
+  });
+
+  it('bolds an out-of-bar delta, since the verdict column is gone', () => {
+    const out = validationRow({
+      label: 'x', role: 'shape' as const,
+      conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 },
+      query: 'A>=2', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.315,
+      verdict: 'OUT OF BAR',
+    });
+    expect(out).toContain('**+1.500**');
+    const ok = validationRow({
+      label: 'x', role: 'shape' as const,
+      conditions: { deck: 60, groups: { A: 10 }, effect: 'scry' as const, look: 3, keep: 'all' as const, copies: 8, draws: 12 },
+      query: 'A>=2', reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.3005,
+      verdict: 'WITHIN BAR',
+    });
+    expect(ok).toContain('| +0.050 |');
+    expect(ok).not.toContain('**+0.050**');
   });
 
   it('marks circular columns as not being evidence', () => {
@@ -61,7 +79,7 @@ describe('validation report format', () => {
     expect(row).toContain('\\|');
     // column count must survive: 10 columns => 11 splits on an unescaped pipe
     const unescaped = row.split(/(?<!\\)\|/).length;
-    expect(unescaped).toBe(15); // leading + 13 cells + trailing
+    expect(unescaped).toBe(13); // leading + 11 cells + trailing
   });
 
   it('refuses an empty report', () => {

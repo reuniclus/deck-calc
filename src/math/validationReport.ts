@@ -134,14 +134,26 @@ const cell = (text: string): string => text.replace(/\|/g, '\\|');
  * pasted or parsed rather than read as prose. */
 export const VALIDATION_COLUMNS = [
   'case / role', 'deck & groups', 'effect & draws', 'query',
-  'reference', 'ref value', 'candidate', 'd (pt)', 'mass', 'verdict',
-  'cand ms', 'ref ms', 'note',
+  'reference', 'ref value', 'candidate', 'd (pt)', 'cand ms', 'ref ms', 'note',
 ] as const;
 
 /** One markdown table row. Signed error always; worst case never averaged away. */
 export function validationRow(r: ValidationRow): string {
   const delta = r.candidateValue - r.referenceValue;
   const roleCell = r.role === 'sweep' && r.swept !== undefined ? `${r.role}:${r.swept}` : r.role;
+  // `verdict` and `mass` are no longer columns, but neither is discarded: an
+  // out-of-bar delta is bolded, and anything else that must not be missed is
+  // pushed into the note. A mass shortfall in particular means the enumeration is
+  // not a partition of the sample space, which is too serious to drop silently
+  // just because the column is gone.
+  const deltaCell = Number.isNaN(delta) ? '--'
+    : r.verdict === 'OUT OF BAR' ? `**${pt(delta)}**` : pt(delta);
+  const notes: string[] = [];
+  if (r.verdict === 'REFUSED' || r.verdict === 'N/A REGIME') notes.push(r.verdict);
+  if (r.mass !== undefined && Math.abs(r.mass - 1) > 1e-9) {
+    notes.push(`mass=${num(r.mass, 6)} NOT A PARTITION`);
+  }
+  if (r.circular !== undefined) notes.push(`CIRCULAR, not evidence: ${r.circular}`);
   const cells = [
     cell(`**${r.label}**<br>${roleCell}`),
     cell(formatDeck(r.conditions)),
@@ -150,12 +162,10 @@ export function validationRow(r: ValidationRow): string {
     r.reference,
     num(r.referenceValue, 6),
     num(r.candidateValue, 6),
-    Number.isNaN(delta) ? '--' : pt(delta),
-    r.mass === undefined ? '--' : num(r.mass, 6),
-    r.verdict,
+    deltaCell,
     num(r.candidateMs, 0),
     num(r.referenceMs, 0),
-    r.circular === undefined ? '' : cell(`CIRCULAR, not evidence: ${r.circular}`),
+    cell(notes.join('; ')),
   ];
   return `| ${cells.join(' | ')} |`;
 }
