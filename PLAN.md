@@ -3155,3 +3155,41 @@ exist as well, but they are materially harder and imply maintaining a lattice ke
 on pool composition. Anyone picking this up should profile first: the split between
 threshold-varying and pool-varying calls is what decides whether it is worth it, and
 it took one instrumented run to find.
+
+### The pool-composition axis is an artifact of the SPLIT form, not of MQ (2026-07-30, scoped)
+
+Observation that reframes the previous entry: MQ's technique is bumped bounds plus a
+draw count, and nothing else. So the 4621 distinct `(pool, sizes)` combinations
+dominating its cost should not exist -- and they do not, in the original
+formulation.
+
+Two algebraically equivalent ways to evaluate the identity:
+
+- **prefix form** (as originally proposed): score the SEEN population with bounds
+  raised by what was ditched -- `evaluate(pool, counts, lo + ditched)[prefixLength]`.
+  Pool and counts are FIXED; only the bounds and the index vary.
+- **split form** (as implemented): score the remaining FRESH draws with bounds
+  lowered by what was kept --
+  `evaluate(pool - windowCards, counts - windowComp, lo - kept)[sched - spent]`.
+  The window must leave the pool or its cards could be drawn twice.
+
+The third axis is entirely the split form's. And since `evaluate` returns a whole
+CURVE, the prefix form's calls would be reusable across every draw count, collapsing
+the cache key to just the bound vector -- 4621 distinct calls could plausibly become
+dozens.
+
+This also corrects the record on an earlier exchange: when the split form's pool
+reduction was questioned, the answer given was that the split form requires it, which
+is true but incomplete. The prefix form avoids the axis altogether, and that axis
+turned out to dominate the cost.
+
+**The hazard, which has already bitten once:** the prefix form must condition
+consistently. Enumerating the window's contents to learn `ditched`, then evaluating
+over the full pool at the prefix length, double-counts those cards -- their
+composition is fixed by the enumeration and re-randomised by the evaluation. That is
+exactly what made the earlier one-shot joint lose 5-8% of its mass. A correct version
+enumerates the ditch vector WITHOUT conditioning the remainder of the prefix.
+
+Immediate tell if attempted: total mass. If the weights do not sum to 1.000000 the
+conditioning is wrong, and one run reveals it -- far cheaper than discovering it from
+a wrong answer, which is how the first attempt went.
