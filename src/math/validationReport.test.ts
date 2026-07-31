@@ -8,22 +8,22 @@ describe('validation report format', () => {
       reference: 'exact-dp', referenceValue: 0.33226, candidateValue: 0.34602,
       verdict: 'OUT OF BAR',
     });
-    expect(over).toContain('d=+1.376pt');
+    expect(over).toContain('| +1.376 |');
     const under = validationRow({
       config: 'x', reference: 'exact-dp', referenceValue: 0.5, candidateValue: 0.49,
       verdict: 'OUT OF BAR',
     });
-    expect(under).toContain('d=-1.000pt');
+    expect(under).toContain('| -1.000 |');
   });
 
   it('reports mass explicitly, including when absent', () => {
     expect(validationRow({
       config: 'x', reference: 'exact-dp', referenceValue: 1, candidateValue: 1,
       verdict: 'EXACT', mass: 0.9497,
-    })).toContain('mass=0.949700');
+    })).toContain('| 0.949700 |');
     expect(validationRow({
       config: 'x', reference: 'analytic', referenceValue: 1, candidateValue: 1, verdict: 'EXACT',
-    })).toContain('mass=n/a');
+    })).toMatch(/\| -- \|/);
   });
 
   it('marks circular columns as not being evidence', () => {

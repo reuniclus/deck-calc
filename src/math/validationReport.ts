@@ -60,22 +60,32 @@ export interface ValidationRow {
 }
 
 const pt = (x: number): string => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(3)}`;
+const num = (x: number | undefined, digits: number): string =>
+  x === undefined || Number.isNaN(x) ? '--' : x.toFixed(digits);
 
-/** One row, signed error always, worst case never averaged away. */
+/** Column headers, in fixed order. Emitted as a markdown table so reports can be
+ * pasted or parsed rather than read as prose. */
+export const VALIDATION_COLUMNS = [
+  'config', 'reference', 'ref value', 'candidate', 'd (pt)', 'mass', 'verdict',
+  'cand ms', 'ref ms', 'note',
+] as const;
+
+/** One markdown table row. Signed error always; worst case never averaged away. */
 export function validationRow(r: ValidationRow): string {
   const delta = r.candidateValue - r.referenceValue;
   const cells = [
     r.config,
-    `${r.reference}=${r.referenceValue.toFixed(6)}`,
-    `cand=${r.candidateValue.toFixed(6)}`,
-    `d=${pt(delta)}pt`,
-    r.mass === undefined ? 'mass=n/a' : `mass=${r.mass.toFixed(6)}`,
+    r.reference,
+    num(r.referenceValue, 6),
+    num(r.candidateValue, 6),
+    Number.isNaN(delta) ? '--' : pt(delta),
+    r.mass === undefined ? '--' : num(r.mass, 6),
     r.verdict,
-    r.candidateMs === undefined ? '' : `${r.candidateMs.toFixed(0)}ms`,
-    r.referenceMs === undefined ? '' : `ref ${r.referenceMs.toFixed(0)}ms`,
-  ].filter((c) => c !== '');
-  const warn = r.circular === undefined ? '' : `  [CIRCULAR, not evidence: ${r.circular}]`;
-  return `${cells.join(' | ')}${warn}`;
+    num(r.candidateMs, 0),
+    num(r.referenceMs, 0),
+    r.circular === undefined ? '' : `CIRCULAR, not evidence: ${r.circular}`,
+  ];
+  return `| ${cells.join(' | ')} |`;
 }
 
 /**
@@ -93,12 +103,16 @@ export function validationTable(title: string, rows: ValidationRow[]): string {
     Math.abs(b.candidateValue - b.referenceValue) > Math.abs(a.candidateValue - a.referenceValue) ? b : a
   ));
   const lines = [
-    `${title}`,
-    ...rows.map((r) => `  ${validationRow(r)}`),
-    `  WORST: ${worst.config} at ${pt(worst.candidateValue - worst.referenceValue)}pt (${worst.verdict})`,
+    `### ${title}`,
+    '',
+    `| ${VALIDATION_COLUMNS.join(' | ')} |`,
+    `|${VALIDATION_COLUMNS.map(() => '---').join('|')}|`,
+    ...rows.map((r) => validationRow(r)),
+    '',
+    `WORST: ${worst.config} at ${pt(worst.candidateValue - worst.referenceValue)}pt (${worst.verdict})`,
   ];
   if (!hasDegenerate) {
-    lines.push('  MISSING: no degenerate row -- the shared machinery is unverified here');
+    lines.push('MISSING: no degenerate row -- the shared machinery is unverified here');
   }
   return lines.join('\n');
 }
