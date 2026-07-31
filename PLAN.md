@@ -3114,3 +3114,44 @@ Memoisation captures the same "do not recompute what you already know" insight
 without needing the lattice. The remaining honest target for that idea is
 `evaluate` computing a whole curve `0..N` when callers want one index -- worth
 roughly N/n, and more useful to `frontier.ts` than to the selection engines.
+
+### Why the draw budget only bites with bounds, and where a hypergeometric recurrence would pay (2026-07-30)
+
+**Why slow draw consumption is nearly free in one place and dominant in another.**
+Cost is roughly (levels before the horizon) x (states per level). Slow draw
+consumption inflates the first factor, but only matters if branches actually reach
+the horizon:
+
+| case | draws burned per trigger | absorbs? | time |
+|---|---|---|---|
+| monotone scry | 0-1 (slow) | YES -- hits the threshold, returns 1, prunes | 135ms |
+| ponder + bound | ~4 (whole window) | no | 64ms |
+| scry + bound | 0-1 (slow) | no (satisfied then bust is possible) | 667ms |
+| scry + bound + OR | 0-1 (slow) | no, plus clause state | 15807ms |
+
+Monotone scry crawls but absorbs, so the long horizon is never walked. Ponder
+cannot absorb but burns a whole window per trigger, so it reaches the horizon in a
+few steps. Bounded scry gets neither. That is the interaction, and it supersedes two
+earlier explanations in this file that blamed bottoming or pool fan-out.
+
+**Where a hypergeometric recurrence would actually pay.** The proposal was to
+transform the query's variables rather than the draw count. The identity is exact,
+not a linearisation: `P(X >= k-1) = P(X >= k) + P(X = k-1)`, and likewise for upper
+bounds -- shifting a threshold by one costs one pmf term instead of a fresh curve.
+
+Instrumented MQ on the corner to see whether it pays after memoisation:
+
+    58747 curve calls, 6461 misses, 4621 distinct (pool, sizes) combinations
+
+So memoisation already absorbs 89% of calls, and the misses average only ~1.4
+distinct thresholds per pool state. A threshold recurrence could therefore replace
+at most 6461 - 4621 = 1840 curve builds: about 28% of remaining misses, perhaps 20%
+overall. Real but not transformative.
+
+The dominant remaining cost is the 4621 genuinely distinct POOL COMPOSITIONS, which
+no threshold shift relates. Attacking those needs recurrences in the population
+parameters (N and K -- removing one card of a group from the pool). Those identities
+exist as well, but they are materially harder and imply maintaining a lattice keyed
+on pool composition. Anyone picking this up should profile first: the split between
+threshold-varying and pool-varying calls is what decides whether it is worth it, and
+it took one instrumented run to find.
