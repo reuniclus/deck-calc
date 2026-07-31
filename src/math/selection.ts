@@ -541,6 +541,12 @@ export function exactSelectionCurveDnf(
   effect: SelectionEffect,
   copies: number,
   maxDraws: number,
+  /** Replace the max over commit vectors with a single heuristic choice: keep
+   * toward the clause nearest completion, tie-breaking toward the scarcer group.
+   * Cuts the branching factor at the cost of exactness -- the result is then a
+   * lower bound, since any fixed policy loses to the optimum. Off by default, so
+   * the default behaviour remains EXACT. */
+  heuristicKeep = false,
 ): Curve {
   const G = groupCounts.length;
   const C = clauses.length;
@@ -758,6 +764,34 @@ export function exactSelectionCurveDnf(
 
       if (nonKeptLeavesPool) {
         // scry: each kept card costs one of the remaining draws.
+        if (heuristicKeep) {
+          // One commit vector chosen by rule instead of maximising over all of
+          // them: prefer the clause NEAREST completion (fewest cards still
+          // wanted), tie-break toward the SCARCER group (fewer copies left in the
+          // pool). Trades exactness for a smaller branching factor.
+          let budget = Math.min(keepMax, drawsLeft, windowSize);
+          const order = groupCounts.map((_v: number, g: number) => g).sort((a, b) => {
+            const needA = Math.min(...clauses.map((_c, ci) => Math.max(0, lo[ci]![a]! - acq[a]!)));
+            const needB = Math.min(...clauses.map((_c, ci) => Math.max(0, lo[ci]![b]! - acq[b]!)));
+            if (needA !== needB) return needA - needB;
+            return rem[a]! - rem[b]!;
+          });
+          let spent = 0;
+          for (const g of order) {
+            if (budget <= 0) break;
+            let want = 0;
+            for (let ci = 0; ci < C; ci++) want = Math.max(want, lo[ci]![g]! - acq[g]!);
+            const take = Math.min(wComp[g]!, Math.max(0, want), budget);
+            saved[g] = acq[g]!;
+            acq[g] = Math.min(caps[g]!, acq[g]! + take);
+            budget -= take;
+            spent += take;
+          }
+          const out = V(rem, remCAfter, remOAfter, acq, drawsLeft - spent);
+          for (const g of order) acq[g] = saved[g]!;
+          restorePool();
+          return out;
+        }
         let best = -1;
         const pick = (g: number, budget: number, spent: number): void => {
           if (g === G) {

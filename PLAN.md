@@ -3013,3 +3013,38 @@ query (0.35467 against 0.30347). Both avoid drawing bricks, but by different mea
 -- scry bottoms them at the cost of spending draws to collect what it keeps, while
 ponder can shuffle a brick-laden top away entirely. The DP is verified against the
 brute force for both shapes, so this ordering is a result rather than a suspicion.
+
+### A keep HEURISTIC inside the DP: exact on monotone and 13x faster (2026-07-30)
+
+Suggested: instead of maximising over commit vectors, use a rule -- keep toward the
+clause nearest completion, tie-break toward the scarcer group. Tested by adding an
+opt-in `heuristicKeep` flag to `exactSelectionCurveDnf` (default stays EXACT).
+
+| case (deck 60, look 3, 8 copies) | exact (max) | heuristic | d | heur ms | exact ms |
+|---|---|---|---|---|---|
+| monotone, 1 group, 12 draws | 0.81443970 | 0.81443970 | **0.0000pt** | 94 | 165 |
+| 2 groups AND, 12 draws | 0.67597599 | 0.67597599 | **0.0000pt** | **63** | 848 |
+| brick, 15 draws | 0.30347254 | 0.28116376 | -2.231pt | 221 | 692 |
+| OR + brick, 15 draws | 0.33226013 | 0.30025303 | -3.201pt | **1279** | 16552 |
+
+**Finding 1, and it is a free win nobody was looking for:** on MONOTONE queries the
+heuristic is exact and up to 13x faster (63ms against 848ms). The DP has been
+paying for a max it does not need whenever there are no upper bounds -- keeping a
+needed card cannot be wrong there, so the branching buys nothing.
+
+Caveat, stated because it is the difference between a measurement and a theorem:
+"exact on two monotone configs" is not "provably exact for all monotone queries".
+The ordering only matters when the keep budget binds (`keepMax`, or draws left for
+scry), and that nearest-completion-then-scarcity is optimal in that case is
+measured, not argued. Settle that before making it the default -- detecting
+"no upper bounds" and switching policy would otherwise be an easy exact speedup on
+the common case.
+
+**Finding 2:** with an upper bound it is a genuine trade -- the corner falls from
+16552ms to 1279ms (13x) for -3.2pt. A fixed policy cannot see that keeping a card
+now may force a busting draw later, which is exactly what the max is for. Useful as
+a fast preview, not as a shipped number.
+
+Both directions are pinned in `heuristicKeep.test.ts`, including that the heuristic
+never EXCEEDS the optimum -- any fixed policy is a lower bound, so a positive
+deviation would indicate a bug rather than a better policy.
