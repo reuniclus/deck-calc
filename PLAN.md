@@ -2127,3 +2127,38 @@ linear in copies, and a correction gets within ~0.13-0.23pt), but the hard corne
 is non-monotone by definition and stays on the exact DP. Three separate fast-path
 attempts have now failed on it -- pooled-budget max, cap bumping, and
 effective-draw correction -- each for a different and now-documented reason.
+
+### Extreme look sizes: the method gets WORSE, not better (2026-07-30)
+
+Tested S from 1 up to nearly the whole deck (N=20, A=4, brick=2, 2 copies, 6
+draws). Prediction going in was that error would VANISH at large S, since once
+you have seen the whole deck extra triggers are worthless. Wrong.
+
+| S | monotone exact | method | err | brick exact | method | err |
+|---|---|---|---|---|---|---|
+| 1 | 0.383 | 0.391 | 0.81pt | 0.221 | 0.227 | 0.63pt |
+| 4 | 0.503 | 0.546 | 4.36pt | 0.301 | 0.335 | 3.35pt |
+| 8 | 0.604 | 0.673 | 6.87pt | 0.377 | 0.426 | 4.84pt |
+| 16 | 0.638 | 0.716 | **7.75pt** | 0.441 | 0.459 | 1.72pt |
+| 18 | 0.638 | 0.716 | 7.75pt | 0.451 | 0.564 | **11.36pt** |
+
+Why the prediction failed: extra triggers do become worthless, but KEEPS become
+maximal -- at large S you always find exactly what you need and keep it, so the
+keeps-steal-draws defect is at its strongest. The exact model needs the cantrip
+drawn early enough to still have draws left to collect those keeps; the method's
+draw-shaped trigger accounting over-credits late cantrips.
+
+The exact column behaving as expected is worth noting: it saturates (0.63844 at
+S=12/16/18), i.e. beyond deck size more looking adds nothing and success becomes
+purely draw-gated. That is the correct limiting behaviour, so the DP passes the
+extreme-case sanity check even though the fast method does not.
+
+**A separate BUG surfaced:** the brick row jumps 1.72pt (S=16) -> 11.36pt (S=18),
+a discontinuity rather than a trend. When `n + t*S` exceeds the deck the windows
+are TRUNCATED and `slotDistribution` caps `seen` at deck size, so recovering the
+trigger count as `t = round((seen - n)/S)` breaks. Any future use of that
+inversion needs to handle truncated windows explicitly.
+
+Practical upshot: the fast method is weakest precisely where look sizes are large
+("look at the top 7" style effects), on top of the non-monotone sign problem. It
+remains valid only for capped-keep effects (impulse), which is where it shipped.
