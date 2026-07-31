@@ -48,6 +48,19 @@ export interface SelectionEffect {
   /** Ponder/Portent: the whole window can be shuffled back instead of kept.
    * The option IS the effect's value (see the reorder/shuffle note below). */
   canShuffle?: boolean;
+  /** May a drawn copy be DECLINED rather than resolved? Casting is optional in
+   * real play, and with an upper bound that matters: you would simply not cast
+   * a generic draw spell that can only force bricks into your hand, while still
+   * casting a copy that is itself a combo piece.
+   *
+   * Defaults to false (always resolves), which is what the brute force plays and
+   * therefore what the exactness checks compare against. With it true the DP
+   * takes max(resolve, decline) -- decided BEFORE the window is revealed, since
+   * that is when the choice is really made -- and the value can only go up.
+   *
+   * For a monotone query the two agree exactly: resolving is never a mistake
+   * when every card is welcome. */
+  optionalResolve?: boolean;
 }
 
 export const drawEffect = (group: GroupId, x: number): SelectionEffect => ({
@@ -569,6 +582,7 @@ export function exactSelectionCurveDnf(
 
   const { examined, keepMax, keptCostsDraw, nonKeptLeavesPool } = effect;
   const canShuffle = effect.canShuffle ?? false;
+  const optionalResolve = effect.optionalResolve ?? false;
 
   const radices: number[] = [];
   for (let g = 0; g < G; g++) radices.push(groupCounts[g]! + 1, caps[g]! + 1);
@@ -694,6 +708,12 @@ export function exactSelectionCurveDnf(
           comp[g] = 0;
         };
         walk(0, w, 1);
+      }
+      if (optionalResolve) {
+        // Casting is a choice, and it's made BEFORE the window is revealed --
+        // so the comparison is against the expectation over windows, not
+        // per-window hindsight. Declining leaves the copy as a spent draw.
+        effectValue = Math.max(effectValue, V(rem, remC2, remO, acq, d));
       }
       value += (remC / pool) * effectValue;
     }

@@ -39,6 +39,25 @@ export interface BruteEffect {
  * `{ K: 0 }`. Absent labels are unbounded. */
 export type Caps = Record<string, number>;
 
+/** One DNF clause: thresholds plus optional upper bounds. */
+export interface BruteClause {
+  need: Need;
+  caps?: Caps;
+}
+
+/** Union of clauses -- satisfied when ANY of them is. */
+function satisfiedAny(hand: Record<string, number>, clauses: BruteClause[]): boolean {
+  return clauses.some((c) => satisfied(hand, c.need, c.caps));
+}
+
+/** Could this clause still be reached? Counts only ever rise, so a clause whose
+ * upper bound is already exceeded is dead for good. */
+function clauseAlive(hand: Record<string, number>, c: BruteClause): boolean {
+  if (c.caps === undefined) return true;
+  for (const g of Object.keys(c.caps)) if ((hand[g] ?? 0) > c.caps[g]!) return false;
+  return true;
+}
+
 function satisfied(hand: Record<string, number>, need: Need, caps?: Caps): boolean {
   for (const g of Object.keys(need)) if ((hand[g] ?? 0) < need[g]!) return false;
   if (caps !== undefined) {
@@ -162,6 +181,149 @@ export function bruteSelectionP(
 }
 
 /**
+ * Play out one ordering against a UNION of clauses. Same mechanics as
+ * `playOut`; the keep policy wants any card that some live clause still needs,
+ * which is a policy and therefore a LOWER bound once choices exist.
+ */
+export function playOutDnf(
+  order: string[],
+  n: number,
+  effect: BruteEffect,
+  clauses: BruteClause[],
+  cascade = false,
+): boolean {
+  interface Card { l: string; seen: boolean }
+  const deck: Card[] = order.map((l) => ({ l, seen: false }));
+  const hand: Record<string, number> = {};
+  const keepsEverything = effect.keepMax >= effect.examined && !effect.keptCostsDraw;
+  let scheduled = n;
+
+  while (scheduled > 0 && deck.length > 0) {
+    const card = deck.shift()!;
+    scheduled--;
+    const triggers = card.l === effect.group && (cascade || !card.seen);
+    if (!triggers) {
+      hand[card.l] = (hand[card.l] ?? 0) + 1;
+      continue;
+    }
+    const window = deck.splice(0, effect.examined);
+    const kept: Card[] = [];
+    const rejected: Card[] = [];
+    for (const c of window) {
+      const alreadyKept = kept.filter((k) => k.l === c.l).length;
+      const wanted = clauses.some((cl) => clauseAlive(hand, cl)
+        && cl.need[c.l] !== undefined
+        && (hand[c.l] ?? 0) + alreadyKept < cl.need[c.l]!);
+      if (kept.length < effect.keepMax && (keepsEverything || wanted)) kept.push(c);
+      else rejected.push(c);
+    }
+    if (!effect.nonKeptLeavesPool) {
+      for (const c of rejected) c.seen = true;
+      deck.unshift(...rejected);
+    }
+    if (effect.keptCostsDraw) {
+      for (const c of kept) c.seen = true;
+      deck.unshift(...kept);
+    } else {
+      for (const c of kept) hand[c.l] = (hand[c.l] ?? 0) + 1;
+    }
+  }
+  return satisfiedAny(hand, clauses);
+}
+
+/** Clairvoyant version of `playOutDnf`: keep decisions see the rest of the
+ * deck, so it upper-bounds optimal play. */
+export function playOutDnfClairvoyant(
+  order: string[],
+  n: number,
+  effect: BruteEffect,
+  clauses: BruteClause[],
+): boolean {
+  interface Card { l: string; seen: boolean }
+  const bounded = clauses.some((c) => c.caps !== undefined);
+
+  function rec(deck: Card[], hand: Record<string, number>, scheduled: number): boolean {
+    const okNow = satisfiedAny(hand, clauses);
+    if (okNow && !bounded) return true;
+    if (scheduled <= 0 || deck.length === 0) return okNow;
+    const rest = [...deck];
+    const card = rest.shift()!;
+    if (!(card.l === effect.group && !card.seen)) {
+      const h2 = { ...hand };
+      h2[card.l] = (h2[card.l] ?? 0) + 1;
+      return rec(rest, h2, scheduled - 1);
+    }
+    const window = rest.splice(0, effect.examined);
+    const subsets: number[][] = [[]];
+    for (const i of window.map((_, k) => k)) {
+      for (const sub of [...subsets]) if (sub.length < effect.keepMax) subsets.push([...sub, i]);
+    }
+    for (const keepIdx of subsets) {
+      const kept = window.filter((_, i) => keepIdx.includes(i));
+      const rejected = window.filter((_, i) => !keepIdx.includes(i));
+      let deck2 = [...rest];
+      const hand2 = { ...hand };
+      if (!effect.nonKeptLeavesPool) deck2 = [...rejected.map((c) => ({ ...c, seen: true })), ...deck2];
+      if (effect.keptCostsDraw) deck2 = [...kept.map((c) => ({ ...c, seen: true })), ...deck2];
+      else for (const c of kept) hand2[c.l] = (hand2[c.l] ?? 0) + 1;
+      if (rec(deck2, hand2, scheduled - 1)) return true;
+    }
+    return false;
+  }
+
+  return rec(order.map((l) => ({ l, seen: false })), {}, n);
+}
+
+/** Enumerate every distinct arrangement, scoring each with `score`. */
+function overArrangements(counts: Record<string, number>, score: (order: string[]) => boolean): number {
+  const labels = Object.keys(counts);
+  const remaining: Record<string, number> = { ...counts };
+  const total = labels.reduce((s, l) => s + counts[l]!, 0);
+  let weighted = 0;
+  let arrangements = 0;
+  const order: string[] = [];
+  function recurse(depth: number): void {
+    if (depth === total) {
+      arrangements++;
+      if (score(order)) weighted++;
+      return;
+    }
+    for (const l of labels) {
+      if (remaining[l]! <= 0) continue;
+      remaining[l]!--;
+      order.push(l);
+      recurse(depth + 1);
+      order.pop();
+      remaining[l]!++;
+    }
+  }
+  recurse(0);
+  return arrangements > 0 ? weighted / arrangements : 0;
+}
+
+/** Union-of-clauses P under the greedy keep policy (a lower bound where the
+ * effect has choices, exact where it has none). */
+export function bruteSelectionDnfP(
+  counts: Record<string, number>,
+  n: number,
+  effect: BruteEffect,
+  clauses: BruteClause[],
+  cascade = false,
+): number {
+  return overArrangements(counts, (order) => playOutDnf(order, n, effect, clauses, cascade));
+}
+
+/** Union-of-clauses P under clairvoyant keeps (an upper bound). */
+export function bruteSelectionDnfUpperP(
+  counts: Record<string, number>,
+  n: number,
+  effect: BruteEffect,
+  clauses: BruteClause[],
+): number {
+  return overArrangements(counts, (order) => playOutDnfClairvoyant(order, n, effect, clauses));
+}
+
+/**
  * Clairvoyant play-out: same mechanics, but keep decisions are made with the
  * REST OF THE DECK VISIBLE, choosing whichever commit vector can still win.
  *
@@ -238,152 +400,6 @@ export function bruteSelectionUpperP(
     if (depth === total) {
       arrangements++;
       if (playOutClairvoyant(order, n, effect, need, caps)) weighted++;
-      return;
-    }
-    for (const l of labels) {
-      if (remaining[l]! <= 0) continue;
-      remaining[l]!--;
-      order.push(l);
-      recurse(depth + 1);
-      order.pop();
-      remaining[l]!++;
-    }
-  }
-  recurse(0);
-  return arrangements > 0 ? weighted / arrangements : 0;
-}
-
-/** One clause for the OR-aware brute force. */
-export interface BruteClause {
-  need: Need;
-  caps?: Caps;
-}
-
-function satisfiedAny(hand: Record<string, number>, clauses: BruteClause[]): boolean {
-  for (const c of clauses) if (satisfied(hand, c.need, c.caps)) return true;
-  return false;
-}
-
-/** Is this label still worth taking for at least one clause? Greedy policy, so
- * a LOWER bound on optimal play -- with several clauses that gap is real, since
- * committing toward one clause can cost draws another needed. */
-function wantedForAny(
-  label: string,
-  held: number,
-  clauses: BruteClause[],
-): boolean {
-  for (const c of clauses) {
-    const want = c.need[label];
-    if (want === undefined || held >= want) continue;
-    const cap = c.caps?.[label];
-    if (cap !== undefined && held + 1 > cap) continue;
-    return true;
-  }
-  return false;
-}
-
-function playOutDnf(
-  order: string[],
-  n: number,
-  effect: BruteEffect,
-  clauses: BruteClause[],
-  clairvoyant: boolean,
-): boolean {
-  interface Card { l: string; seen: boolean }
-  const bounded = clauses.some((c) => c.caps !== undefined);
-  const keepsEverything = effect.keepMax >= effect.examined && !effect.keptCostsDraw;
-
-  const resolve = (
-    deck: Card[], hand: Record<string, number>, keptIdx: number[], window: Card[],
-  ): void => {
-    const kept = window.filter((_, i) => keptIdx.includes(i));
-    const rejected = window.filter((_, i) => !keptIdx.includes(i));
-    if (!effect.nonKeptLeavesPool) {
-      for (const c of rejected) c.seen = true;
-      deck.unshift(...rejected);
-    }
-    if (effect.keptCostsDraw) {
-      for (const c of kept) c.seen = true;
-      deck.unshift(...kept);
-    } else {
-      for (const c of kept) hand[c.l] = (hand[c.l] ?? 0) + 1;
-    }
-  };
-
-  // Greedy: iterative, mutating one deck array. Copying the deck per card (as
-  // the clairvoyant search must) is far too slow to run over every ordering.
-  if (!clairvoyant) {
-    const deck: Card[] = order.map((l) => ({ l, seen: false }));
-    const hand: Record<string, number> = {};
-    let scheduled = n;
-    while (scheduled > 0 && deck.length > 0) {
-      if (satisfiedAny(hand, clauses) && !bounded) return true;
-      const card = deck.shift()!;
-      scheduled--;
-      if (!(card.l === effect.group && !card.seen)) {
-        hand[card.l] = (hand[card.l] ?? 0) + 1;
-        continue;
-      }
-      const window = deck.splice(0, effect.examined);
-      const keptIdx: number[] = [];
-      window.forEach((c, i) => {
-        if (keptIdx.length >= effect.keepMax) return;
-        const held = (hand[c.l] ?? 0) + keptIdx.filter((j) => window[j]!.l === c.l).length;
-        if (keepsEverything || wantedForAny(c.l, held, clauses)) keptIdx.push(i);
-      });
-      resolve(deck, hand, keptIdx, window);
-    }
-    return satisfiedAny(hand, clauses);
-  }
-
-  function rec(deck: Card[], hand: Record<string, number>, scheduled: number): boolean {
-    const okNow = satisfiedAny(hand, clauses);
-    if (okNow && !bounded) return true;
-    if (scheduled <= 0 || deck.length === 0) return okNow;
-    const rest = [...deck];
-    const card = rest.shift()!;
-    if (!(card.l === effect.group && !card.seen)) {
-      const h2 = { ...hand };
-      h2[card.l] = (h2[card.l] ?? 0) + 1;
-      return rec(rest, h2, scheduled - 1);
-    }
-    const window = rest.splice(0, effect.examined);
-    const subsets: number[][] = [[]];
-    for (let i = 0; i < window.length; i++) {
-      for (const sub of [...subsets]) if (sub.length < effect.keepMax) subsets.push([...sub, i]);
-    }
-    for (const sub of subsets) {
-      const deck2 = rest.map((c) => ({ ...c }));
-      const hand2 = { ...hand };
-      resolve(deck2, hand2, sub, window.map((c) => ({ ...c })));
-      if (rec(deck2, hand2, scheduled - 1)) return true;
-    }
-    return false;
-  }
-
-  return rec(order.map((l) => ({ l, seen: false })), {}, n);
-}
-
-/** OR-aware brute force. `clairvoyant` picks keeps with the rest of the deck
- * visible (upper bound); otherwise a greedy policy (lower bound). */
-export function bruteSelectionDnfP(
-  counts: Record<string, number>,
-  n: number,
-  effect: BruteEffect,
-  clauses: BruteClause[],
-  clairvoyant = false,
-): number {
-  const labels = Object.keys(counts);
-  const remaining: Record<string, number> = { ...counts };
-  const total = labels.reduce((s, l) => s + counts[l]!, 0);
-  let weighted = 0;
-  let arrangements = 0;
-  const order: string[] = [];
-
-  function recurse(depth: number): void {
-    if (depth === total) {
-      arrangements++;
-      if (playOutDnf(order, n, effect, clauses, clairvoyant)) weighted++;
       return;
     }
     for (const l of labels) {

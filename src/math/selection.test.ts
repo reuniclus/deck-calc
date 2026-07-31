@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { evaluate } from './evaluate';
-import { bruteSelectionDnfP, bruteSelectionP, bruteSelectionUpperP } from './bruteSelection';
+import {
+  bruteSelectionDnfP, bruteSelectionDnfUpperP, bruteSelectionP, bruteSelectionUpperP,
+} from './bruteSelection';
 import {
   assertDrawShaped, drawEffect, exactDrawCurve, exactDrawCurveUnsplit,
   exactScryCurveSingleGroup, exactSelectionCurveAnd, exactSelectionCurveDnf,
@@ -458,8 +460,13 @@ describe('OR of clauses', () => {
       // n kept small: the clairvoyant search branches over every keep subset at
       // every window for every ordering, so it is the expensive side by far.
       for (const n of [2, 3]) {
-        const greedy = bruteSelectionDnfP(counts, n, be(eff), bclauses, false);
-        const clair = bruteSelectionDnfP(counts, n, be(eff), bclauses, true);
+        const greedy = bruteSelectionDnfP(counts, n, be(eff), bclauses);
+        // Separate function rather than a boolean flag on the same one: the
+        // greedy and clairvoyant policies are different instruments (lower vs
+        // upper bound), and a trailing `true` had already been misread once as
+        // the unrelated `cascade` flag, silently comparing the DP against a
+        // LOWER bound in a place that wanted the upper one.
+        const clair = bruteSelectionDnfUpperP(counts, n, be(eff), bclauses);
         expect(dp[n]!).toBeGreaterThanOrEqual(greedy - 1e-12);
         expect(dp[n]!).toBeLessThanOrEqual(clair + 1e-12);
       }
@@ -499,5 +506,44 @@ describe('the slot DP is the fast path for draw-shaped effects', () => {
     const slot = exactDrawCurve(dnf, { A, K }, N, C, E, 7);
     const heavy = exactSelectionCurveDnf(N, [A, K], [[{ lo: 1 }, { lo: 0, hi: 0 }]], drawEffect('C', E), C, 7);
     for (let n = 0; n <= 7; n++) expect(slot[n]!).toBeCloseTo(heavy[n]!, 12);
+  });
+});
+
+describe('optionalResolve: casting is a choice', () => {
+  // Raised from real play: a deck that MUST run a brick (Brilliant Fusion at 3
+  // copies needing its Garnet) still wants to cast the copy, while a generic
+  // draw spell would simply be declined. The model forced resolution, which is
+  // what made drawing look strictly worse than doing nothing.
+  const N = 12, A = 3, K = 2, C = 2, E = 2;
+  const brick = [[{ lo: 1 }, { lo: 0, hi: 0 }]];
+  const baseline = evaluate(N, { A, K }, {
+    clauses: [{ A: { lo: 1, hi: A }, K: { lo: 0, hi: 0 } }], monotone: false,
+  }).curve;
+
+  it('never hurts, and lifts drawing back above doing nothing', () => {
+    const must = exactSelectionCurveDnf(N, [A, K], brick, drawEffect('C', E), C, 7);
+    const opt = exactSelectionCurveDnf(N, [A, K], brick, { ...drawEffect('C', E), optionalResolve: true }, C, 7);
+    for (let n = 0; n <= 7; n++) expect(opt[n]!).toBeGreaterThanOrEqual(must[n]! - 1e-12);
+    // The headline correction: forced resolution put draw BELOW the no-effect
+    // baseline (0.163 vs 0.292 at n=5); declining restores it above.
+    expect(must[5]!).toBeLessThan(baseline[5]!);
+    expect(opt[5]!).toBeGreaterThanOrEqual(baseline[5]! - 1e-12);
+  });
+
+  it('changes nothing for scry, which could already refuse', () => {
+    const must = exactSelectionCurveDnf(N, [A, K], brick, scryEffect('C', E), C, 7);
+    const opt = exactSelectionCurveDnf(N, [A, K], brick, { ...scryEffect('C', E), optionalResolve: true }, C, 7);
+    for (let n = 0; n <= 7; n++) expect(opt[n]!).toBe(must[n]!);
+  });
+
+  it('is exactly inert for monotone queries', () => {
+    // Resolving is never a mistake when every card is welcome, so the option has
+    // to be worth precisely zero -- a difference here would mean the max is
+    // picking up something it shouldn't.
+    for (const eff of [drawEffect('C', E), scryEffect('C', E), impulseEffect('C', E)]) {
+      const must = exactSelectionCurveDnf(N, [A], [[{ lo: 2 }]], eff, C, 7);
+      const opt = exactSelectionCurveDnf(N, [A], [[{ lo: 2 }]], { ...eff, optionalResolve: true }, C, 7);
+      for (let n = 0; n <= 7; n++) expect(opt[n]!).toBe(must[n]!);
+    }
   });
 });

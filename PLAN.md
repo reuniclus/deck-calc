@@ -1717,3 +1717,86 @@ Also worth noting from the mixed brick/payoff analysis (3 enablers, 1 garnet,
 +0.9pt by 12 draws, crossing to harmful around 13. Bricks make draws worse only
 once the payoff saturates -- so the advisor's useful output is the CROSSOVER draw
 count, not "avoid draw effects" and not going dark.
+
+### OR of clauses, optional casting, and a real perf wall (2026-07-30)
+
+**OR done.** `exactSelectionCurveDnf` takes a full DNF (OR of clauses, each an
+AND of per-group bounds); `exactSelectionCurveAnd` is now the single-clause case
+delegating to it. This is the shape the app already produces -- two combos ARE an
+OR -- so it was the gate on anything reaching the UI, not an extra mode.
+
+OR costs state rather than concepts, for three nameable reasons: a group in two
+clauses must be tracked to the higher `lo`; folding into the filler pool now
+needs EVERY live clause to be done with the group; and busting stops pruning,
+since exceeding one clause's bound is survivable when another tolerates it.
+A dead clause stays dead (counts only rise), so aliveness is recomputed rather
+than carried in the state.
+
+One correctness subtlety specific to OR: a draw-shaped effect must take a SINGLE
+FORCED branch, not a max over subsets. Under one AND clause the distinction is
+invisible (taking more never hurts when it doesn't bust), but across clauses a
+partial take can satisfy a clause the full window busts -- and drawing cannot
+decline, so offering the choice would overstate it.
+
+**`optionalResolve`, from a real-play objection.** The model forced every drawn
+copy to resolve, which is what made drawing look strictly worse than doing
+nothing under a brick query. But casting is a choice: a deck that must run a
+brick (Brilliant Fusion at 3 copies, needing its Garnet) still casts the copy,
+while a generic draw spell just wouldn't be cast. With declining allowed --
+decided BEFORE the window is revealed, since that's when the choice really
+happens -- at n=5 on the brick query:
+
+| | must resolve | optional | no effect |
+|---|---|---|---|
+| draw 2 | 0.163 | 0.295 | 0.292 |
+| scry 2 | 0.339 | 0.339 | 0.292 |
+
+Drawing is no longer below the baseline, and scry is UNCHANGED because refusal
+was already available to it. For monotone queries the flag is worth exactly 0.0
+(resolving is never a mistake when every card is welcome), which is pinned with
+`toBe` rather than a tolerance. Default stays false, matching what the brute
+force plays, so the exactness checks keep their meaning.
+
+Correction to record: the earlier claim that "bounded curves decrease, so the
+advisor must go dark for bounded queries" was too coarse. A mixed query rises
+and then TURNS OVER, and the advisor should change its MESSAGE at that point
+("draws past turn N cost more brick risk than they gain") rather than go silent.
+The right test is empirical -- compute the curve and look for the turnover --
+not structural. `frontier.ts` keeps its up-set gate, which is a different
+property.
+
+**Perf wall, measured.** Two clauses sharing groups:
+
+| case | draw | scry |
+|---|---|---|
+| 40 cards, 2 clauses | 47ms | 195ms |
+| 60 cards, 2 clauses | 131ms | 1626ms |
+| 60 cards, 2 clauses + brick | 162ms | **16511ms** |
+
+Draw shapes stay cheap everywhere (single forced branch, no window
+maximization). The look shapes are what explode, and OR + brick + scry at 16.5s
+is unusable even in a worker. Both folding blockers stack there: the brick can
+never fold, and each clause still wants the other group.
+
+So the honest boundary today: single clause is fine, OR with draw effects is
+fine, OR with look effects is borderline at 60 cards, and OR + bounds + look
+effects is out of reach. Options, in increasing order of work: restrict which
+combinations the UI offers a selection-adjusted number for; forward-formulate
+the DP so error-bounded pruning becomes possible (recorded earlier, still
+unstarted); or add a Monte Carlo fallback for the heavy corner.
+
+**Monte Carlo, analyzed properly.** Not a perf win at the precision this app
+displays: ~1e6 samples for +-0.05pt is seconds in JS, the same order as the DP's
+worst case. And MC needs a POLICY, while optimal play is exactly what the DP
+computes, so sampling a greedy policy yields a lower bound rather than the
+answer. Its two real uses: validation at REALISTIC deck sizes (the brute force
+caps out around 12 cards, so nothing currently checks a 99-card deck end to
+end -- a genuine hole), and honest fallback coverage for the heavy corner,
+reported as a policy lower bound with a confidence interval, never as an exact
+value.
+
+**An About page is now justified** and its content already exists in this file:
+which shapes are exact vs bracketed, the no-cascading assumption priced at up to
++15pt for ponder, why looking beats drawing under a brick, and that casting is
+modeled as optional. This matches the project's convention of stating modeling
+limits in the UI rather than only in the repo.
