@@ -2162,3 +2162,55 @@ inversion needs to handle truncated windows explicitly.
 Practical upshot: the fast method is weakest precisely where look sizes are large
 ("look at the top 7" style effects), on top of the non-monotone sign problem. It
 remains valid only for capped-keep effects (impulse), which is where it shipped.
+
+### Terminology (because it kept getting muddled)
+
+- **exact DP** -- `exactSelectionCurveDnf` / `...And` / `...SingleGroup` in
+  selection.ts. Sequential dynamic program, one card at a time, state = (pool
+  composition, cards in hand, draws left, window credits), optimal play by
+  backward induction. Exact; the reference implementation.
+- **slot DP** -- `slotDistribution` / `exactDrawCurve`. Tracks only WHERE triggers
+  land and no card composition, which is what makes draw-shaped effects cheap and
+  cacheable. Powers the live cantrips card.
+- **modified-query method** -- `modifiedQuery.ts`. `hold = seen - ditched`:
+  enumerate window contents, shift the query bounds by whatever was ditched,
+  weight by hypergeometric, average. Shipped for CAPPED-KEEP effects (impulse)
+  only. Its scry variant remains a prototype and is not committed.
+- **brute force** -- `bruteSelection.ts`. Plays out every distinct deck ordering
+  with real mechanics; `bruteSelectionUpperP` is the clairvoyant variant used to
+  bound optimizers. Test-only, limited to ~12-card decks.
+
+### The stacked-deck oracle: the DP's strongest validation yet (2026-07-30)
+
+Construction: fill every non-query slot with a scry-100 cantrip. Then for a query
+needing T pieces, the answer is known analytically -- P equals the NO-SCRY base
+rate for n <= T, and exactly 1 for n >= T+1. Reasoning: below the threshold,
+spending a draw to cast the cantrip costs precisely the draw you needed, so
+selection cannot help; at T+1 every ordering wins, because a cantrip stacks the
+deck and the remaining draws collect the pieces.
+
+**The exact DP passes all 26 checks across four deck configurations to 1e-9**,
+including the sharp discontinuity at exactly T+1 and the six-decimal base-rate
+match below it. This probes a regime the brute force cannot reach (look size 100,
+deck stuffed with cantrips) against an analytically known answer, so it shares no
+implementation with the thing under test. It simultaneously confirms three
+mechanics: kept cards really do cost draws, bottomed cards really do leave the
+pool, and the optimal-play max really does find the stack-the-deck line.
+
+**It also exposed a bug in the modified-query method** -- correct everywhere
+except at exactly n = T, where it returns 1.000000 against a base rate of 0.0316
+and 0.0035 (errors of 96.8pt and 99.7pt). Cause: at n = T the method draws the
+cantrip (one draw), keeps T pieces, and computes `sched - spent = -1`, which
+clamps to 0 while the kept cards stay SECURED -- crediting keeps there were never
+draws to collect. The DP avoids this structurally (`taken = min(a, min(keepMax,
+d))`).
+
+Note the earlier no-keeps test could not have caught this: with no keeps, clamping
+never fires. Two tests, two disjoint blind spots.
+
+Capping keeps at available draws fixes the oracle case, but is INERT for the
+general error (+0.819pt stays +0.819pt, +2.516pt stays +2.516pt at n=15), because
+`spent > sched` essentially never occurs at ordinary look sizes. So the method has
+two independent defects: a clamping bug that is catastrophic when it fires and
+invisible otherwise, and the trigger-feedback error that is always present and
+still unfixed.
