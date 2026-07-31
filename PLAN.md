@@ -2094,3 +2094,36 @@ sizes (only S=3 measured, so the 2S reading may be coincidence), other deck
 sizes, and the BRICK queries -- those were excluded here because their curve is
 non-monotone and cannot be inverted, so they need the correction applied directly
 and the residual measured instead.
+
+### ...and why the effective-draws correction still does not reach the hard corner (2026-07-30)
+
+Validated the `d ~= 2S * keeps / n` correction beyond the family it was fitted
+on. It fails twice.
+
+| config | raw error | after correction |
+|---|---|---|
+| 60c S=1 monotone | 0.385pt | 0.225pt (better) |
+| 60c S=2 monotone | 0.647pt | 0.129pt (better) |
+| 60c S=4 monotone | 0.773pt | **-0.439pt** (overshoots) |
+| 40c S=3 monotone | 1.032pt | **-0.495pt** (overshoots) |
+| 60c S=2 BRICK | 1.292pt | **1.597pt** (worse) |
+| 60c S=3 BRICK | 1.742pt | **2.478pt** (worse) |
+| 40c S=3 BRICK | 2.494pt | **3.788pt** (worse) |
+
+1. **`2S` was a coincidence of S=3 / N=60.** It overshoots at S=4 and at N=40, so
+   the true coefficient depends on look size and deck size in a way that was not
+   characterized. Anyone re-deriving it should note that `d*n/keeps = 2S` is
+   TRUE BY CONSTRUCTION once d is defined that way -- that identity is circular
+   and must not be mistaken for confirmation, which it briefly was here.
+2. **Wrong sign on non-monotone queries, structurally.** Fewer effective draws
+   HELPS a brick query (less chance of drawing the brick), so shifting n down
+   pushes the estimate further up -- the same direction as the existing error.
+   The correction therefore cannot work where the curve is not increasing in
+   draws, which is exactly the hard corner.
+
+Net for the whole scry line of attack: the reframing was a real insight about the
+MONOTONE regime (the defect there is a shift in effective draws, flat in n and
+linear in copies, and a correction gets within ~0.13-0.23pt), but the hard corner
+is non-monotone by definition and stays on the exact DP. Three separate fast-path
+attempts have now failed on it -- pooled-budget max, cap bumping, and
+effective-draw correction -- each for a different and now-documented reason.
