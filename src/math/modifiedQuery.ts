@@ -20,15 +20,22 @@
  *   2. keeps are chosen knowing every window's contents at once, rather than
  *      one window at a time as the draw unfolds.
  *
- * ACCURACY (vs the exact DP), and it depends on the draw horizon as much as on
- * the deck: +0.02pt on a 60-card two-clause brick query with 8 copies of a
- * look-3 at 15 draws, but +0.20pt on the SAME query at 10 draws. More draws
- * dilute the idealization, since a pooled keep budget matters less when there
- * is time to draw the pieces anyway. It also degrades on small dense decks
- * (+0.47pt at 40 cards / 8 relevant / look 4, +0.76pt at 12 cards), where the
- * pooled budget bites hardest -- and those are exactly the cases the exact DP
- * handles cheaply, so the intended split is: exact DP when affordable, this
- * when not, with the horizon checked as well as the deck.
+ * ACCURACY -- corrected 2026-07-30 after running the standard validation table
+ * (`modifiedQuery.report.test.ts`). An earlier version of this comment claimed
+ * "+0.02pt, comfortably inside the 0.1pt bar", which was the OR-plus-brick row
+ * alone. Across the extremes of every parameter that scales the error:
+ *
+ *   EXACT: no copies; keepMax >= look size (nothing is ever ditched); a query
+ *          needing only 1 (never more than one missing piece, so impulse IS
+ *          draw); a single copy.
+ *   WITHIN BAR: bounded/brick queries (+0.073pt one clause, +0.022pt OR) and
+ *          long horizons (+0.082pt at 20 draws).
+ *   OUT OF BAR: every plain monotone config -- +0.288pt at look 2, +0.546pt at
+ *          8 copies, +0.737pt at look 5, and worst +0.750pt at only 6 draws.
+ *
+ * So it is trustworthy where it is USED (bounded queries the DP finds expensive)
+ * and not a general-purpose substitute. Cost has the same shape: slower than the
+ * exact DP everywhere except the OR-plus-brick corner (3070ms vs 14467ms).
  *
  * NOT for scry-shaped effects. With `keepMax` unbounded the aggregate budget is
  * far too permissive (+3.3pt), and a fixed keep-everything-needed rule still

@@ -2367,3 +2367,42 @@ the earlier "not a fast path" claim.
 
 Accuracy is unchanged by any of this: still 8 of 10 configs outside the 0.1pt bar,
 worst +2.61pt at low draw counts.
+
+### The impulse method's shipped accuracy claim was cherry-picked too (2026-07-30)
+
+Ran the standard table on `modifiedQuery.ts` (the shipped impulse path). It had
+been documented as "+0.02pt, comfortably inside the 0.1pt bar" -- a figure taken
+from the OR-plus-brick configuration alone, which is the same cherry-picking error
+as the scry speed claim, this time in shipped documentation.
+
+| config | exact | method | d | verdict | cand | ref |
+|---|---|---|---|---|---|---|
+| degenerate, 0 copies | 0.646312 | 0.646312 | +0.000pt | EXACT | 2ms | 1ms |
+| keepMax >= look (no ditching) | 0.837712 | 0.837712 | +0.000pt | EXACT | 5474ms | 129ms |
+| need=1 | 0.978245 | 0.978245 | -0.000pt | EXACT | 3744ms | 118ms |
+| copies=1 | 0.674007 | 0.674007 | +0.000pt | EXACT | 31ms | 10ms |
+| copies=8 | 0.829658 | 0.835123 | +0.546pt | OUT | 3100ms | 140ms |
+| look=2 | 0.787851 | 0.790734 | +0.288pt | OUT | 1908ms | 83ms |
+| look=5 | 0.880130 | 0.887500 | +0.737pt | OUT | 3774ms | 158ms |
+| draws=6 | 0.407866 | 0.415367 | **+0.750pt** | OUT | 2313ms | 47ms |
+| draws=20 | 0.986172 | 0.986992 | +0.082pt | WITHIN BAR | 3230ms | 156ms |
+| 1 clause + brick | 0.289097 | 0.289827 | +0.073pt | WITHIN BAR | 1486ms | 630ms |
+| OR + brick | 0.302373 | 0.302592 | +0.022pt | WITHIN BAR | 3070ms | 14467ms |
+| oracle impulse-100, at threshold | 1.000000 | 1.000000 | +0.000pt | EXACT | | |
+| oracle impulse-100, below threshold | 0.000000 | 0.000000 | +0.000pt | EXACT | | |
+
+Four EXACT rows are real results and worth keeping: no copies, `keepMax >= look`
+(nothing is ever ditched), `need=1` (never more than one missing piece, so impulse
+IS draw), and a single copy.
+
+Impulse has its own analytic oracle, distinct from scry's: impulse keeps are FREE
+(straight to hand), so with unlimited look every cast yields one chosen piece and
+P jumps to 1 at exactly `n = T` -- where scry needs `T+1`, because scry keeps cost
+a draw to collect. Both oracle rows pass. Note the at-threshold row alone does not
+discriminate (the true answer is 1.0, which is also what a broken trigger
+inversion returns -- precisely how the scry bug hid), so the below-threshold row
+where the answer is 0 was added alongside it.
+
+Corrected summary: trustworthy where it is USED (bounded queries, which are the
+expensive ones for the DP), out of bar on plain monotone queries by up to 0.75pt,
+and slower than the exact DP everywhere except the OR-plus-brick corner.
