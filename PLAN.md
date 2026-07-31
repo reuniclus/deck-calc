@@ -2290,3 +2290,49 @@ among the scheduled draws) and credit each window's keeps only against the draws
 that follow it. Cost estimate ~1.4k position splits at 4 triggers over 15 draws,
 so it will spend much of the remaining speedup -- but unlike the two corrections
 already in, it targets the mechanism that is actually left.
+
+### Running the standard table corrected two of my own claims (2026-07-30)
+
+First use of the standard validation format (CLAUDE.md #23) on the scry method,
+and it invalidated two things I had been repeating for several turns.
+
+**1. The worst case is low DRAW counts, not the OR+brick corner.** I kept calling
+OR+brick (+1.38pt) the worst because it was the configuration I kept re-testing.
+Sweeping the extremes of every error-scaling parameter shows 8 copies of a look-3
+over 6 draws at **+2.61pt** -- nearly double. Obvious once seen: with few draws,
+keeps consume a large FRACTION of them.
+
+**2. The method is not a fast path.** The both-times column shows it slower than
+the exact DP in four of five heavy configurations -- 3351 vs 181ms, 4469 vs 392ms,
+2310 vs 134ms, 2583 vs 1107ms -- and faster only on OR+brick (5533 vs 21931ms).
+The "74x faster" figure quoted earlier was the SINGLE-PASS version measured
+against the DP's single worst configuration. The fixed point costs 7-12 passes,
+and that corner happens to be cheap for the method while being the most expensive
+one for the DP. Comparing a candidate's best config against a reference's worst is
+precisely the error the standard was written to prevent, and it caught mine on the
+first run.
+
+Full table (60-card deck, A=10/B=6/brick=4 unless noted):
+
+| config | exact | method | d | verdict | cand | ref |
+|---|---|---|---|---|---|---|
+| degenerate, 0 copies | 0.646312 | 0.646312 | +0.000pt | EXACT | 4ms | 2ms |
+| no-keeps | 0.399028 | 0.399028 | +0.000pt | EXACT | 399ms | 222ms |
+| copies=1 | 0.671610 | 0.674011 | +0.240pt | OUT | 38ms | 15ms |
+| copies=8 | 0.814440 | 0.824312 | +0.987pt | OUT | 3351ms | 181ms |
+| look=1 | 0.715907 | 0.722088 | +0.618pt | OUT | 471ms | 93ms |
+| look=5 | 0.870841 | 0.878785 | +0.794pt | OUT | 4469ms | 392ms |
+| draws=6 | 0.374822 | 0.400914 | **+2.609pt** | OUT | 2310ms | 134ms |
+| draws=20 | 0.984207 | 0.985199 | +0.099pt | **WITHIN BAR** | 3033ms | 249ms |
+| 1 clause + brick | 0.303473 | 0.314931 | +1.146pt | OUT | 2583ms | 1107ms |
+| OR + brick | 0.332260 | 0.346023 | +1.376pt | OUT | 5533ms | 21931ms |
+| oracle (stacked deck) | 0.031579 | -- | -- | REFUSED | -- | -- |
+
+Mass is exactly 1.000000 on every row, and the method never comes in under the
+reference, consistent with it being a relaxation.
+
+**Consequence for the plan:** the scry fast path is not merely inaccurate, it is
+mostly not fast. Any further work on it needs to beat the exact DP on cost in
+configurations that are not the DP's worst case, which the fixed-point version
+does not. The remaining accuracy lead (cross-window timing) would also make it
+slower still. Worth weighing against simply running the exact DP in a worker.

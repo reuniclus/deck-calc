@@ -2,13 +2,25 @@
  * The modified-query method for SCRY-shaped effects (look at S, keep any on top,
  * bottom the rest -- keeps cost a future draw).
  *
- * NOT EXACT, and not yet inside the 0.1pt bar: worst measured residual is
- * 1.38pt (60-card deck, `(A>=2 & no brick) | (B>=2 & no brick)`, 8 copies of a
- * look-3, 15 draws) against 24s for the exact DP, which it runs ~40-70x faster
- * than. Exported for continued work, not for product use -- `exactSelectionCurveDnf`
- * remains the only shipping path for scry. Kept as a real module because it was
- * previously rebuilt from scratch inside throwaway test files six times over one
- * session, which made cross-variant comparisons unreliable.
+ * NOT EXACT and NOT CURRENTLY A FAST PATH. Both claims corrected by running the
+ * standard validation table (see `modifiedQueryScry.report.test.ts`):
+ *
+ *  - Accuracy: 8 of 10 measured configurations fall outside the 0.1pt bar. Worst
+ *    is +2.61pt at LOW DRAW COUNTS (8 copies of a look-3 over 6 draws), not the
+ *    OR-plus-brick corner (+1.38pt) that earlier notes called the worst -- few
+ *    draws means keeps steal a large fraction of them. Only a 20-draw config
+ *    lands in bar (+0.099pt).
+ *  - Cost: it is SLOWER than the exact DP in four of five heavy configurations
+ *    (3351ms vs 181ms, 4469ms vs 392ms, 2310ms vs 134ms, 2583ms vs 1107ms) and
+ *    faster only on the OR-plus-brick corner (5533ms vs 21931ms). The earlier
+ *    "74x faster" figure came from the single-pass version measured against the
+ *    DP's single worst configuration; the fixed-point iteration costs 7-12
+ *    passes, and that corner is cheap here while being expensive there.
+ *
+ * So this is a research module: `exactSelectionCurveDnf` is the only shipping path
+ * for scry, and is also the FASTER one nearly everywhere. Kept as a real file
+ * because it was previously rebuilt from scratch inside throwaway test files six
+ * times in one session, which made cross-variant comparisons unreliable.
  *
  * The identity it rests on: `hold = seen - ditched`. Whatever a look effect made
  * you let go simply shifts the query -- lower bounds and brick caps alike.
