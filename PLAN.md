@@ -2776,3 +2776,39 @@ common case of a single brick group.
 Worth attempting again with that memoisation, because the accuracy is already
 there (-0.03 to -0.19pt from greedy alone) and this addresses the only reason the
 recursion loses to the DP on bounded queries.
+
+### Second tail-handoff attempt: memoisation fixed the cost, but the handoff is WRONG (2026-07-30, reverted)
+
+Retried the bounded-query early exit with the two fixes the first attempt needed:
+a SINGLE closed-form pass rather than the fixed point (keeps are zero in the tail,
+so iterating is pure waste) and MEMOISATION on the tail state (pool, draws left,
+residual bounds -- never the path taken).
+
+The memoisation worked: state counts fell to 1388-9708. The handoff itself is
+wrong.
+
+| case | recursed tail | handoff |
+|---|---|---|
+| `A>=2 & brick<=0`, 8 draws | -0.097pt, 316ms | -0.161pt, 7395ms |
+| `A>=2 & brick<=0`, 15 draws | -0.136pt, 5707ms | **-1.906pt**, 106744ms |
+| `A>=2 & brick<=2`, 15 draws | -0.030pt, 13523ms | **-17.627pt**, 125306ms |
+
+-17.6pt is a broken equivalence, not a policy cost. Slower too, because each
+distinct tail state still runs a closed-form pass and there are thousands of them.
+
+**The reasoning error, stated plainly:** "no keeps implies the closed form is
+exact" was verified only FROM THE START of the process, with a pure `brick<=0`
+query and no lower bounds anywhere. I assumed it transferred to entering
+mid-process with an arbitrary remaining pool and a RESIDUAL bound. It does not,
+and the failure grows with the draw horizon (-0.16 at 8 draws, -1.91 at 15), which
+suggests the tail's trigger accounting diverges the longer it runs rather than a
+one-off translation slip.
+
+Do not retry without first testing the equivalence in isolation: take a
+mid-process state, compute its continuation with the recursion and with a
+closed-form pass on the residual query, and check they agree BEFORE wiring it into
+anything. Both attempts so far skipped that step and both failed, in different
+ways.
+
+Standing position unchanged: bounded queries are exact-DP territory. The recursion
+wins on monotone (exact, 2-5x faster) and unbounded OR (2.4x faster, -0.097pt).
