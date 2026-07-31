@@ -3193,3 +3193,41 @@ enumerates the ditch vector WITHOUT conditioning the remainder of the prefix.
 Immediate tell if attempted: total mass. If the weights do not sum to 1.000000 the
 conditioning is wrong, and one run reveals it -- far cheaper than discovering it from
 a wrong answer, which is how the first attempt went.
+
+### Prefix-form MQ attempted: mass 1.18, and the reason is structural (2026-07-30)
+
+Built it as specified -- enumerate (triggers, copies-in-windows, total keeps) so the
+prefix length is fixed, draw the prefix composition from the FIXED pool, split each
+group positionally between fresh draws and window slots, derive keeps from the split
+and partition on K. No `evaluate` calls at all.
+
+Two runs, both caught by the mass check before any accuracy claim:
+
+1. **mass 19-86** -- positional split miscounted: `comb(freshLeft, v)` (choosing
+   POSITIONS) where it needed `comb(x_g, v)` (choosing which of that group's CARDS
+   land in fresh slots). Fixed.
+2. **mass 1.18-1.22** -- structural, and the reason the whole approach is not
+   well-posed as specified.
+
+**The structural problem:** `L = (n - K) + t*S` depends on `K`, which is an OUTCOME.
+So summing probabilities computed over different-length prefixes is not a partition
+-- "prefix of length 14 has composition X" and "prefix of length 15 has composition
+Y" are overlapping statements about card sets, not disjoint events. Filtering on K
+partitions the KEEPS but not the sample space, because each K carries its own prefix
+length. Same obstruction that cost the one-shot joint 5-8% of its mass, arriving from
+the other side: under-counting there, over-counting here.
+
+**Why `cheapTail` is exact and this is not:** with `K = 0` the prefix length is fixed
+by the slot structure alone, so no circularity arises and the events genuinely are
+disjoint. The tail is not a lucky special case -- it is the only case where the prefix
+form is well-posed without further work.
+
+**What a correct general version needs:** configuration probabilities counted as
+FRACTIONS OF ORDERINGS rather than as prefix-composition events. That is precisely
+what the per-trigger recursion does by construction, since stepping never requires a
+prefix length up front. So the prefix form's appeal -- a fixed pool, no evaluate calls
+-- comes at the cost of needing the very sequencing it was meant to avoid.
+
+Not a dead end necessarily: if the ordering-count can be written in closed form for
+each (t, q, K) configuration, the fixed pool and the absent evaluate calls would still
+make it cheap. But it is a counting problem, not the reformulation it looked like.
