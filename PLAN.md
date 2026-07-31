@@ -2846,3 +2846,40 @@ That is now the third independent route to CLAUDE.md #21 -- an upper bound remov
 early exit, and early exit is what every fast method here buys its speed with. The
 closed form could not express keep timing; the recursion cannot absorb success; and
 query editing cannot manufacture absorption. Three mechanisms, one wall.
+
+### Correction: the tail equivalence is EXACT; the earlier conclusion was wrong (2026-07-30)
+
+Two entries above record that handing the bounded tail to the closed form produced
+-1.9pt and -17.6pt, and conclude the equivalence itself was broken. **That
+conclusion was wrong.** Tested in isolation at last -- the step both attempts
+skipped and this file already said to do first -- the closed form is EXACT for pure
+upper-bound queries, on six configurations, to floating point:
+
+| pool | brick cap | copies | draws | exact DP | closed form |
+|---|---|---|---|---|---|
+| 56 | <=0 | 8 | 12 | 0.36960168 | 0.36960168 |
+| 56 | <=0 | 8 | 8 | 0.52977211 | 0.52977211 |
+| 56 | <=2 | 8 | 12 | 0.97229709 | 0.97229709 |
+| 56 | <=1 | 8 | 15 | 0.71107299 | 0.71107299 |
+| 40 | <=0 | 6 | 10 | 0.41093117 | 0.41093117 |
+| 30 | <=1 | 4 | 8 | 0.83448276 | 0.83448276 |
+
+Pinned as `tailEquivalence.test.ts` so the claim is defended by a test rather than
+by prose.
+
+**The real bug** was a group with no upper bound being passed as `hi = rem[g]`.
+That looks vacuous and is not: `evaluate` counts ACQUIRED cards, so a bound of
+`rem` silently caps what the tail may draw. Passing no `hi` at all fixes it, and
+accuracy then matches the recursed version exactly (-0.0968, -0.1359, -0.0295).
+
+**But the handoff still is not worth wiring in**, for a different reason than
+claimed before: it is SLOWER. States fall as intended (31606 -> 4248) while each
+tail call runs a full closed-form pass -- window enumeration plus many `evaluate`
+calls -- which costs far more than the recursion steps it replaces: 4663ms /
+61210ms / 135204ms against 316ms / 3754ms / 12274ms. Reverted on cost, not on
+correctness.
+
+So the CLAUDE.md #21 framing stands but one leg of it was wrong: query editing CAN
+express the bounded tail exactly. What it cannot do is make it cheap. Absorption
+under a bound remains available in principle and unaffordable in practice, which is
+a weaker and more accurate statement than "three mechanisms, one wall".
