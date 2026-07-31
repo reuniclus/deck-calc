@@ -2812,3 +2812,37 @@ ways.
 
 Standing position unchanged: bounded queries are exact-DP territory. The recursion
 wins on monotone (exact, 2-5x faster) and unbounded OR (2.4x faster, -0.097pt).
+
+### Bricks as an enumeration constraint rather than tracked state (2026-07-30)
+
+Applied the closed-form spirit -- handle the brick as a constraint instead of state
+-- to the recursion's enumeration: a group no live clause tolerates (`hi = 0`
+everywhere) can only ever be zero in a surviving path, so fresh-draw branches
+containing one are skipped instead of computed and discarded.
+
+Strictly free: identical accuracy to the digit (those branches contribute exactly
+zero), less enumeration.
+
+| case | before | after | d (unchanged) |
+|---|---|---|---|
+| `A>=2 & brick<=0`, 15 draws | 5707ms | 3754ms | -0.136pt |
+| `A>=2 & brick<=2`, 15 draws | 13523ms | 12274ms | -0.030pt |
+| OR + brick, 15 draws | 115527ms | 90819ms | -0.188pt |
+
+1.3-1.5x, which does not change the verdict: bounded queries remain 5-6x slower
+than the exact DP.
+
+**What query editing cannot do, recorded because it was asked for directly and the
+reasoning matters:** in the closed-form method, raising a cap by the ditched count
+works because that method never tracks state -- the entire seen population is
+scored once at the end, so the edit is the only place the information can live. The
+recursion already tracks what is in hand, so a bottomed brick simply never enters
+`acq` and no edit is needed. What an edit CANNOT do is restore absorbing success:
+absorption means returning 1 early, and with `brick<=0` the remaining draws still
+carry real brick risk because draws are forced. No cap adjustment removes a risk
+that is actually there.
+
+That is now the third independent route to CLAUDE.md #21 -- an upper bound removes
+early exit, and early exit is what every fast method here buys its speed with. The
+closed form could not express keep timing; the recursion cannot absorb success; and
+query editing cannot manufacture absorption. Three mechanisms, one wall.

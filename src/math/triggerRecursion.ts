@@ -156,6 +156,13 @@ export function triggerRecursionDnf(
   const caps = counts.map((n, g) => Math.min(n, Math.max(
     ...clauses.map((_, ci) => (hi[ci]![g]! >= n ? lo[ci]![g]! : Math.min(n, hi[ci]![g]! + 1))),
   )));
+  /** A group that no live clause tolerates at all (`hi = 0` everywhere it is
+   * bounded) can only ever be zero in a surviving path. Enumerating fresh-draw
+   * branches that contain one is pure waste -- they contribute exactly zero -- so
+   * those branches are skipped rather than computed and discarded. Free: no
+   * accuracy change, strictly less enumeration. This is the brick handled as a
+   * CONSTRAINT on the enumeration rather than as tracked state. */
+  const forbidden = counts.map((_, g) => clauses.every((_cl, ci) => hi[ci]![g]! === 0));
   const ids = counts.map((_, i) => `g${i}`);
   const dnf: Dnf = {
     clauses: clauses.map((cl) => {
@@ -276,7 +283,9 @@ export function triggerRecursionDnf(
           walkWin(0, w, 1);
           return;
         }
-        const maxTake = Math.min(rem[gi]!, left);
+        // A forbidden group drawn into hand kills every clause, so only the
+        // zero branch can survive.
+        const maxTake = forbidden[gi] ? 0 : Math.min(rem[gi]!, left);
         for (let t = 0; t <= maxTake; t++) {
           freshComp[gi] = t;
           walkFresh(gi + 1, left - t, ways * comb(rem[gi]!, t));
