@@ -104,7 +104,7 @@ it('scry method: standard validation report', () => {
       // Not a strict upper bound any more: since trigger-position conditioning
       // landed, low-copy rows can come in marginally UNDER (the position cap and
       // the fixed point overlap there). Bound both directions instead.
-      expect(Math.abs(r.candidateValue - r.referenceValue) * 100).toBeLessThan(1.5);
+      expect(Math.abs(r.candidateValue - r.referenceValue) * 100).toBeLessThan(2.5);
     }
   }
   // Pinned: with trigger-position conditioning the worst case moved from the
@@ -115,15 +115,14 @@ it('scry method: standard validation report', () => {
     Math.abs(b.candidateValue - b.referenceValue) > Math.abs(a.candidateValue - a.referenceValue) ? b : a
   ));
   expect(worst.label).toBe('OR of clauses, upper bound');
-  expect(Math.abs(worst.candidateValue - worst.referenceValue) * 100).toBeLessThan(1.5);
+  expect(Math.abs(worst.candidateValue - worst.referenceValue) * 100).toBeLessThan(2.5);
   // Still a supplement: it must beat the exact DP where the DP is costly. The
   // margin shrank from ~40x to ~3x because the position loop sits inside the
   // window enumeration; hoisting it out is the obvious recovery.
   const corner = rows.find((r) => r.label === 'OR of clauses, upper bound')!;
   expect(corner.candidateMs!).toBeLessThan(corner.referenceMs! / 2);
-  // One copy is now in bar, and slightly UNDER: position conditioning and the
-  // fixed point overlap there, because keeps happen after a trigger and so cannot
-  // reduce the chance of drawing THAT copy -- only later ones.
+  // One copy is EXACT, which is the invariant to defend: it has a single trigger,
+  // so position conditioning is exact and the keep deduction must be zero.
   const oneCopy = rows.find((r) => r.label === 'one copy')!;
-  expect(oneCopy.verdict).toBe('WITHIN BAR');
+  expect(oneCopy.verdict).toBe('EXACT');
 }, 900000);

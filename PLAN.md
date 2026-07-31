@@ -2492,3 +2492,48 @@ Next leads, in order: hoist the position loop (pure speed, no accuracy change);
 make the fixed point apply only to copies AFTER the first trigger, which should
 remove the overlap and may restore exactness at low copy counts; then consider
 conditioning on later trigger positions for the remaining over-credit.
+
+### Making one copy exact made six rows worse: two errors were cancelling (2026-07-30)
+
+Chased the obvious question -- why is one copy only WITHIN BAR (-0.011pt) rather
+than EXACT? Two defects, and fixing the second exposed the first at full size.
+
+**Defect (provably wrong in isolation):** the fixed point deducted the whole keep
+total from the trigger opportunities, feeding `slotDistribution(draws - keeps)`.
+But keeps happen AFTER a cast, so they cannot affect the copy that caused them.
+With a single copy at library position p, `keeps <= draws - p` guarantees
+`p <= draws - keeps`, so the copy is drawn whenever `p <= draws` and the deduction
+must be ZERO. Only keeps collected BEFORE a trigger can stop you reaching it; with
+`t` triggers in uniform order that is `keeps*(t-1)/(2t)` on average.
+
+One copy is now EXACT. Every other row got worse:
+
+| case | before | after |
+|---|---|---|
+| one copy | -0.011 | **+0.000 EXACT** |
+| many copies | +0.606 | +0.978 |
+| smallest look | +0.493 | +0.464 |
+| largest look | +0.180 | +0.902 |
+| fewest draws | +1.054 | +1.466 |
+| most draws | +0.077 (in bar) | +0.139 (out) |
+| one clause + bound | +1.085 | +1.527 |
+| OR + bound | +1.302 | **+2.138** |
+
+**Why: the spurious deduction was masking the first-trigger cap's optimism.**
+Capping ALL keeps by the FIRST trigger's position is optimistic, because keeps
+belonging to a later trigger have fewer draws behind them. Over-deducting trigger
+opportunities pushed values down by roughly the same amount, and the two errors
+cancelled at moderate copy counts. The remaining over-credit was always this
+large; it simply could not be seen.
+
+Kept the fix rather than reverting. It is correct in isolation, and restoring a
+known-wrong term to flatter the table is the compensating fudge these conventions
+exist to prevent. Recorded so nobody reads the worse numbers as a regression.
+
+**Next, and now clearly the single remaining mechanism:** cap keeps PER TRIGGER
+rather than by the first. Exact position enumeration over t triggers is
+combinatorial, but the per-trigger marginals are closed-form order statistics
+(`C(p-1,i-1)*C(draws-p,t-i)/C(draws,t)` for the i-th of t), so each trigger's
+keeps can be capped by its own expected remaining draws without enumerating the
+joint. That should remove the last over-credit, and one copy must stay exact
+under it, since a single trigger is its own first and last.

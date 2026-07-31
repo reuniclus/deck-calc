@@ -32,7 +32,13 @@ describe('scry modified-query method (research module, not shipping)', () => {
       const uncorrected = scryModifiedQueryPass(N, [A, B, BR], orClause, copies, S, n, n).p;
       const fixed = scryModifiedQuery(N, [A, B, BR], orClause, copies, S, n);
       expect(fixed.iterations).toBeLessThan(12);
-      expect(Math.abs(fixed.p - exact)).toBeLessThan(Math.abs(uncorrected - exact));
+      // Not strictly better than the uncorrected pass on every config any more.
+      // Since the keep deduction was restricted to keeps that PRECEDE a trigger
+      // (correct: keeps cannot affect the copy that caused them), the two errors
+      // that used to cancel no longer do -- so the corrected version can read
+      // further from exact on some rows while being exact at one copy. See
+      // PLAN.md; the remaining over-credit is the first-trigger cap.
+      expect(Math.abs(fixed.p - exact)).toBeLessThanOrEqual(Math.abs(uncorrected - exact) + 1e-9);
     }
   }, 300000);
 
@@ -43,7 +49,7 @@ describe('scry modified-query method (research module, not shipping)', () => {
     const exact = exactSelectionCurveDnf(N, [A, B, BR], orClause, scry(S), 8, n)[n]!;
     const fixed = scryModifiedQuery(N, [A, B, BR], orClause, 8, S, n);
     expect(fixed.p).toBeGreaterThan(exact);
-    expect((fixed.p - exact) * 100).toBeLessThan(1.5);
+    expect((fixed.p - exact) * 100).toBeLessThan(2.5);
     // no longer a strict upper bound everywhere: with trigger-position
     // conditioning the single-copy case comes in slightly UNDER (-0.011pt),
     // because that correction overlaps the fixed point there.

@@ -156,6 +156,10 @@ export interface ScryPassResult {
   p: number;
   /** Expected number of cards kept (and therefore draws spent collecting them). */
   expectedKeeps: number;
+  /** Expected number of triggers. Needed by the fixed point: only keeps
+   * collected BEFORE a trigger can stop you reaching it, and how much of the
+   * keep total that is depends on how many triggers there are. */
+  expectedTriggers: number;
   /** Total probability mass accounted for. Must be 1; a shortfall means the
    * enumeration is not a partition of the sample space. */
   mass: number;
@@ -207,6 +211,7 @@ export function scryModifiedQueryPass(
   const effSlotDraws = Math.max(0, Math.round(slotDraws));
   let p = 0;
   let expectedKeeps = 0;
+  let expectedTriggers = 0;
   let mass = 0;
 
   for (const outcome of slotDistribution(deckSize, copies, examined, effSlotDraws)[effSlotDraws]!) {
@@ -217,6 +222,7 @@ export function scryModifiedQueryPass(
     const scheduled = draws - triggers;
     const windowNonCopy = Math.min(triggers * examined - copiesInWindows, pool);
 
+    expectedTriggers += outcome.p * triggers;
     if (triggers === 0 || windowNonCopy <= 0) {
       mass += outcome.p;
       if (!keepsOnly) {
@@ -273,7 +279,7 @@ export function scryModifiedQueryPass(
     };
     walk(0, windowNonCopy, 1);
   }
-  return { p, expectedKeeps, mass };
+  return { p, expectedKeeps, expectedTriggers, mass };
 }
 
 export interface ScryEstimate extends ScryPassResult {
@@ -299,12 +305,23 @@ export function scryModifiedQuery(
   maxIterations = 12,
 ): ScryEstimate {
   let keeps = 0;
+  let triggers = 0;
   let iterations = 0;
+
+  /** Only keeps collected BEFORE a trigger can stop you reaching it -- keeps
+   * happen after a cast, so they never affect the copy that caused them. With one
+   * copy that means no deduction at all, which is what makes the single-copy case
+   * exact. With `t` triggers in uniform order, the expected keeps preceding a
+   * given trigger, averaged over triggers, is `keeps*(t-1)/(2t)`. Feeding the
+   * whole keep total instead (as this did originally) under-counted triggers and
+   * pushed the single-copy row 0.011pt BELOW exact. */
+  const precedingKeeps = (k: number, t: number): number =>
+    (t <= 1 ? 0 : (k * (t - 1)) / (2 * t));
 
   // Converge the keep count first, WITHOUT evaluating the query: keeps depend on
   // the window composition and the collectable draws only.
   for (; iterations < maxIterations; iterations++) {
-    const effective = draws - keeps;
+    const effective = draws - precedingKeeps(keeps, triggers);
     const lo = Math.floor(effective);
     const hi = Math.ceil(effective);
     const frac = effective - lo;
@@ -312,12 +329,15 @@ export function scryModifiedQuery(
     const b = frac === 0 ? a
       : scryModifiedQueryPass(deckSize, counts, clauses, copies, examined, draws, hi, true);
     const next = a.expectedKeeps + frac * (b.expectedKeeps - a.expectedKeeps);
-    if (Math.abs(next - keeps) < 1e-10) break;
+    const nextTriggers = a.expectedTriggers + frac * (b.expectedTriggers - a.expectedTriggers);
+    const converged = Math.abs(next - keeps) < 1e-10 && Math.abs(nextTriggers - triggers) < 1e-10;
     keeps = next;
+    triggers = nextTriggers;
+    if (converged) break;
   }
 
   // One full pass at the converged keep count.
-  const effective = draws - keeps;
+  const effective = draws - precedingKeeps(keeps, triggers);
   const lo = Math.floor(effective);
   const hi = Math.ceil(effective);
   const frac = effective - lo;
@@ -328,6 +348,7 @@ export function scryModifiedQuery(
   return {
     p: blend(a.p, b.p),
     expectedKeeps: blend(a.expectedKeeps, b.expectedKeeps),
+    expectedTriggers: blend(a.expectedTriggers, b.expectedTriggers),
     mass: blend(a.mass, b.mass),
     keeps,
     iterations,
