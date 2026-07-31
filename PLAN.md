@@ -1861,3 +1861,34 @@ cleanup is retroactively credited to the turn-3 draws. The fix is to condition
 on trigger POSITIONS and credit each window's bottoming only to the draws that
 follow it (~1.4k position splits at t<=4, n=15, so it would spend much of the
 74x). Not attempted yet.
+
+### Scry timing leak: subtraction tried, overshoots; leak localized to trigger count (2026-07-30)
+
+Tested the proposed correction -- multiply by P(no brick drawn before the first
+trigger), those draws being ones no scry could have protected. Measured on the
+wall query (exact DP = 0.332260):
+
+| variant | value | vs exact |
+|---|---|---|
+| removal, no fix | 0.357416 | +2.52pt |
+| removal + subtraction | 0.266175 | **-6.61pt** |
+| removal, no fix, ONE copy | 0.294418 | +0.22pt |
+
+The subtraction DOUBLE-PENALIZES. The removal model already fails outright when
+a brick reaches a scheduled slot (the cap stays 0 and nothing forgives it), so
+multiplying by P(no early brick) strips mass that was never counted as success
+in the first place. The intent was to remove wrongly-KEPT successes; the
+multiplicative form removes all early-brick mass instead.
+
+The one-copy row localizes the actual leak: +0.22pt with a single trigger versus
++2.52pt with eight. So it scales with the NUMBER OF TRIGGERS, which rules out
+the keep rule and confirms cross-window aggregation -- every window's cards are
+purged from the pool at once, so windows retroactively clean up each other's
+earlier draws. One window has nothing to cross-contaminate, and the error nearly
+disappears.
+
+Next attempt, if scry is picked up again: the same correction applied
+PER-TRIGGER rather than as a global factor -- condition on trigger positions and
+purge each window forward only. That removes exactly the wrongly-kept mass. Cost
+estimate stands at ~1.4k position splits for t<=4, n=15, which would spend much
+of the current 74x speedup.
