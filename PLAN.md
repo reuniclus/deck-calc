@@ -1923,3 +1923,70 @@ is draw-shaped in the settled taxonomy. Someone entering Preordain is really
 scrying, and draw dominates scry on monotone queries, so the card is an upper
 bound for those cards. Splitting `bonus` into an effect-shape selector is a UI
 change, still not scoped.
+
+### Cantrips-in-the-builder: backlog after the 2026-07-30 session
+
+Focus narrowed to cantrip work only. Everything below is deliberately parked,
+with the state needed to resume.
+
+**BACKLOGGED — grid removal.** Reconsidering GridTab's existence entirely: it
+invites the manual trial-and-error the tool is supposed to replace, its maxima
+would need multidimensional visualization to be readable, and the advisor's
+suggestions already answer its question better. Removing it would also delete a
+whole performance class -- the query-DEPENDENT selection DP that cannot cache
+across rows -- so it simplifies the selection integration more than it looks.
+
+**BACKLOGGED — mulligan gap.** `optimalMulligan*` grants no window credits, so a
+cantrip in the opening hand is invisible to it. reveal.ts already unified the
+primitive this would build on, making it the cleaner of the two gaps. Do the
+verification audit on the way in: its tests use `toBeCloseTo` against a
+hand-rolled brute force, and per CLAUDE.md #20 an optimizer cannot be validated
+by equality against a fixed policy -- confirm the brute force enumerates optimal
+keeps rather than a greedy one, or the tests prove less than they appear to.
+
+**BACKLOGGED — advisor gap.** Bigger than wiring: `frontier.ts` calls `boxCurve`
+directly and has no route to the selection engines, so its feasibility test needs
+rewriting rather than plumbing. It is also monotone-only, so a deck with a brick
+cannot use it at all today -- meaning "advisor + bricks + selection" is the same
+hard corner in different clothing. Needs a decision on what the advisor does for
+non-monotone decks before it can be scoped.
+
+**BACKLOGGED — preset UX/IA.** Presets named after real cards (Draw 1, Preordain,
+Ponder, Impulse) rather than raw mechanical axes. Raised as UX-first, to be
+reviewed before information architecture is defined. Note the rail row grows from
+one field (count) to four (count, shape, look size, keep count), which is the
+main layout consequence.
+
+**STILL OPEN, NOT FIXED — scry with bricks and OR.** Correcting an
+optimistic summary: this was NOT solved by the subtraction/multiplication
+attempt. Measured, wall query:
+
+| variant | vs exact | time |
+|---|---|---|
+| removal, no correction | +2.52pt | 371ms |
+| removal + multiplicative subtraction | **-6.61pt** | 297ms |
+| exact DP | -- | 11-26s |
+
+The subtraction double-penalizes: the removal model already fails outright when a
+brick reaches hand, so scaling by P(no early brick) removes mass that was never
+counted. The one-copy diagnostic (+0.22pt vs +2.52pt at eight copies) localizes
+the real leak to cross-window aggregation, and the fix it implies -- per-trigger
+positional conditioning, purging each window forward only -- has not been
+attempted. Until then the exact DP is the only correct path for that corner.
+
+**NEXT, AND THE ONLY ACTIVE ITEM — composite effect shapes.** Presets exposed a
+real gap: every interesting cantrip is a COMPOSITE, and the engine models one
+shape per effect.
+
+| card | actually is | expressible today |
+|---|---|---|
+| Divination | draw X | yes |
+| Impulse | look 4, exile-keep 1 | yes |
+| Preordain | scry 1 + draw 1 | NO |
+| Ponder | look 3 reorder-or-shuffle + draw 1 | NO |
+| Serum Visions | draw 1 + scry 2 | NO |
+
+Not cosmetic: pure scry's kept card costs a FUTURE draw, while Preordain's own
+draw collects it immediately at no cost. Same "scry 1", materially different
+value. So presets need a scry(S)+draw(D) composite in the engine before any UI
+can name real cards honestly.
