@@ -2175,10 +2175,28 @@ remains valid only for capped-keep effects (impulse), which is where it shipped.
 - **slot DP** -- `slotDistribution` / `exactDrawCurve`. Tracks only WHERE triggers
   land and no card composition, which is what makes draw-shaped effects cheap and
   cacheable. Powers the live cantrips card.
-- **modified-query method** -- `modifiedQuery.ts`. `hold = seen - ditched`:
-  enumerate window contents, shift the query bounds by whatever was ditched,
-  weight by hypergeometric, average. Shipped for CAPPED-KEEP effects (impulse)
-  only. Its scry variant remains a prototype and is not committed.
+- **modified-query method** (sometimes sloppily called "the closed form" in later
+  entries -- prefer this name) -- `modifiedQuery.ts` for impulse,
+  `modifiedQueryScry.ts` for scry. `hold = seen - ditched`: whatever a look effect
+  made you let go simply shifts the query, so enumerate what the windows contained,
+  shift the bounds, weight hypergeometrically, average. Computed by FORMULA rather
+  than by stepping through the process, which is what "closed form" was gesturing
+  at -- though it is not a single expression, so the name misleads.
+- **per-trigger recursion** -- `triggerRecursion.ts`. Answers the question "where is
+  the next cantrip?" repeatedly: find it within the remaining draws (negative
+  hypergeometric), resolve its window, spend the draws its kept cards cost, remove
+  the window from the pool, recurse for the one after. Stops when no cantrip remains
+  within the draw budget, and the leftover draws are scored by ordinary
+  hypergeometry. SEQUENTIAL, which is why each trigger knows its own position --
+  that is what removed the position corrections the modified-query method needed.
+- **cheap tail** -- `cheapTail.ts`. A formula for the END of a bounded query
+  ("tail" = the final stretch). Once every piece you needed is in hand, nothing is
+  worth keeping, so the only open question is whether a brick reaches your hand
+  before the game ends. No keeps means no draws are spent collecting, so the rest of
+  the process is plain draw-and-bottom and collapses to: how many bricks are among
+  the cards you will see, and did each land in a slot you DRAW from (bad) or one a
+  cantrip BOTTOMS (harmless). "Cheap" because it replaces a recursion with a
+  formula.
 - **brute force** -- `bruteSelection.ts`. Plays out every distinct deck ordering
   with real mechanics; `bruteSelectionUpperP` is the clairvoyant variant used to
   bound optimizers. Test-only, limited to ~12-card decks.
