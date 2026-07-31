@@ -2748,3 +2748,31 @@ has been buying its speed with. Two independent approaches have now hit the same
 wall from opposite directions -- the closed form could not express keep timing, and
 the recursion cannot absorb success. That is worth treating as a property of the
 problem rather than of either implementation.
+
+### Restoring early exit for bounded queries: right idea, wrong wiring (2026-07-30, reverted)
+
+Diagnosis of why bounded queries are 3-7x slower in the recursion: TWO causes, and
+only one is intrinsic.
+
+1. An extra group dimension (the brick) multiplies the state space. Unavoidable --
+   the pool composition genuinely matters.
+2. Absorbing success was removed WHOLESALE, which is overkill. Once every `lo` of a
+   clause is met, nothing is needed any more, so no keep can ever happen again --
+   and that is exactly the no-keeps regime the closed-form method computes EXACTLY
+   (one of its two exact rows). The tail does not need recursing at all.
+
+Attempted: hand the tail to `scryModifiedQuery` at the point where all `lo` bounds
+are met. **Reverted -- it hangs.** The handoff fires once per STATE, and each call
+runs its own multi-pass fixed point, so ~31k states become tens of thousands of
+full sub-computations. Idea sound, wiring catastrophic.
+
+What a correct version needs: the tail depends only on `(rem, remC, remO, d)` and
+the residual bounds -- NOT on the path taken to get there, and not on `acq` beyond
+the residual. So it must be memoised on that key and computed once per distinct
+tail state, not once per visit. Better still, the tail is the same object for many
+states, so it could be precomputed as a small table over `(remC, d)` for the
+common case of a single brick group.
+
+Worth attempting again with that memoisation, because the accuracy is already
+there (-0.03 to -0.19pt from greedy alone) and this addresses the only reason the
+recursion loses to the DP on bounded queries.
