@@ -547,3 +547,89 @@ describe('optionalResolve: casting is a choice', () => {
     }
   });
 });
+
+describe('extreme cases and analytic oracles', () => {
+  const scryEff = (S: number) => ({
+    group: 'C', examined: S, keepMax: Infinity, keptCostsDraw: true, nonKeptLeavesPool: true,
+  });
+
+  describe('stacked-deck oracle', () => {
+    // Fill every non-query slot with a scry-100. The answer is then known
+    // analytically: for a query needing T pieces, P equals the NO-SCRY base rate
+    // while draws <= T, and exactly 1 once draws >= T+1.
+    //
+    // Below the threshold, spending a draw to cast the cantrip costs precisely
+    // the draw you needed, so unlimited selection cannot help. At T+1 every
+    // ordering wins: a cantrip stacks the deck and the remaining draws collect
+    // the pieces; a piece drawn first leaves you one closer with a cantrip still
+    // able to finish.
+    //
+    // This probes a regime the brute force cannot reach (look size 100, deck
+    // stuffed with cantrips) against an answer derived independently of any code
+    // here, so it shares no implementation with what it tests. It simultaneously
+    // pins three mechanics: kept cards really cost draws, bottomed cards really
+    // leave the pool, and the optimal-play max really finds the stack-the-deck
+    // line.
+    for (const [deck, pieces, need] of [[20, 4, 2], [20, 4, 3], [20, 6, 2]] as const) {
+      it(`deck=${deck} pieces=${pieces} need=${need}`, () => {
+        const copies = deck - pieces;
+        const base = evaluate(deck, { A: pieces }, {
+          clauses: [{ A: { lo: need, hi: pieces } }], monotone: true,
+        }).curve;
+        const dp = exactSelectionCurveDnf(
+          deck, [pieces], [[{ lo: need }]], scryEff(100), copies, need + 2,
+        );
+        for (let n = 0; n <= need + 2; n++) {
+          const expected = n <= need ? base[n]! : 1;
+          expect(dp[n]!).toBeCloseTo(expected, 9);
+        }
+      }, 60000);
+    }
+  });
+
+  it('saturates once the look size covers the reachable pool', () => {
+    // Beyond the pool there is nothing further to see, so more looking cannot
+    // help and success becomes purely draw-gated. A model that kept improving
+    // here would be inventing information.
+    //
+    // The threshold is the POOL (deck minus cantrip copies = 18 here), not some
+    // smaller number: at S=12 the value is still climbing (0.63745 vs 0.63844),
+    // so saturation is asserted only from S >= pool upward. Got this wrong first
+    // time by misreading a scratch run as saturating at S=12.
+    const N = 20, A = 4, BR = 2, copies = 2, n = 6;
+    const pool = N - copies;
+    const clauses = [[{ lo: 2 }, { lo: 0 }]];
+    const values = [pool, pool + 7, pool + 22].map(
+      (S) => exactSelectionCurveDnf(N, [A, BR], clauses, scryEff(S), copies, n)[n]!,
+    );
+    for (const v of values) expect(v).toBeCloseTo(values[0]!, 12);
+    // and it really was still improving below that threshold
+    const below = exactSelectionCurveDnf(N, [A, BR], clauses, scryEff(12), copies, n)[n]!;
+    expect(below).toBeLessThan(values[0]!);
+  }, 60000);
+
+  it('is unaffected by draws beyond the deck', () => {
+    // Asking for more draws than the deck holds must not add probability.
+    const dp = exactSelectionCurveDnf(12, [3], [[{ lo: 2 }]], drawEffect('C', 2), 2, 20);
+    for (let n = 12; n <= 20; n++) expect(dp[n]!).toBeCloseTo(dp[12]!, 12);
+  });
+
+  it('returns 0 when the query needs more copies than exist', () => {
+    const dp = exactSelectionCurveDnf(40, [3], [[{ lo: 4 }]], drawEffect('C', 3), 4, 15);
+    for (let n = 0; n <= 15; n++) expect(dp[n]!).toBe(0);
+  });
+
+  it('returns 1 at zero draws when the query demands nothing', () => {
+    const dp = exactSelectionCurveDnf(40, [8], [[{ lo: 0 }]], drawEffect('C', 3), 4, 5);
+    for (let n = 0; n <= 5; n++) expect(dp[n]!).toBe(1);
+  });
+
+  it('handles a deck that is entirely cantrips plus pieces', () => {
+    // No filler at all: every non-piece card triggers. Exercises the pool
+    // bookkeeping where the filler count is exactly zero.
+    const dp = exactSelectionCurveDnf(10, [3], [[{ lo: 1 }]], scryEff(2), 7, 4);
+    for (let n = 1; n <= 4; n++) expect(dp[n]!).toBeGreaterThan(0);
+    for (let n = 1; n <= 4; n++) expect(dp[n]!).toBeLessThanOrEqual(1);
+    expect(dp[4]!).toBeGreaterThanOrEqual(dp[1]!);
+  }, 60000);
+});

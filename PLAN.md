@@ -2148,10 +2148,13 @@ keeps-steal-draws defect is at its strongest. The exact model needs the cantrip
 drawn early enough to still have draws left to collect those keeps; the method's
 draw-shaped trigger accounting over-credits late cantrips.
 
-The exact column behaving as expected is worth noting: it saturates (0.63844 at
-S=12/16/18), i.e. beyond deck size more looking adds nothing and success becomes
-purely draw-gated. That is the correct limiting behaviour, so the DP passes the
-extreme-case sanity check even though the fast method does not.
+The exact column behaving as expected is worth noting: it saturates once the look
+size covers the reachable POOL (deck minus copies), after which more looking adds
+nothing and success becomes purely draw-gated. Correcting a misreading in the
+first version of this entry: saturation is at S >= 16 here, not S=12 -- at S=12
+the value is still climbing (0.63745 against the saturated 0.63844). The
+threshold is the pool size, not the deck size. Either way the DP passes the
+extreme-case sanity check while the fast method does not.
 
 **A separate BUG surfaced:** the brick row jumps 1.72pt (S=16) -> 11.36pt (S=18),
 a discontinuity rather than a trend. When `n + t*S` exceeds the deck the windows
