@@ -2555,7 +2555,32 @@ bolted on since has been a patch to that mismatch:
 These two errors were partly cancelling until 2026-07-30; removing the spurious
 one exposed the other at +2.138pt.
 
-**Replacement: a per-trigger recursion with closed-form hypergeometric
+**Preferred formulation (2026-07-30), which is the same recursion framed more
+usefully:** a trigger requires the cantrip IN HAND, which is `hold = seen -
+ditched` applied to the cantrip group itself. So the cantrip stops being special
+machinery and becomes just another tracked group, and the SAME query-shift and
+offset logic that handles resource groups computes how many triggers there are.
+`P(nth cantrip)` is the CDF of the negative-hypergeometric gap below -- the same
+object from the other side -- but this framing recycles machinery that already
+exists and is already verified instead of introducing a new distribution.
+
+What it must carry explicitly: the DRAW BUDGET between steps. `P(cantrip within n
+cards)` says whether, not when, and the keep cap needs when. Sequencing each step
+supplies it -- find the first cantrip, resolve its window, spend `kept` draws and
+remove the window from the pool, THEN ask for the next cantrip within the draws
+that remain. Position never has to be enumerated, because each step consumes a
+known budget before the next search, and that is exactly what removes both
+`precedingKeeps` and `firstTriggerPosition`.
+
+Both existing exactness invariants then hold BY CONSTRUCTION rather than by luck:
+one copy is a single step, reducing to the already-exact prototype; `nothing ever
+kept` spends no draws at any step, reducing to the plain curve.
+
+Single effect type only, which matches the whole scry path today. Multi-type is
+already solved for draw-shaped effects (`slotDistributionMulti`, used by the live
+cantrips card), so there is a precedent to follow.
+
+**Mechanism: a per-trigger recursion with closed-form hypergeometric
 transitions.** Not card-by-card (that is the exact DP) but trigger-by-trigger,
 and `t <= copies`, so roughly ten steps. The primitive is the NEGATIVE
 hypergeometric: given `c` copies among `m` pool cards, the number of non-copy
