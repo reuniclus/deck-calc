@@ -10,7 +10,7 @@ const scry = (S: number): SelectionEffect => ({
 const BAR = 0.001; // 0.1pt
 
 function row(
-  label: string, N: number, counts: number[], needs: string,
+  label: string, N: number, counts: number[], query: string,
   clauses: Array<Array<{ lo: number; hi?: number }>>, copies: number, S: number, n: number,
   reference: ValidationRow['reference'] = 'exact-dp',
 ): ValidationRow {
@@ -23,7 +23,8 @@ function row(
   const d = Math.abs(cand.p - ref);
   const verdict: ValidationRow['verdict'] = d < 1e-9 ? 'EXACT' : d <= BAR ? 'WITHIN BAR' : 'OUT OF BAR';
   return {
-    config: `${label} N=${N} ${needs} C=${copies}xlook${S} n=${n}`,
+    config: `${label}<br>N=${N} C=${copies}xlook${S} n=${n}`,
+    query,
     reference, referenceValue: ref, candidateValue: cand.p,
     mass: cand.mass, verdict, candidateMs: candMs, referenceMs: refMs,
   };
@@ -54,22 +55,22 @@ it('scry method: standard validation report', () => {
   rows.push(row('draws-min', N, [A, B, BR], 'A>=2', one, 8, 3, 6));
   rows.push(row('draws-max', N, [A, B, BR], 'A>=2', one, 8, 3, 20));
   // query shapes
-  rows.push(row('1cl+brick', N, [A, B, BR], 'A>=2,brick<=0', oneBrick, 8, 3, 15));
-  rows.push(row('OR+brick', N, [A, B, BR], 'A>=2|B>=2,brick<=0', orBrick, 8, 3, 15));
+  rows.push(row('1cl+brick', N, [A, B, BR], 'A>=2 & brick<=0', oneBrick, 8, 3, 15));
+  rows.push(row('OR+brick', N, [A, B, BR], '(A>=2 & brick<=0) | (B>=2 & brick<=0)', orBrick, 8, 3, 15));
 
   // mandatory: analytic oracle
   let oracle: ValidationRow;
   try {
     const r = scryModifiedQuery(20, [4], [[{ lo: 2 }]], 16, 100, 2);
     oracle = {
-      config: 'oracle stacked-deck N=20 A>=2 C=16xlook100 n=2',
-      reference: 'analytic', referenceValue: 0.031579, candidateValue: r.p,
+      config: 'oracle stacked-deck<br>N=20 C=16xlook100 n=2',
+      query: 'A>=2', reference: 'analytic', referenceValue: 0.031579, candidateValue: r.p,
       mass: r.mass, verdict: 'OUT OF BAR',
     };
   } catch (e) {
     oracle = {
-      config: 'oracle stacked-deck N=20 A>=2 C=16xlook100 n=2',
-      reference: 'analytic', referenceValue: 0.031579, candidateValue: NaN,
+      config: 'oracle stacked-deck<br>N=20 C=16xlook100 n=2',
+      query: 'A>=2', reference: 'analytic', referenceValue: 0.031579, candidateValue: NaN,
       verdict: e instanceof ScryInversionError ? 'REFUSED' : 'N/A REGIME',
     };
   }

@@ -41,9 +41,13 @@ export type Verdict =
   | 'N/A REGIME';
 
 export interface ValidationRow {
-  /** Compact, complete config: deck, group counts and needs, copies, look size,
-   * draws. Errors scale with these, so a row without them cannot be compared. */
+  /** Compact, complete config: deck, group counts, copies, look size, draws.
+   * Errors scale with these, so a row without them cannot be compared. */
   config: string;
+  /** The actual query, written out (`A>=2 & brick<=0`, `(A>=2) | (B>=2)`).
+   * Rendered on its own line inside the config cell: a label like "1cl+brick"
+   * says which case it is, but only the expression says what was asked. */
+  query?: string;
   reference: Reference;
   referenceValue: number;
   candidateValue: number;
@@ -62,6 +66,9 @@ export interface ValidationRow {
 const pt = (x: number): string => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(3)}`;
 const num = (x: number | undefined, digits: number): string =>
   x === undefined || Number.isNaN(x) ? '--' : x.toFixed(digits);
+/** An OR query contains a literal `|`, which splits a markdown cell in two and
+ * silently corrupts every column after it. Escape before emitting. */
+const cell = (text: string): string => text.replace(/\|/g, '\\|');
 
 /** Column headers, in fixed order. Emitted as a markdown table so reports can be
  * pasted or parsed rather than read as prose. */
@@ -74,7 +81,7 @@ export const VALIDATION_COLUMNS = [
 export function validationRow(r: ValidationRow): string {
   const delta = r.candidateValue - r.referenceValue;
   const cells = [
-    r.config,
+    cell(r.query === undefined ? r.config : `${r.config}<br>\`${r.query}\``),
     r.reference,
     num(r.referenceValue, 6),
     num(r.candidateValue, 6),
@@ -83,7 +90,7 @@ export function validationRow(r: ValidationRow): string {
     r.verdict,
     num(r.candidateMs, 0),
     num(r.referenceMs, 0),
-    r.circular === undefined ? '' : `CIRCULAR, not evidence: ${r.circular}`,
+    r.circular === undefined ? '' : cell(`CIRCULAR, not evidence: ${r.circular}`),
   ];
   return `| ${cells.join(' | ')} |`;
 }

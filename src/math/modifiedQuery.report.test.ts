@@ -6,7 +6,7 @@ import { exactSelectionCurveDnf, impulseEffect } from './selection';
 const BAR = 0.001; // 0.1pt
 
 function row(
-  label: string, N: number, counts: number[], needs: string,
+  label: string, N: number, counts: number[], query: string,
   clauses: Array<Array<{ lo: number; hi?: number }>>, copies: number, E: number, K: number, n: number,
   reference: ValidationRow['reference'] = 'exact-dp',
 ): ValidationRow {
@@ -19,7 +19,8 @@ function row(
   const d = Math.abs(cand - ref);
   const verdict: ValidationRow['verdict'] = d < 1e-9 ? 'EXACT' : d <= BAR ? 'WITHIN BAR' : 'OUT OF BAR';
   return {
-    config: `${label} N=${N} ${needs} C=${copies}xlook${E}keep${K} n=${n}`,
+    config: `${label}<br>N=${N} C=${copies}xlook${E}keep${K} n=${n}`,
+    query,
     reference, referenceValue: ref, candidateValue: cand,
     verdict, candidateMs: candMs, referenceMs: refMs,
   };
@@ -44,8 +45,8 @@ it('impulse method: standard validation report', () => {
   rows.push(row('look-max', N, [A, B, BR], 'A>=2', one, 8, 5, 1, 12));
   rows.push(row('draws-min', N, [A, B, BR], 'A>=2', one, 8, 3, 1, 6));
   rows.push(row('draws-max', N, [A, B, BR], 'A>=2', one, 8, 3, 1, 20));
-  rows.push(row('1cl+brick', N, [A, B, BR], 'A>=2,brick<=0', oneBrick, 8, 3, 1, 15));
-  rows.push(row('OR+brick', N, [A, B, BR], 'A>=2|B>=2,brick<=0', orBrick, 8, 3, 1, 15));
+  rows.push(row('1cl+brick', N, [A, B, BR], 'A>=2 & brick<=0', oneBrick, 8, 3, 1, 15));
+  rows.push(row('OR+brick', N, [A, B, BR], '(A>=2 & brick<=0) | (B>=2 & brick<=0)', orBrick, 8, 3, 1, 15));
 
   // analytic oracle: impulse keeps are FREE (straight to hand), so with unlimited
   // look every cast yields one chosen piece -- P = 0 below the needed count and
@@ -56,14 +57,14 @@ it('impulse method: standard validation report', () => {
   try {
     const v = modifiedQueryUpperBound(deck, [pieces], [[{ lo: need }]], deck - pieces, 100, 1, need);
     oracle = {
-      config: `oracle impulse-100 N=${deck} A>=${need} n=${need}`,
-      reference: 'analytic', referenceValue: 1, candidateValue: v,
+      config: `oracle impulse-100 at threshold<br>N=${deck} C=${deck - pieces}xlook100keep1 n=${need}`,
+      query: `A>=${need}`, reference: 'analytic', referenceValue: 1, candidateValue: v,
       verdict: Math.abs(v - 1) < 1e-9 ? 'EXACT' : 'OUT OF BAR',
     };
   } catch {
     oracle = {
-      config: `oracle impulse-100 N=${deck} A>=${need} n=${need}`,
-      reference: 'analytic', referenceValue: 1, candidateValue: NaN, verdict: 'REFUSED',
+      config: `oracle impulse-100 at threshold<br>N=${deck} C=${deck - pieces}xlook100keep1 n=${need}`,
+      query: `A>=${need}`, reference: 'analytic', referenceValue: 1, candidateValue: NaN, verdict: 'REFUSED',
     };
   }
   rows.push(oracle);
@@ -75,14 +76,14 @@ it('impulse method: standard validation report', () => {
   try {
     const v = modifiedQueryUpperBound(deck, [pieces], [[{ lo: need }]], deck - pieces, 100, 1, need - 1);
     oracleBelow = {
-      config: `oracle impulse-100 below threshold n=${need - 1}`,
-      reference: 'analytic', referenceValue: 0, candidateValue: v,
+      config: `oracle impulse-100 below threshold<br>N=${deck} C=${deck - pieces}xlook100keep1 n=${need - 1}`,
+      query: `A>=${need}`, reference: 'analytic', referenceValue: 0, candidateValue: v,
       verdict: Math.abs(v) < 1e-9 ? 'EXACT' : 'OUT OF BAR',
     };
   } catch {
     oracleBelow = {
-      config: `oracle impulse-100 below threshold n=${need - 1}`,
-      reference: 'analytic', referenceValue: 0, candidateValue: NaN, verdict: 'REFUSED',
+      config: `oracle impulse-100 below threshold<br>N=${deck} C=${deck - pieces}xlook100keep1 n=${need - 1}`,
+      query: `A>=${need}`, reference: 'analytic', referenceValue: 0, candidateValue: NaN, verdict: 'REFUSED',
     };
   }
   rows.push(oracleBelow);

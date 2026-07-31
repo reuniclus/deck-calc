@@ -50,6 +50,19 @@ describe('validation report format', () => {
     expect(table).toContain('MISSING: no degenerate row');
   });
 
+  it('escapes pipes so an OR query cannot corrupt the table', () => {
+    // `(A>=2) | (B>=2)` contains a literal cell separator; unescaped it splits
+    // the row and shifts every column after it.
+    const row = validationRow({
+      config: 'OR case', query: '(A>=2 & brick<=0) | (B>=2 & brick<=0)',
+      reference: 'exact-dp', referenceValue: 0.3, candidateValue: 0.31, verdict: 'OUT OF BAR',
+    });
+    expect(row).toContain('\\|');
+    // column count must survive: 10 columns => 11 splits on an unescaped pipe
+    const unescaped = row.split(/(?<!\\)\|/).length;
+    expect(unescaped).toBe(12); // leading + 10 cells + trailing
+  });
+
   it('refuses an empty report', () => {
     expect(() => validationTable('nothing', [])).toThrow();
   });
