@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { evaluate } from './evaluate';
-import { bruteSelectionP, bruteSelectionUpperP } from './bruteSelection';
+import { bruteSelectionDnfP, bruteSelectionP, bruteSelectionUpperP } from './bruteSelection';
 import {
   assertDrawShaped, drawEffect, exactDrawCurve, exactDrawCurveUnsplit,
-  exactScryCurveSingleGroup, exactSelectionCurveAnd, exactSelectionCurveSingleGroup,
+  exactScryCurveSingleGroup, exactSelectionCurveAnd, exactSelectionCurveDnf,
+  exactSelectionCurveSingleGroup,
   impulseEffect, ponderEffect,
   scryEffect, slotDistribution, UnsupportedSelectionError,
 } from './selection';
@@ -423,5 +424,80 @@ describe('upper bounds: bricks you do not want to draw', () => {
     const withHi = exactSelectionCurveAnd(N, [{ count: A, need: 2, hi: A }], scryEffect('C', E), C, 7);
     const without = exactSelectionCurveAnd(N, [{ count: A, need: 2 }], scryEffect('C', E), C, 7);
     for (let n = 0; n <= 7; n++) expect(withHi[n]!).toBe(without[n]!);
+  });
+});
+
+describe('OR of clauses', () => {
+  // query: (A>=1 AND B>=1) OR (D>=2)
+  const N = 12, A = 2, B = 2, D = 3, C = 2, E = 2;
+  const counts = { A, B, D, C, '': N - A - B - D - C };
+  const groupCounts = [A, B, D];
+  const clauses = [
+    [{ lo: 1 }, { lo: 1 }, undefined],
+    [undefined, undefined, { lo: 2 }],
+  ];
+  const bclauses = [{ need: { A: 1, B: 1 } }, { need: { D: 2 } }];
+  const be = (e: ReturnType<typeof drawEffect>) => ({
+    group: 'C', examined: e.examined, keepMax: e.keepMax,
+    keptCostsDraw: e.keptCostsDraw, nonKeptLeavesPool: e.nonKeptLeavesPool,
+  });
+
+  it('draw is exact (no choice to make)', () => {
+    const dp = exactSelectionCurveDnf(N, groupCounts, clauses, drawEffect('C', E), C, 6);
+    for (const n of [2, 3, 4]) {
+      expect(dp[n]!).toBeCloseTo(bruteSelectionDnfP(counts, n, be(drawEffect('C', E)), bclauses), 12);
+    }
+  }, 30000);
+
+  it('choice shapes stay inside the greedy/clairvoyant sandwich', () => {
+    // The greedy gap is visibly nonzero here (0.330 vs 0.358 at n=3), which is
+    // the point: with an OR, committing a card toward one clause spends draws
+    // another clause wanted, so the max is doing real work.
+    for (const eff of [scryEffect('C', E), impulseEffect('C', E), { ...ponderEffect('C', E), canShuffle: false }]) {
+      const dp = exactSelectionCurveDnf(N, groupCounts, clauses, eff, C, 6);
+      // n kept small: the clairvoyant search branches over every keep subset at
+      // every window for every ordering, so it is the expensive side by far.
+      for (const n of [2, 3]) {
+        const greedy = bruteSelectionDnfP(counts, n, be(eff), bclauses, false);
+        const clair = bruteSelectionDnfP(counts, n, be(eff), bclauses, true);
+        expect(dp[n]!).toBeGreaterThanOrEqual(greedy - 1e-12);
+        expect(dp[n]!).toBeLessThanOrEqual(clair + 1e-12);
+      }
+    }
+  }, 120000);
+
+  it('single-clause DNF reproduces the AND engine', () => {
+    const viaDnf = exactSelectionCurveDnf(12, [3], [[{ lo: 2 }]], scryEffect('C', 2), 2, 7);
+    const viaAnd = exactSelectionCurveAnd(12, [{ count: 3, need: 2 }], scryEffect('C', 2), 2, 7);
+    for (let n = 0; n <= 7; n++) expect(viaDnf[n]!).toBe(viaAnd[n]!);
+  });
+});
+
+describe('the slot DP is the fast path for draw-shaped effects', () => {
+  // A draw effect forces its whole window into hand, so nothing about the
+  // resulting hand distribution depends on the query -- which means the slot DP
+  // (no group dimensions, cached, query-independent) handles ANY query shape
+  // that evaluate() handles, including OR and upper bounds. That matters
+  // practically: the heavy engine needs ~25s for a 60-card OR query where this
+  // takes ~63ms, so draw-shaped effects must never be routed to the heavy path.
+  it('agrees with the heavy engine on an OR query', () => {
+    const N = 12, A = 2, B = 2, D = 3, C = 2, E = 2;
+    const dnf: Dnf = {
+      clauses: [{ A: { lo: 1, hi: A }, B: { lo: 1, hi: B } }, { D: { lo: 2, hi: D } }],
+      monotone: true,
+    };
+    const slot = exactDrawCurve(dnf, { A, B, D }, N, C, E, 6);
+    const heavy = exactSelectionCurveDnf(N, [A, B, D],
+      [[{ lo: 1 }, { lo: 1 }, undefined], [undefined, undefined, { lo: 2 }]],
+      drawEffect('C', E), C, 6);
+    for (let n = 0; n <= 6; n++) expect(slot[n]!).toBeCloseTo(heavy[n]!, 12);
+  });
+
+  it('agrees with the heavy engine on a brick query', () => {
+    const N = 12, A = 3, K = 2, C = 2, E = 2;
+    const dnf: Dnf = { clauses: [{ A: { lo: 1, hi: A }, K: { lo: 0, hi: 0 } }], monotone: false };
+    const slot = exactDrawCurve(dnf, { A, K }, N, C, E, 7);
+    const heavy = exactSelectionCurveDnf(N, [A, K], [[{ lo: 1 }, { lo: 0, hi: 0 }]], drawEffect('C', E), C, 7);
+    for (let n = 0; n <= 7; n++) expect(slot[n]!).toBeCloseTo(heavy[n]!, 12);
   });
 });

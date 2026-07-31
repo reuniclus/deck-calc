@@ -488,63 +488,91 @@ export interface TrackedGroup {
   hi?: number;
 }
 
+/** One group's bounds within a clause. `hi` defaults to the group's count
+ * (no upper bound). `{ lo: 0, hi: 0 }` is a brick you must not draw. */
+export interface Bound {
+  lo: number;
+  hi?: number;
+}
+
+/** A clause: bounds per group index, positionally. A missing entry means the
+ * clause doesn't care about that group. */
+export type SelectionClause = Array<Bound | undefined>;
+
 /**
- * All four effect shapes against an AND of thresholds over SEVERAL tracked
- * groups ("2 lands AND 1 combo piece by turn T").
+ * All four effect shapes against a full DNF -- an OR of clauses, each clause an
+ * AND of per-group bounds. This is the general entry point; `exactSelectionCurveAnd`
+ * is the single-clause case and delegates here.
  *
- * The new thing here versus the single-group engine is that the keep decision
- * becomes a genuine CHOICE: a window holding a land and a combo piece, with an
- * effect that can only take one, is a real optimization -- so this maximizes
- * over every legal commit vector rather than applying a rule. "Take the one you
- * lack" and "take the rarer one" are OUTPUTS of that max, never encoded.
- * reveal.ts's doc comment flags exactly this as the caller's job, which is why
- * it lives here rather than in the primitive.
+ * OR is not a new concept for the model (the keep-choice max already covers
+ * "which clause am I pursuing", since it maximizes over commit vectors and the
+ * value function evaluates every clause), but it does cost state, and the
+ * reasons are worth naming:
+ *   - a group appearing in two clauses with different `lo` has to be tracked to
+ *     the HIGHER one, so caps rise;
+ *   - a group can only be folded into the filler pool when EVERY still-alive
+ *     clause is both satisfied in it and unbounded on it -- with several clauses
+ *     that's rarer, and folding is the main speedup;
+ *   - busting can no longer prune: exceeding one clause's upper bound is fine if
+ *     another clause tolerates it, so a forced draw that kills clause 1 has to
+ *     keep going for clause 2. The single-clause path lost its early bust-exit
+ *     as a result, which is a real cost paid for generality.
  *
- * Cards reaching hand count toward the query whether or not you wanted them --
- * so "acquired" means in hand, and the choice is only about what goes there.
- * Pool counts are tracked SEPARATELY from acquired counts, because an impulse
- * that can take one card exiles the rest: those copies leave the pool without
- * ever being acquired (the bug that overstated impulse before it was split).
- *
- * Scope: AND of `>=` thresholds only. An OR needs the same max but over a state
- * that can pursue different clauses, and an upper bound ("exactly 1") breaks the
- * success-absorbs property this relies on, since drawing MORE can un-satisfy a
- * query. Both are recorded as open in PLAN.md rather than approximated here.
+ * A dead clause stays dead (acquired counts only rise), so aliveness is
+ * monotone and can be recomputed cheaply instead of carried in the state.
  */
-export function exactSelectionCurveAnd(
+export function exactSelectionCurveDnf(
   deckSize: number,
-  groups: TrackedGroup[],
+  groupCounts: number[],
+  clauses: SelectionClause[],
   effect: SelectionEffect,
   copies: number,
   maxDraws: number,
 ): Curve {
-  const G = groups.length;
-  const hiOf = (g: TrackedGroup): number => g.hi ?? g.count;
-  const unbounded = groups.map((g) => hiOf(g) >= g.count);
-  /** How high each group's in-hand count has to be tracked: to `need` when it
-   * can't bust, to `hi` when it can (anything beyond is an immediate failure,
-   * so it never gets stored). */
-  const caps = groups.map((g, i) => (unbounded[i]! ? g.need : hiOf(g)));
-  const anyBounded = unbounded.some((u) => !u);
-  const trackedTotal = groups.reduce((s, g) => s + g.count, 0);
+  const G = groupCounts.length;
+  const C = clauses.length;
+  if (C === 0) throw new UnsupportedSelectionError('a query needs at least one clause');
+  const trackedTotal = groupCounts.reduce((a, b) => a + b, 0);
   const others0 = deckSize - trackedTotal - copies;
   if (others0 < 0) throw new UnsupportedSelectionError('group counts exceed the deck');
+
+  // lo/hi matrices, and per-clause "nothing can bust this" flags.
+  const lo: number[][] = [];
+  const hi: number[][] = [];
+  const clauseUnbounded: boolean[] = [];
+  for (let c = 0; c < C; c++) {
+    const rowLo: number[] = [];
+    const rowHi: number[] = [];
+    let unbounded = true;
+    for (let g = 0; g < G; g++) {
+      const b = clauses[c]![g];
+      rowLo.push(b?.lo ?? 0);
+      const h = b?.hi ?? groupCounts[g]!;
+      rowHi.push(h);
+      if (h < groupCounts[g]!) unbounded = false;
+    }
+    lo.push(rowLo);
+    hi.push(rowHi);
+    clauseUnbounded.push(unbounded);
+  }
+  // How high each group's in-hand count must be tracked: enough to test every
+  // clause's lower bound, plus one past any upper bound so busting is visible.
+  const caps: number[] = [];
+  for (let g = 0; g < G; g++) {
+    let cap = 0;
+    for (let c = 0; c < C; c++) {
+      cap = Math.max(cap, lo[c]![g]!);
+      if (hi[c]![g]! < groupCounts[g]!) cap = Math.max(cap, Math.min(groupCounts[g]!, hi[c]![g]! + 1));
+    }
+    caps.push(cap);
+  }
+
   const { examined, keepMax, keptCostsDraw, nonKeptLeavesPool } = effect;
   const canShuffle = effect.canShuffle ?? false;
-  // Numeric mixed-radix state keys, not strings: at two groups the state count
-  // reaches millions, and string building plus per-transition array copies
-  // dominated the runtime (7.5s for a 60-card deck before this change).
+
   const radices: number[] = [];
-  for (let i = 0; i < G; i++) radices.push(groups[i]!.count + 1, caps[i]! + 1);
-  // The filler field must be sized for the FOLDED maximum, not `others0`:
-  // canonicalizing a satisfied group moves its copies into the filler pool, so
-  // remO can exceed others0. Sizing it at others0+1 made distinct states
-  // collide in the memo and silently returned another state's value -- caught
-  // by the brute force immediately, but it would have been invisible without.
+  for (let g = 0; g < G; g++) radices.push(groupCounts[g]! + 1, caps[g]! + 1);
   radices.push(copies + 1, others0 + trackedTotal + 1, maxDraws + 1);
-  // Dense memo when the packed key space is small enough to allocate, sparse
-  // Map otherwise. Same keys either way, so this is purely a lookup-cost
-  // change: a Float64Array indexed by the packed key beats hashing it.
   const stateSpace = radices.reduce((a, b) => a * b, 1);
   const dense = stateSpace <= 8_000_000;
   const denseVal = dense ? new Float64Array(stateSpace) : null;
@@ -571,29 +599,45 @@ export function exactSelectionCurveAnd(
     return key;
   };
 
-  /** rem: copies of each tracked group left in the pool. acq: how many of each
-   * are in hand, capped at that group's need (beyond it, they only matter as
-   * pool composition, which `rem` already carries). */
-  function V(rem: number[], remC: number, remO: number, acq: number[], sLeft: number): number {
-    let done = true;
-    for (let g = 0; g < G; g++) if (acq[g]! < groups[g]!.need) { done = false; break; }
-    // Success absorbs ONLY when nothing left in the deck can still bust the
-    // query. With an upper bound in play, more cards can un-satisfy it, so the
-    // branch has to keep going to the draw horizon.
-    if (done && !anyBounded) return 1;
-    if (sLeft <= 0) return done ? 1 : 0;
-
-    // Canonicalize: a group whose threshold is already met is indistinguishable
-    // from filler -- nothing about the remaining decisions or outcomes can tell
-    // its copies apart from any other card you don't need. Folding them into the
-    // filler pool is exact, and it collapses every state that differed only in a
-    // satisfied group's leftover count into one. Biggest single speedup here (a
-    // 60-card two-group case went from 3.1s to well under a second), because at
-    // two groups most reachable states have one group already done.
+  const alive = (acq: number[], c: number): boolean => {
+    for (let g = 0; g < G; g++) if (acq[g]! > hi[c]![g]!) return false;
+    return true;
+  };
+  const met = (acq: number[], c: number): boolean => {
     for (let g = 0; g < G; g++) {
-      // Only an UNBOUNDED satisfied group is indistinguishable from filler; a
-      // bounded one still matters, because drawing another copy can bust it.
-      if (unbounded[g]! && acq[g]! >= groups[g]!.need && rem[g]! > 0) {
+      if (acq[g]! > hi[c]![g]! || acq[g]! < lo[c]![g]!) return false;
+    }
+    return true;
+  };
+  const anyMet = (acq: number[]): boolean => {
+    for (let c = 0; c < C; c++) if (met(acq, c)) return true;
+    return false;
+  };
+
+  function V(rem: number[], remC: number, remO: number, acq: number[], sLeft: number): number {
+    // Absorbing success needs a clause that is BOTH satisfied and immune to
+    // further draws; otherwise a later forced draw could still bust it.
+    let anyAlive = false;
+    for (let c = 0; c < C; c++) {
+      if (!alive(acq, c)) continue;
+      anyAlive = true;
+      if (clauseUnbounded[c]! && met(acq, c)) return 1;
+    }
+    if (!anyAlive) return 0; // every clause busted, and dead clauses stay dead
+    if (sLeft <= 0) return anyMet(acq) ? 1 : 0;
+    const pool = rem.reduce((a, r) => a + r, 0) + remC + remO;
+    if (pool <= 0) return anyMet(acq) ? 1 : 0;
+
+    // Fold a group into the filler pool only when every still-alive clause is
+    // satisfied on it AND cannot be busted by it.
+    for (let g = 0; g < G; g++) {
+      if (rem[g]! <= 0) continue;
+      let foldable = true;
+      for (let c = 0; c < C; c++) {
+        if (!alive(acq, c)) continue;
+        if (hi[c]![g]! < groupCounts[g]! || acq[g]! < lo[c]![g]!) { foldable = false; break; }
+      }
+      if (foldable) {
         const spare = rem[g]!;
         rem[g] = 0;
         const folded = V(rem, remC, remO + spare, acq, sLeft);
@@ -601,26 +645,19 @@ export function exactSelectionCurveAnd(
         return folded;
       }
     }
-    const pool = rem.reduce((s, r) => s + r, 0) + remC + remO;
-    if (pool <= 0) return 0;
 
     const key = encode(rem, remC, remO, acq, sLeft);
     const hit = memoGet(key);
     if (hit !== undefined) return hit;
 
     const d = sLeft - 1;
-
-    // `rem` and `acq` are MUTATED IN PLACE and restored before returning, all
-    // the way down. Copying them per transition was the dominant cost once the
-    // state space reached millions; every call below leaves both arrays exactly
-    // as it found them, which the brute-force checks would catch immediately if
-    // any path forgot to restore.
     let value = (remO / pool) * V(rem, remC, remO - 1, acq, d);
     for (let g = 0; g < G; g++) {
       const oldR = rem[g]!;
       if (oldR <= 0) continue;
       const oldA = acq[g]!;
-      if (oldA + 1 > hiOf(groups[g]!)) continue; // forced draw busts it: worth 0
+      // No bust-prune here: exceeding one clause's bound may be fine for
+      // another, so the branch has to be evaluated rather than zeroed.
       rem[g] = oldR - 1;
       acq[g] = Math.min(caps[g]!, oldA + 1);
       value += (oldR / pool) * V(rem, remC, remO, acq, d);
@@ -629,8 +666,6 @@ export function exactSelectionCurveAnd(
     }
 
     if (remC > 0) {
-      // A copy resolves. Enumerate its whole window's composition over the pool
-      // left after removing the copy itself, then choose optimally.
       const poolAfter = pool - 1;
       const remC2 = remC - 1;
       const w = Math.min(examined, poolAfter);
@@ -639,8 +674,6 @@ export function exactSelectionCurveAnd(
       if (denom <= 0 || w <= 0) {
         effectValue = V(rem, remC2, remO, acq, d);
       } else {
-        // window composition: how many of each tracked group, how many copies,
-        // how many filler.
         const comp: number[] = new Array(G).fill(0) as number[];
         const walk = (g: number, left: number, ways: number): void => {
           if (g === G) {
@@ -667,45 +700,31 @@ export function exactSelectionCurveAnd(
     memoSet(key, value);
     return value;
 
-    /** Best achievable value once this window's contents are known. */
     function resolveWindow(wComp: number[], wC: number, wO: number, drawsLeft: number): number {
-      const windowSize = wComp.reduce((s, x) => s + x, 0) + wC + wO;
+      const windowSize = wComp.reduce((a, x) => a + x, 0) + wC + wO;
       const remCAfter = remC - 1 - wC;
       const remOAfter = remO - wO;
-      // Ponder can shuffle the window BACK, so that branch needs the pool as it
-      // stands before the window leaves it -- computed first, while `rem` is
-      // still untouched.
       const shuffleBranch = (keptCostsDraw && !nonKeptLeavesPool && canShuffle)
         ? V(rem, remC - 1, remO, acq, drawsLeft)
         : -1;
-      // Pool after the window is examined: every tracked card in it is out of
-      // the pool either way (into hand, bottomed, or exiled).
       for (let g = 0; g < G; g++) rem[g] = rem[g]! - wComp[g]!;
       const restorePool = (): void => {
         for (let g = 0; g < G; g++) rem[g] = rem[g]! + wComp[g]!;
       };
+      const saved: number[] = new Array(G).fill(0) as number[];
 
       if (!keptCostsDraw) {
-        // draw / impulse: what you take is free, so the only question is which
-        // cards to take when keepMax binds. Maximize over commit vectors.
-        // A DRAW effect has no choice -- its whole window is forced into hand,
-        // so `pick`'s bust guard genuinely eliminates those branches (value 0)
-        // rather than letting it decline. That is the asymmetry: looking saves
-        // you from a brick, drawing does not.
-        if (keepMax >= windowSize) {
-          let busts = false;
-          for (let g = 0; g < G; g++) if (acq[g]! + wComp[g]! > hiOf(groups[g]!)) { busts = true; break; }
-          if (busts) { restorePool(); return 0; }
-        }
+        // draw / impulse. A draw effect forces its whole window into hand, so
+        // there is nothing to choose; impulse picks up to keepMax.
         let best = -1;
-        const saved: number[] = new Array(G).fill(0) as number[];
         const pick = (g: number, budget: number): void => {
           if (g === G) {
             best = Math.max(best, V(rem, remCAfter, remOAfter, acq, drawsLeft));
             return;
           }
-          const maxTake = Math.min(wComp[g]!, budget, hiOf(groups[g]!) - acq[g]!);
-          for (let k = 0; k <= maxTake; k++) {
+          const maxTake = Math.min(wComp[g]!, budget);
+          const forced = keepMax >= windowSize ? maxTake : 0;
+          for (let k = forced; k <= maxTake; k++) {
             saved[g] = acq[g]!;
             acq[g] = Math.min(caps[g]!, acq[g]! + k);
             pick(g + 1, budget - k);
@@ -718,17 +737,14 @@ export function exactSelectionCurveAnd(
       }
 
       if (nonKeptLeavesPool) {
-        // scry: each kept card costs one of your remaining draws, so the choice
-        // trades cards against draws -- the case a flat additive bonus cannot
-        // express at all.
+        // scry: each kept card costs one of the remaining draws.
         let best = -1;
-        const saved: number[] = new Array(G).fill(0) as number[];
         const pick = (g: number, budget: number, spent: number): void => {
           if (g === G) {
             best = Math.max(best, V(rem, remCAfter, remOAfter, acq, drawsLeft - spent));
             return;
           }
-          const maxTake = Math.min(wComp[g]!, budget, hiOf(groups[g]!) - acq[g]!);
+          const maxTake = Math.min(wComp[g]!, budget);
           for (let k = 0; k <= maxTake; k++) {
             saved[g] = acq[g]!;
             acq[g] = Math.min(caps[g]!, acq[g]! + k);
@@ -741,47 +757,27 @@ export function exactSelectionCurveAnd(
         return best;
       }
 
-      // ponder: reorder consumes the whole window as draws (so zero net
-      // advance, the two halves cancel), versus shuffling it back.
+      // ponder: reorder (whole window consumed as draws) vs shuffle it back.
       let reorder: number;
       if (drawsLeft >= windowSize) {
-        let busts = false;
-        for (let g = 0; g < G; g++) if (acq[g]! + wComp[g]! > hiOf(groups[g]!)) { busts = true; break; }
-        if (busts) {
-          // Reordering can't refuse the window: everything in it gets drawn.
-          // Only the shuffle option escapes, which is where ponder's value
-          // against bricks comes from.
-          reorder = 0;
-        } else {
-          const savedAcq: number[] = new Array(G).fill(0) as number[];
-          for (let g = 0; g < G; g++) {
-            savedAcq[g] = acq[g]!;
-            acq[g] = Math.min(caps[g]!, acq[g]! + wComp[g]!);
-          }
-          reorder = V(rem, remCAfter, remOAfter, acq, drawsLeft - windowSize);
-          for (let g = 0; g < G; g++) acq[g] = savedAcq[g]!;
+        for (let g = 0; g < G; g++) {
+          saved[g] = acq[g]!;
+          acq[g] = Math.min(caps[g]!, acq[g]! + wComp[g]!);
         }
+        reorder = V(rem, remCAfter, remOAfter, acq, drawsLeft - windowSize);
+        for (let g = 0; g < G; g++) acq[g] = saved[g]!;
       } else {
-        // Not enough draws to clear the window: take the best `drawsLeft` of it.
-        // The window is on TOP of the library, so exactly `drawsLeft` of it gets
-        // drawn -- you choose WHICH, not how many. Allowing a smaller commit let
-        // an already-satisfied state dodge a brick it would really have been
-        // forced to draw, which pushed the value above the clairvoyant upper
-        // bound (0.41313 vs 0.41212) -- impossible, and the tell.
+        // Exactly `drawsLeft` of the window gets drawn -- you choose which, not
+        // how many, so the untracked window cards must absorb the remainder.
         let best = -1;
         const take: number[] = new Array(G).fill(0) as number[];
         const untrackedInWindow = wC + wO;
         const pick = (g: number, budget: number): void => {
           if (g === G) {
-            // The rest of the forced draws come out of the window's untracked
-            // cards; if there aren't enough of them, this split is impossible.
             if (budget > untrackedInWindow) return;
-            let satisfied = true;
-            for (let i = 0; i < G; i++) {
-              const held = acq[i]! + take[i]!;
-              if (held < groups[i]!.need || held > hiOf(groups[i]!)) { satisfied = false; break; }
-            }
-            best = Math.max(best, satisfied ? 1 : 0);
+            const probe: number[] = [];
+            for (let i = 0; i < G; i++) probe.push(Math.min(caps[i]!, acq[i]! + take[i]!));
+            best = Math.max(best, anyMet(probe) ? 1 : 0);
             return;
           }
           const maxTake = Math.min(wComp[g]!, budget);
@@ -800,8 +796,27 @@ export function exactSelectionCurveAnd(
   }
 
   const out = new Float64Array(maxDraws + 1);
-  const rem0 = groups.map((g) => g.count);
+  const rem0 = [...groupCounts];
   const acq0 = new Array(G).fill(0) as number[];
   for (let n = 0; n <= maxDraws; n++) out[n] = V(rem0, copies, others0, acq0, n);
   return out;
+}
+
+/** Single-clause case: an AND of per-group thresholds. Delegates to the DNF
+ * engine so there is one implementation, not two that can drift. */
+export function exactSelectionCurveAnd(
+  deckSize: number,
+  groups: TrackedGroup[],
+  effect: SelectionEffect,
+  copies: number,
+  maxDraws: number,
+): Curve {
+  return exactSelectionCurveDnf(
+    deckSize,
+    groups.map((g) => g.count),
+    [groups.map((g) => ({ lo: g.need, hi: g.hi ?? g.count }))],
+    effect,
+    copies,
+    maxDraws,
+  );
 }

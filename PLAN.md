@@ -1657,3 +1657,63 @@ curves DECREASE in draws.** Pinned by a test. Anything phrased as "draws needed
 to reach 80%" or that assumes a nondecreasing curve is invalid for a bounded
 query, and `frontier.ts`/the advisor are monotone-only, so they must stay dark
 for these queries rather than silently returning nonsense.
+
+### OR of clauses: exact, plus the fast path that makes it usable (2026-07-30)
+
+`exactSelectionCurveDnf` is now the general entry point (OR of clauses, each an
+AND of per-group bounds); `exactSelectionCurveAnd` delegates to it, so the 80
+existing tests validate the generalization rather than a parallel implementation.
+
+OR is not a missing concept -- the keep-choice max already covers "which clause
+am I pursuing", since it maximizes over commit vectors and the value function
+tests every clause. Earlier framing of it as a modeling gap was wrong. What it
+costs is state:
+- a group in two clauses with different `lo` must be tracked to the higher one;
+- folding needs EVERY still-alive clause to be both satisfied and unbounded on
+  that group, which is much rarer;
+- busting can no longer prune, since exceeding one clause's bound is fine if
+  another tolerates it. The single-clause path lost its bust-exit for generality.
+
+Verified against a new OR-aware brute force: draw exact, choice shapes inside the
+greedy/clairvoyant sandwich. The greedy gap is visibly nonzero (0.330 vs 0.358 at
+n=3), which is the point -- committing a card toward one clause spends draws
+another clause wanted, so the max earns its keep. Ponder-no-shuffle actually
+ATTAINS the clairvoyant bound here, i.e. foresight buys nothing beyond ordering.
+
+**Perf: the heavy engine cannot do OR at realistic sizes.** 6.0s at N=40, 24.6s
+at N=60 (three groups, two clauses), 13.1s with a brick. Three groups plus two
+clauses is simply past what this state space allows.
+
+**But draw-shaped effects have a 390x fast path, and it covers everything.**
+A draw effect forces its whole window into hand, so the resulting hand
+distribution doesn't depend on the query at all -- which means the slot DP
+(`exactDrawCurve`: no group dimensions, query-independent, cached) handles ANY
+query `evaluate()` handles, including OR and upper bounds. Verified to 1e-15
+against the heavy engine on both an OR query and a brick query. Timings: 63ms for
+N=60 OR with three groups, 78ms for OR + brick, versus 24.6s heavy. So routing
+matters enormously: a draw-shaped effect must never reach the heavy engine.
+
+Resulting map of what's affordable, which is the thing to design the UI against:
+
+| query shape | draw-shaped effects | scry / impulse / ponder |
+|---|---|---|
+| single AND, monotone | slot DP, ~60ms | exact, 0.7s (worker) |
+| single AND + brick | slot DP, ~78ms | exact, 0.6-1.8s (worker) |
+| OR of clauses | slot DP, ~63ms | 6-25s: NOT viable |
+
+So the open question is narrow: what to do for CHOICE-shaped effects on OR
+queries. Options, in preference order:
+1. Compute the max over single clauses as a documented LOWER bound (committing to
+   one clause is a feasible policy, so it's rigorous) and show it as such.
+2. Monte Carlo with a fixed policy plus visible confidence interval -- the one
+   place MC earns its keep, since the DP is 25s and MC's weakness (resolving
+   ~1pt differences) is less damaging than no answer at all.
+3. More perf work on the heavy engine, payoff uncertain.
+Not an option: silently routing an OR query through a single-clause
+approximation, which is what the deleted flat form did in spirit.
+
+Also worth noting from the mixed brick/payoff analysis (3 enablers, 1 garnet,
+40 cards): drawing is clearly GOOD there (+6.1pt at 6 draws) and only decays to
++0.9pt by 12 draws, crossing to harmful around 13. Bricks make draws worse only
+once the payoff saturates -- so the advisor's useful output is the CROSSOVER draw
+count, not "avoid draw effects" and not going dark.
