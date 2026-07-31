@@ -3027,10 +3027,10 @@ opt-in `heuristicKeep` flag to `exactSelectionCurveDnf` (default stays EXACT).
 | brick, 15 draws | 0.30347254 | 0.28116376 | -2.231pt | 221 | 692 |
 | OR + brick, 15 draws | 0.33226013 | 0.30025303 | -3.201pt | **1279** | 16552 |
 
-**Finding 1, and it is a free win nobody was looking for:** on MONOTONE queries the
-heuristic is exact and up to 13x faster (63ms against 848ms). The DP has been
-paying for a max it does not need whenever there are no upper bounds -- keeping a
-needed card cannot be wrong there, so the branching buys nothing.
+**Finding 1 -- RETRACTED, see the scope entry below.** It looked like a free win on
+monotone queries (exact, up to 13x faster). Broadening from 2 configs to 32 showed
+it is exact for draw, impulse and ponder but WRONG for scry on 3 of 8 configs,
+worst 1.03pt. Both original configs were lucky scry cases.
 
 Caveat, stated because it is the difference between a measurement and a theorem:
 "exact on two monotone configs" is not "provably exact for all monotone queries".
@@ -3048,3 +3048,34 @@ a fast preview, not as a shipped number.
 Both directions are pinned in `heuristicKeep.test.ts`, including that the heuristic
 never EXCEEDS the optimum -- any fixed policy is a lower bound, so a positive
 deviation would indicate a bug rather than a better policy.
+
+### The keep heuristic is NOT a free speedup -- scope measured properly (2026-07-30)
+
+Asked to turn the previous entry's "free speedup" into a default. Verified first,
+across 8 configurations x 4 effect shapes instead of the original 2:
+
+| shape | result on 8 monotone configs |
+|---|---|
+| draw | exact everywhere |
+| impulse | exact everywhere |
+| ponder | exact everywhere |
+| **scry** | **wrong on 3 of 8, worst 1.03pt** |
+
+So the earlier claim was an artifact of two lucky scry configs. **No default was
+flipped.**
+
+The pattern identifies the boundary: every failure has `keptCostsDraw: true`. When
+a keep costs a draw there is a real trade over WHICH card to keep and a fixed rule
+can choose wrong; when keeps are free the choice is unambiguous. And the regime
+where the heuristic is dependable -- free keeps -- is exactly where the DP already
+takes a single forced branch, so there is no max to skip and nothing to win.
+
+Pinned in `heuristicKeepScope.test.ts` as a NEGATIVE result: the test asserts the
+deviation EXISTS, so if a future change makes the heuristic exact the test fails and
+the default can be revisited deliberately. It also asserts the heuristic never
+exceeds the optimum, since any fixed policy is a lower bound.
+
+Worth noting how close this came to shipping: two configs, a plausible mechanism
+("keeping a needed card cannot be wrong"), and a 13x speedup all pointed the same
+way. The mechanism was even correct -- for free keeps. It was the extension to scry
+that was wrong, and only a wider sweep showed it.
