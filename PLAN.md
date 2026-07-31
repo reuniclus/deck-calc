@@ -2665,3 +2665,41 @@ the OR-plus-bricks case, so forward alone could never have covered it.
 
 Returning to the modified-query method and the natively hypergeometric trigger
 layer scoped above.
+
+### The per-trigger recursion works: exact AND faster than the DP (2026-07-30)
+
+Implemented the framing scoped above -- a trigger requires the cantrip in hand, so
+each step finds the next cantrip within the remaining draws, resolves its window,
+spends the kept cards' draws, removes the window from the pool, and recurses.
+
+**Result: exact to floating point, and 2-5x faster than `exactSelectionCurveDnf`.**
+
+| config (deck 60, A=10, need 2) | exact DP | recursion | old closed form | rec ms | dp ms | states |
+|---|---|---|---|---|---|---|
+| 1 copy, look 3, 12 draws | 0.67160986 | 0.67160986 | +0.000pt | 11 | 8 | 32 |
+| 8 copies, look 3, 12 draws | 0.81443970 | 0.81443970 | +0.978pt | **69** | 143 | 722 |
+| 8 copies, look 3, 6 draws | 0.37482165 | 0.37482165 | +1.466pt | **6** | 31 | 182 |
+| 8 copies, look 5, 12 draws | 0.87084140 | 0.87084140 | +0.902pt | **43** | 126 | 792 |
+
+A prediction of mine was wrong and worth recording: I expected tracking sequence
+to force the DP's state space, making this no faster. It does not. The recursion
+jumps the gap of fresh draws in ONE hypergeometric step instead of one card at a
+time, so there are far fewer levels to memoise -- 32 to 792 states against the
+DP's tens of thousands. Sequencing turned out to be cheaper than per-card
+transitions, not more expensive.
+
+Both patches are gone, not improved: no `precedingKeeps` (keeps reduce the budget
+before the next search, so lost future triggers are a consequence), no
+`firstTriggerPosition` (each trigger's position falls out of its own step). No
+fixed point either, since nothing has to agree with itself in the mean.
+
+Committed as `triggerRecursion.ts` with ten tests, including the two exactness
+invariants (no copies reduces to plain hypergeometry; one copy exact) and
+monotonicity in draws and copies.
+
+**Scope, and the work that remains:** single tracked group, monotone `>=` query,
+one effect type. Greedy keep is provably optimal there, which is why no max over
+decisions appears. Upper bounds (bricks) and OR clauses need that max -- and they
+are the expensive corner, so extending this is now the highest-value next step:
+if it stays exact and fast with bounds and OR, it supersedes both the closed-form
+method AND the DP for scry rather than supplementing them.
