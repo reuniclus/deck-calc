@@ -3656,3 +3656,34 @@ than at the keep itself.
 Next step is deliberately not another hypothesis: find the term in the code whose
 behaviour matches `look * P(brick)P(no brick) / need`, rather than guessing a mechanism
 and wiring it. Two guesses tonight were both wrong, and both cost a revert.
+
+### Extreme brick test amplifies the error 500x: 0.1pt becomes 55% relative (2026-07-30)
+
+Suggested test: push bricks to the maximum that still allows a nonzero win rate --
+`bricks = deck - draws`, so the non-brick cards number exactly `draws` and only one set
+of orderings can win. With no cantrips the answer is analytically `1/C(deck, draws)`.
+
+| config (deck 20, 6 draws, A=2) | analytic | exact DP | MQ | relative error |
+|---|---|---|---|---|
+| no cantrips (14 bricks) | 2.5800e-5 | 2.5800e-5 | 2.5800e-5 | **0.00%** |
+| 1 cantrip | -- | 4.3860e-5 | 5.1600e-5 | **+17.65%** |
+| 2 cantrips | -- | 6.1920e-5 | 9.6163e-5 | **+55.30%** |
+| slack (12 bricks), 1 cantrip | -- | 9.6196e-4 | 1.0283e-3 | +6.90% |
+
+Three findings:
+
+1. **The analytic value confirms both engines' baseline.** DP and MQ both return
+   `1/C(20,6)` exactly with no cantrips, so brick handling without an effect is correct.
+2. **Cantrips HELP in this regime, contrary to the prediction made before measuring.**
+   The DP rises 2.58e-5 -> 4.39e-5 -> 6.19e-5, because a window bottoms bricks off the
+   top and lets the draws reach the non-bricks behind them. The cantrip acts as a brick
+   filter. The prediction had been that bottoming would hurt by pushing non-bricks away.
+3. **MQ over-credits that filtering and compounds per cantrip** (+17.65%, then +55.30%).
+   Its one-cantrip answer is `5.1600e-5`, exactly twice the no-cantrip analytic value --
+   a clean doubling that suggests a term counted once per cantrip rather than
+   conditioned properly.
+
+Value of this configuration: it turns a 0.1pt discrepancy in ordinary decks into 55% of
+the signal, so any candidate fix is unmistakably right or wrong instead of lost in
+noise. Pinned as `brickExtreme.test.ts`, asserting the analytic baseline, that cantrips
+help, and that MQ currently over-credits.
