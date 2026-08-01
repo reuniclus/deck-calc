@@ -3280,3 +3280,42 @@ fixes steps 1/4/5/7 by sequencing while KEEPING the greedy rule -- is exact here
 The flattening at the top (x1.27 from 8 to 12 copies) is saturation: as P approaches
 0.87 there is less room to be wrong, the same compression that made the 20-draw row
 look accurate.
+
+### The trigger-budget term is only ~20% of MQ's error (2026-07-30)
+
+Two questions chased: are ditched cantrips being double-counted as triggers, and is
+`n` adjusted for keeps?
+
+**Ditched cantrips: already handled, no bug.** MQ separates them --
+`triggers = (seen - slotDraws)/examined` counts copies in SCHEDULED slots, and
+`copiesInWindows = outcome.copies - triggers` are merely seen and dead. The slot DP
+enforces it too: its `credits > 0` branch consumes a copy without granting credits.
+Subtracting them again would double-subtract.
+
+**The real conflation is one level up: draws versus FRESH REVEALS.** A kept card is
+collected by a draw that reveals nothing new, so with `K` keeps there are only
+`n - K` chances to find a cantrip while the slot layer hands out `n`. Measured skew:
+E[triggers] 1.5244 true (200k simulations) against 1.5707 assumed -- about 3% high,
+concentrated in the tail.
+
+**But the budget is not where the error lives.** MQ adjusts the two budgets
+differently and deliberately: fully for acquisition (`scheduled - spent`), partially
+for trigger-finding (`K*(t-1)/(2t)`, since keeps after a trigger cannot stop you
+reaching it). Sweeping that coefficient:
+
+| coefficient | A>=2 c8 n12 | A>=2 c12 n12 | A>=3 c8 n15 |
+|---|---|---|---|
+| 0.00 (none) | 1.067pt | 1.445pt | 1.734pt |
+| 0.50 (current) | 0.978pt | 1.247pt | 1.541pt |
+| 1.00 (every preceding keep) | 0.894pt | 1.063pt | 1.360pt |
+
+Monotone in the coefficient but plateauing far above zero. The entire term is worth
+0.17-0.38pt of a 1.07-1.73pt error -- **about a fifth**. Consistent with a 3% trigger
+skew, which was never going to produce a full point.
+
+**So ~80% of the error is steps 4-5: pooling all `t` windows into one aggregate
+composition drawn from one pool state.** Window 2 is really drawn from a pool window 1
+already depleted, at a time earlier keeps already shifted. No scalar budget adjustment
+can express that, which is why every correction attempted on step 1 -- mean deduction,
+distribution-level fixed point, coefficient sweep -- has moved the number by tenths
+while the error stayed above a point.
