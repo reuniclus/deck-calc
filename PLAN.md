@@ -3493,3 +3493,44 @@ need, copies and look, since those determine how fast need is consumed.
 This also explains the failed per-window attempt directly above: it assumed
 `w_i = 1/t`, i.e. lambda = 1/2, when the truth is ~0.26. It over-restricted, which is
 exactly the direction the numbers moved.
+
+### w_i derived in closed form, and it predicts the measured lambda (2026-07-30)
+
+The constraint that makes it tractable: **total keeps never exceed `need`**, because
+nothing is kept once the requirement is met. So the keep mass spreads over at most
+`need` events, and
+
+    w_i  proportional to  P(need unmet when window i fires) x P(window i holds a needed card)
+
+Both factors are closed-form hypergeometrics: the second is
+`1 - C(pool-A, S)/C(pool, S)`, the first a hypergeometric tail over the
+`E[p_i] + (i-1)*S` cards seen before window i.
+
+Implied lambda, with nothing fitted:
+
+| config | t=2 | t=3 |
+|---|---|---|
+| base (need 2, look 3, deck 60) | **0.238** | 0.214 |
+| need 3 | 0.323 | 0.303 |
+| look 5 | 0.172 | 0.141 |
+| deck 40 | 0.231 | 0.175 |
+
+**Measured lambda on the base config is 0.2614** (from the bracket:
+`(0 - 0.978)/(-2.763 - 0.978)`). Derived 0.214-0.238 across the t values that config
+mixes -- within about 20% relative, from first principles.
+
+The directions confirm the hypothesis that lambda is a function of the terms:
+- **need 3 raises it to 0.32** -- more need keeps later windows productive, pushing
+  mass rightward;
+- **look 5 lowers it to 0.17** -- bigger windows let the first one satisfy everything,
+  concentrating mass leftward;
+- deck size barely moves it.
+
+Pinned in `keepMass.test.ts`, which asserts front-loading (`lambda < 1/2`, `w_1 > w_2`)
+and both directional relationships, so a future change that breaks the mechanism fails
+rather than silently drifting.
+
+Residual gap (0.238 derived against 0.2614 measured) is most likely the crude
+`seenBefore`, which uses `E[p_i]` rather than the position distribution -- the same
+mean-collapse that broke the per-window attempt two entries above. Using the marginal
+there should tighten it and keeps the derivation honest.
