@@ -3996,3 +3996,47 @@ copies, look, draws, with the rule "keep every non-brick, bottom every brick" --
 it against the DP on states where every clause is satisfied. If it is exact there, wire it
 behind the same correct gate and the corner's absorption becomes both valid AND frequent,
 since the gate no longer has to wait for a hungry clause that never mattered.
+
+### Reverse validation: safety keeps confirmed, and the recursion is hiding cancelling errors (2026-07-30)
+
+Suggested validating the safety-keeps theory by flipping the switch the other way --
+making the DP greedy and seeing what it loses. The `heuristicKeep` flag already does
+exactly that (acquisition-only keeps, no max over commit vectors).
+
+| query | DP optimal | DP acquisition-only | cost of losing safety keeps |
+|---|---|---|---|
+| monotone `A>=2` | 0.814440 | 0.814440 | **0.000pt** |
+| 1 clause + brick | 0.303473 | 0.281164 | **-2.231pt** |
+| OR + brick (corner) | 0.332260 | 0.300253 | **-3.201pt** |
+
+**Theory confirmed.** Safety keeps are worth exactly nothing without a bound and 2.2-3.2pt
+with one. The brick regime rewards information, the monotone regime does not, and the
+size of the effect matches the size of the corner's whole error budget.
+
+**But the same table exposes a problem in the recursion:**
+
+| query | DP acquisition-only | recursion (also acquisition-only) |
+|---|---|---|
+| 1 clause + brick | -2.231pt | **-0.136pt** |
+| corner | -3.201pt | **-0.188pt** |
+
+The recursion's keep rule is acquisition-only too (`take = min(window, want, budget)` with
+`want` from clause lower bounds), so it should shed the same ~2.2pt. It sheds 0.136. That
+is a **+2.1pt compensating error** inside it.
+
+So the recursion's accuracy on bounded queries is not principled -- it is two large errors
+nearly cancelling, the same trap as `precedingKeeps` earlier today. Its -0.188pt on the
+corner had looked like the best number available; it is actually the least trustworthy one
+in the table, since both components are large and nothing guarantees they keep cancelling
+as parameters move.
+
+Caveat: the DP's `heuristicKeep` and the recursion's greedy are not byte-identical rules
+(different tie-breaks), so a little of the 2.1pt could be that. Not 2.1pt of it.
+
+Consequences for the plan:
+1. **Do not trust the recursion on bounded queries** despite its small measured error, and
+   do not use it as a reference for judging a safety-tail fix.
+2. **Find the recursion's +2.1pt over-credit** -- it is large enough to be findable, and it
+   is masking the very effect being modelled.
+3. The safety-keeps mechanism is now measured, not conjectured: 2.2-3.2pt, exactly the
+   magnitude the corner needs.
