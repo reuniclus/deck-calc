@@ -4081,3 +4081,26 @@ monotone, so neither would have caught it.
 
 First step, cheap and decisive: brute-force a small bounded case (deck ~12) in both
 groupings and see which of the two the play-out agrees with.
+
+**ARBITRATED (same session).** Deck 10, A=2, B=2, brick=2, 2 cantrips (scry 2), 4 draws:
+
+| | OR form | merged form | split |
+|---|---|---|---|
+| brute force, CLAIRVOYANT | 0.470687831 | 0.470687831 | **0.0000pt** |
+| brute force, fixed policy | 0.400211640 | 0.369047619 | 3.1164pt |
+| exact DP | 0.404761905 | 0.380634921 | **2.4127pt** |
+
+The clairvoyant optimiser is grouping-INVARIANT to floating point, which proves both that
+the two queries really are equivalent and that optimal play cannot depend on the
+partition. **The DP splits by 2.41pt, so it is not finding the optimal policy for bounded
+scry queries.** Both its answers sit under the clairvoyant ceiling, so this is
+sub-optimality rather than incoherence, and the merged form (the lower one) is the more
+sub-optimal.
+
+A fixed policy is legitimately grouping-dependent -- it keeps per group -- which is why
+the non-clairvoyant brute force also splits. Only an optimiser must not.
+
+Pinned as `groupingInvariance.test.ts`, which asserts clairvoyant invariance, that neither
+DP answer exceeds the ceiling, and -- as a KNOWN BUG -- that the DP currently splits. When
+that last expectation starts failing, the DP has been fixed and it should invert to an
+equality.
