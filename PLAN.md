@@ -4174,3 +4174,42 @@ the same direction -- assuming that whatever was most recently examined is the b
 The profiling run much earlier already said otherwise (4621 distinct `(pool, sizes)`
 combinations dominating, which IS window composition), and that data was not applied here.
 Any further MQ performance work should start from that profile rather than from structure.
+
+### Multi-type effects: design notes before implementation (2026-07-30, not started)
+
+Real decks run several different cantrips at once (Preordain and Ponder and Brainstorm),
+with different look sizes, keep caps and bottoming behaviour. Currently only DRAW-SHAPED
+multi-type is supported (`slotDistributionMulti` / `exactDrawCurveMulti`, used by the live
+cantrips card).
+
+**Why draw-shaped multi-type was easy:** for free-window effects the slot structure is
+independent of card composition, so only the NUMBER of revealed cards matters. Different
+types contribute different `examined` amounts and never interact; composition comes from a
+single `evaluate()` on the pool minus copies.
+
+**Why scry/impulse multi-type is not:** keeps depend on what is still needed, so the types
+DO interact -- one cantrip's keep changes what the next one wants. `remC` becomes a vector
+and window resolution branches per type. For 3 types x 4 copies that is ~125 `remC` states
+against 13 for a single 12-copy type, so roughly 10x state growth on top of per-type window
+logic.
+
+**Build the detector first, not the engine.** The session established `draw == impulse`
+whenever `examined <= keepMax` OR the outstanding need <= keepMax. Many real multi-type
+decks satisfy that, and those reduce to `exactDrawCurveMulti`, which is already exact,
+cached and shipping. So the first deliverable is the check that decides whether a given deck
+reduces -- cheap, exact where it applies, and it measures how much of the real-world case
+the hard engine actually has to cover.
+
+**Decide the state layout before writing code:** a SINGLE shared window-credit pool, or
+PER-TYPE credits with an ordering? Real play is sequential -- resolve one cantrip fully, then
+the next -- so per-type credits are more faithful, while a shared pool is much smaller.
+Changing this later means rewriting the engine, so it is not a detail to defer.
+
+**First invariant, and it should be written before the engine:** T copies of a single type
+must equal one type declared with T copies. That is the grouping-invariance idea that found
+the DP bug in `groupingInvariance.test.ts`, applied to effect types instead of card groups --
+and it would catch a whole class of per-type bookkeeping error immediately.
+
+Do NOT start this by extending the DP's `remC` in place. The session's record on in-place
+changes to shipped math was poor (2 successes in 9 attempts), and both successes came from
+deriving the mechanism first with an invariant that held by construction.
