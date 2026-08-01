@@ -106,7 +106,53 @@ import type { Dnf, GroupId } from './expr';
  * than the first one does -- so the remaining error is still an over-credit, just
  * a much smaller one than assuming all `draws - triggers` are collectable.
  */
-function firstTriggerPosition(draws: number, triggers: number): Array<{ p: number; weight: number }> {
+/**
+ * Per-window keep mass. Total keeps never exceed `need`, since nothing is kept once
+ * the requirement is met, so the mass spreads over at most `need` events and is
+ * FRONT-LOADED: the first window fires with nothing acquired, so everything it sees
+ * is wanted, while later windows often find nothing worth keeping.
+ *
+ *   w_i proportional to P(need unmet when window i fires) x P(window holds a needed card)
+ *
+ * Both closed-form. Derived (not fitted) values reproduce the measured interpolation
+ * weight to ~20% -- see `keepMass.test.ts`.
+ */
+function keepMass(
+  pool: number, needed: number, need: number, look: number, draws: number, triggers: number,
+): number[] {
+  if (triggers <= 1) return [1];
+  const pHasNeeded = 1 - comb(pool - needed, look) / comb(pool, look);
+  const w: number[] = [];
+  for (let i = 1; i <= triggers; i++) {
+    const seenBefore = Math.round((i * (draws + 1)) / (triggers + 1) + (i - 1) * look);
+    // P(fewer than `need` acquired before this window fires)
+    let survives = 0;
+    for (let k = 0; k < need; k++) {
+      survives += (comb(needed, k) * comb(pool - needed, Math.min(seenBefore, pool) - k))
+        / comb(pool, Math.min(seenBefore, pool));
+    }
+    w.push(Math.max(0, survives) * pHasNeeded);
+  }
+  const total = w.reduce((a, b) => a + b, 0);
+  return total > 0 ? w.map((v) => v / total) : w.map(() => 1 / triggers);
+}
+
+/** Marginal of the i-th of `triggers` order statistics over `draws` positions. */
+function orderStatistic(draws: number, triggers: number, i: number): Array<{ p: number; weight: number }> {
+  const denom = comb(draws, triggers);
+  if (denom <= 0) return [{ p: 0, weight: 1 }];
+  const out: Array<{ p: number; weight: number }> = [];
+  for (let p = 1; p <= draws; p++) {
+    const weight = (comb(p - 1, i - 1) * comb(draws - p, triggers - i)) / denom;
+    if (weight > 0) out.push({ p, weight });
+  }
+  return out;
+}
+
+/** Superseded by `keepMass` + `orderStatistic`, which weight each window by its own
+ * keep mass and position rather than putting every keep on the first trigger.
+ * Retained because it is the exact i=1 case and documents what changed. */
+export function firstTriggerPosition(draws: number, triggers: number): Array<{ p: number; weight: number }> {
   if (triggers <= 0) return [{ p: 0, weight: 1 }];
   const denom = comb(draws, triggers);
   if (denom <= 0) return [{ p: 0, weight: 1 }];
@@ -257,7 +303,22 @@ export function scryModifiedQueryPass(
       continue;
     }
 
-    const positions = firstTriggerPosition(draws, triggers);
+    // Keeps belong to windows, and window i's keeps can only be collected by draws
+    // that follow ITS trigger. Weight each window by its keep mass and use its own
+    // position marginal, rather than putting every keep on the first trigger's
+    // (most generous) budget. At t=1 this is w=[1] and i=1, so it reduces exactly to
+    // the previous behaviour -- which is what keeps the one-copy case exact.
+    const neededTotal = counts.reduce((a, c, gi) => a + (maxLo[gi]! > 0 ? c : 0), 0);
+    const needTotal = maxLo.reduce((a, v) => a + v, 0);
+    const keepShares = keepMass(pool, neededTotal, Math.max(1, needTotal), examined, draws, triggers);
+    const positions: Array<{ p: number; weight: number }> = [];
+    for (let i = 1; i <= Math.max(1, triggers); i++) {
+      const wi = keepShares[i - 1] ?? 0;
+      if (wi <= 0) continue;
+      for (const op of orderStatistic(draws, triggers, i)) {
+        positions.push({ p: op.p, weight: wi * op.weight });
+      }
+    }
     const window: number[] = new Array(G).fill(0) as number[];
     const walk = (g: number, left: number, ways: number): void => {
       if (g === G) {

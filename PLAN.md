@@ -3534,3 +3534,46 @@ Residual gap (0.238 derived against 0.2614 measured) is most likely the crude
 `seenBefore`, which uses `E[p_i]` rather than the position distribution -- the same
 mean-collapse that broke the per-window attempt two entries above. Using the marginal
 there should tighten it and keeps the derivation honest.
+
+### w_i wired into MQ: error roughly halved, all invariants intact (2026-07-30)
+
+Wired the derived per-window keep mass into the keep cap. Each window is weighted by
+its own `w_i` and uses its OWN position marginal (`orderStatistic(draws, t, i)`),
+instead of putting every keep on the first trigger's most-generous budget.
+
+**Safety property that made this attempt work where four earlier ones failed:** at
+`t = 1`, `w = [1]` and `i = 1`, so the code reduces EXACTLY to the previous
+behaviour. The one-copy invariant therefore cannot break by construction, rather than
+by luck -- and it was checked FIRST, before any accuracy sweep, per the note added
+after the last failure.
+
+Invariants, all exact and mass 1.000000: one copy, nothing-ever-kept, zero copies.
+
+| case (deck 60, A=10, look 3, 12 draws unless noted) | before | after |
+|---|---|---|
+| copies 2 | 0.084pt | **0.030pt** |
+| copies 4 | 0.390pt | **0.160pt** |
+| copies 8 | 0.978pt | **0.486pt** |
+| copies 12 | 1.247pt | **0.775pt** |
+| look 1 | -- | 0.176pt |
+| look 5 | -- | 0.479pt |
+| draws 6 | 1.466pt | **0.426pt** |
+| draws 20 | 0.139pt | **0.106pt** |
+| need 3 (15 draws) | 1.541pt | **0.641pt** |
+| deck 40 | -- | 0.570pt |
+| deck 99 | -- | 0.266pt |
+| brick (15 draws) | 1.527pt | **1.418pt** |
+
+Roughly halved everywhere, worst case down from ~2.1pt to 1.418pt, and `copies 2` is
+essentially in bar at 0.030pt. Every existing test still passes, including the report
+test that pins the worst-case configuration and the strict bound.
+
+Note the brick row improved least (1.527 -> 1.418). That fits: with an upper bound the
+error is not only about keep timing, so the remaining term there is different from the
+one just fixed -- consistent with the earlier finding that bounded queries lose
+absorption entirely.
+
+Remaining error is still front-loaded in the same direction (always positive), so the
+next candidates are the residual mean-collapse in `seenBefore` (it uses `E[p_i]`
+rather than the position distribution, which the derivation entry already flags) and
+the pooled keep budget itself, which still shares one `spent` across windows.
