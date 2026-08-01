@@ -3864,3 +3864,52 @@ DECLINE further casts (the window achieves nothing) and keeping is worthwhile on
 draw-burning. So the endgame of a bounded query has genuinely different optimal play from
 the midgame. The tail models that correctly for the all-satisfied case and not at all for
 the partially-satisfied one, which is exactly the gap that produced the regression.
+
+## CONSOLIDATED PUNCH LIST (end of 2026-07-30 session)
+
+PLAN.md has grown long and several entries retract earlier ones. This is the current
+state; where an entry above conflicts with this list, this list is later.
+
+### The corner -- bounded + OR -- the only regime with no working option
+
+DP is exact at 15-24s; MQ is 746ms-2s at +1.96pt. Two independent routes.
+
+**Route A: make the DP fast there. Cause understood, fix specified.**
+A duplicated bound means no clause is unbreakable, so nothing absorbs and every branch
+walks to the horizon. Restoring absorption cut states 185724 -> 10418 (18x).
+
+| culprit | remedy | confidence |
+|---|---|---|
+| handoff gate fires on ANY clause satisfied, but `cheapTail` requires that NO keeps can occur | gate on EVERY live clause satisfied | high -- derived, explains the -0.576pt regression |
+| `cheapTail` costs 4-22ms per call and is called thousands of times | cache the per-outcome sum keyed on (pool, bounded count, cap, copies, look, draws); its slot distribution is cached, the loop over outcomes is not | high -- mundane perf work |
+| placing the handoff in `selection.ts` creates a circular import (`cheapTail` imports `slotDistribution`) | keep it in the recursion, or split `slotDistribution` into its own module | high |
+
+**Route B: make MQ accurate there. Blocked on a missing derivation.**
+
+| culprit | status |
+|---|---|
+| brick filtering compounds per cantrip -- DP linear (0.7x base each), MQ multiplicative (~x1.9) | fingerprinted and audited: NOT a duplicated line, emergent from conditioning window composition against one pooled remainder. No mechanism yet, so no remedy yet |
+
+### MQ residuals on monotone queries (0.3-0.8pt after `w_i`)
+
+| culprit | remedy | confidence |
+|---|---|---|
+| `seenBefore` inside `keepMass` uses `E[p_i]` instead of the position distribution | use the marginal -- this is the mean-collapse that broke two earlier attempts | high; likely explains the derivation's residual ~20% |
+| keep budget still pooled across windows (one `spent` shared) | per-window budgets, requires per-window positions | medium |
+
+### Lower value (each has a working alternative today)
+
+- greedy keep in the recursion, -0.03 to -0.19pt -> max over commit vectors, costs time
+- multivariate `cheapTail` for several bounded groups
+- multi-type effects for scry/impulse -- a FEATURE gap, not an error
+- ponder in the recursion -- do NOT; the DP answers it in 64ms
+
+### Acceptance criteria for any fix
+
+1. The four exact cases stay exact: one-copy monotone, nothing-ever-kept, zero copies,
+   no-cantrip analytic baseline (`1/C(deck, draws)`).
+2. Mass stays 1.000000 wherever an enumeration reports it.
+3. A brick fix must reproduce the DP's LINEAR 0.7x-per-cantrip increment in
+   `brickExtreme.test.ts`, not merely a smaller error.
+4. Run the invariants BEFORE any accuracy sweep. Three of this session's four failed
+   attempts would have been caught in one run by doing so.
