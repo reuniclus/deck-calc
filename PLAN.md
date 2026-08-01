@@ -3687,3 +3687,37 @@ Value of this configuration: it turns a 0.1pt discrepancy in ordinary decks into
 the signal, so any candidate fix is unmistakably right or wrong instead of lost in
 noise. Pinned as `brickExtreme.test.ts`, asserting the analytic baseline, that cantrips
 help, and that MQ currently over-credits.
+
+### CONFIRMED: MQ compounds brick filtering per cantrip; the DP accumulates it (2026-07-30)
+
+Swept copy count in the extreme regime (deck 20, 6 draws, A=2, 14 bricks, look 3), with
+`baseline = 1/C(20,6) = 2.58e-5`:
+
+| copies | exact DP (x base) | MQ (x base) | MQ/DP |
+|---|---|---|---|
+| 0 | 1.000 | 1.000 | 1.0000 |
+| 1 | 1.700 | 2.000 | 1.1765 |
+| 2 | 2.400 | 3.727 | 1.5530 |
+| 3 | 3.100 | 6.727 | 2.1701 |
+| 4 | 3.800 | 12.792 | 3.3663 |
+
+**The DP is exactly LINEAR: 1.0, 1.7, 2.4, 3.1, 3.8 -- increments of precisely 0.7 per
+cantrip.** Each cantrip contributes a fixed amount of brick filtering.
+
+**MQ is MULTIPLICATIVE: ratios of 2.00, 1.86, 1.80, 1.90 -- about x1.9 per cantrip.**
+
+So the bug is compounding where it should accumulate, which explains every earlier
+observation at once: it grows with look (bigger per-cantrip factor), vanishes without
+bricks (nothing to compound), shrinks as need rises (keeps consume the effect), and
+reaches +55% at two copies and +237% at four.
+
+**This contradicts an earlier entry in this file.** The claim that aggregate window
+sampling is exact "by the chain rule" holds for ONE sample of size `t*S`; it does NOT
+hold if the removal is applied per-cantrip in sequence. The next step is to check
+whether `windowNonCopy = triggers*examined - copiesInWindows` is subtracted once from
+the pool or effectively compounded across cantrips -- that is a code question with a
+definite answer, not another hypothesis.
+
+Diagnostic value of this configuration: the DP's perfectly linear signature gives a
+reference shape, so a correct fix must reproduce increments of 0.7x base rather than
+merely reducing the error.
