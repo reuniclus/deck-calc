@@ -3231,3 +3231,52 @@ prefix length up front. So the prefix form's appeal -- a fixed pool, no evaluate
 Not a dead end necessarily: if the ordering-count can be written in closed form for
 each (t, q, K) configuration, the fixed pool and the absent evaluate calls would still
 make it cheap. But it is a counting problem, not the reformulation it looked like.
+
+### Where MQ breaks, located by trigger count (2026-07-30)
+
+Walked the algorithm step by step and tested which step is responsible.
+
+`scryModifiedQueryPass`, with each step marked:
+
+| # | step | status |
+|---|---|---|
+| 1 | `slotDistribution(deck, copies, look, draws - precedingKeeps)` | APPROX -- slot DP assumes free windows; `keeps*(t-1)/(2t)` is a scalar mean |
+| 2 | `triggers = (seen - slotDraws)/look` | exact unless windows truncate (guarded) |
+| 3 | `scheduled = draws - triggers` | exact |
+| 4 | `windowNonCopy = triggers*look - copiesInWindows` | APPROX -- pools all t windows into one aggregate |
+| 5 | enumerate the aggregate window composition | APPROX -- real windows are separate samples, from different pool states, at different times |
+| 6 | `kept = min(w_g, maxLo_g)` | APPROX -- hand-agnostic |
+| 7 | `collectable = min(scheduled, draws - firstTriggerPos)` | APPROX -- earliest trigger's position applied to ALL keeps |
+| 8 | cap keeps at collectable | follows from 7 |
+| 9 | `evaluate(pool - window, counts - w, lo - kept)[scheduled - spent]` | exact GIVEN the partition, which assumes every window precedes every fresh draw |
+
+Error against the exact DP as copies rise (deck 60, A=10, need 2, look 3, 12 draws):
+
+| copies | E[triggers] | error |
+|---|---|---|
+| 1 | 0.20 | **0.0000pt** |
+| 2 | 0.40 | 0.0844 |
+| 3 | 0.60 | 0.2224 |
+| 4 | 0.80 | 0.3902 |
+| 6 | 1.20 | 0.7219 |
+| 8 | 1.60 | 0.9782 |
+| 12 | 2.40 | 1.2470 |
+
+**Zero at one copy, then growing super-linearly at first.** That is the signature of an
+error requiring TWO triggers to exist, and it identifies the doom point precisely:
+the SECOND AND LATER triggers. Their windows are drawn from a pool earlier windows
+already depleted, at a time earlier keeps already shifted, and MQ collapses all of
+that into one aggregate sample plus two scalar corrections.
+
+Every approximation in steps 4-7 needs `t >= 2` to bite: pooling misrepresents nothing
+with one window, "first trigger's position" IS the only position at t=1, and
+`precedingKeeps` is identically zero at t=1. Which is why one copy is exact to
+floating point.
+
+Step 6 is NOT implicated: greedy keep is optimal for a single monotone clause, so it
+contributes nothing to this curve. That is also why the per-trigger recursion -- which
+fixes steps 1/4/5/7 by sequencing while KEEPING the greedy rule -- is exact here.
+
+The flattening at the top (x1.27 from 8 to 12 copies) is saturation: as P approaches
+0.87 there is less room to be wrong, the same compression that made the 20-draw row
+look accurate.
