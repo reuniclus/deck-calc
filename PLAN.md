@@ -3616,3 +3616,43 @@ corrected keep TIMING, and this is a different term.
 Cheapest confirmation: a query needing a piece with a brick cap where the brick count
 is zero (no bricks in deck) must be exact, and a window-content sweep should show the
 error concentrated in windows containing BOTH a piece and a brick.
+
+### Same-window hypothesis REFUTED; the brick term's fingerprint (2026-07-30)
+
+Tested the suspicion from the previous entry -- that the residual needed a piece and a
+brick in the SAME window -- using the minimal reproducing case (one copy, one window).
+
+**Refuted.** With `look = 1` a window holds a single card and cannot contain both, yet
+the error persists at +0.038pt. The mechanism guessed in the previous entry is wrong,
+and this is the second wrong mechanism guessed tonight (after the mean-position one).
+
+The measured fingerprint, deck 60, A=10, 15 draws, one copy, `A>=2 & brick<=0`:
+
+| varying look | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| error | 0.038pt | 0.076pt | 0.111pt | 0.140pt | 0.163pt |
+
+| varying brick count | 0 | 1 | 2 | 4 | 8 |
+|---|---|---|---|---|---|
+| error | **EXACT** | 0.057pt | 0.090pt | 0.111pt | 0.079pt |
+
+| varying need | 1 | 2 | 3 |
+|---|---|---|---|
+| error | **0.174pt** | 0.111pt | 0.042pt |
+
+What the shape says:
+- **zero bricks is exact**, so the error requires bricks in the DECK, not in the window;
+- it **grows with look**, so it scales with window size;
+- it **shrinks as need rises**, the OPPOSITE of the keep-timing error `w_i` fixed, which
+  grew with need -- confirming these are separate terms;
+- it **peaks at moderate brick counts** (rising to 4, falling by 8), the signature of a
+  term carrying `P(brick) * P(no brick)`, maximal at middling exposure.
+
+The `need=1` peak is the most suggestive: with need 1 a single keep ends all keeping, so
+keeps happen early and exactly once. Combined with the look scaling, that points at
+BRICK EXPOSURE being mis-accounted around the window that produces the keep, rather
+than at the keep itself.
+
+Next step is deliberately not another hypothesis: find the term in the code whose
+behaviour matches `look * P(brick)P(no brick) / need`, rather than guessing a mechanism
+and wiring it. Two guesses tonight were both wrong, and both cost a revert.
