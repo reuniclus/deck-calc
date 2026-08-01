@@ -22,10 +22,21 @@
 import { slotDistribution } from './selection';
 import { pmf } from './hyper';
 
+/** Memoised binomial. `comb` sits in this module's innermost loop and was being
+ * recomputed with a k-step multiplication on every call, which is where the per-call
+ * cost lives -- the call SITE is already memoised by the recursion, so the only way to
+ * make the tail cheaper is to make each evaluation cheaper. Pure function, so caching
+ * is exact. */
+const combCache = new Map<number, number>();
 export function comb(n: number, k: number): number {
   if (k < 0 || k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  const key = n * 4096 + k;
+  const hit = combCache.get(key);
+  if (hit !== undefined) return hit;
   let r = 1;
   for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
+  combCache.set(key, r);
   return r;
 }
 
@@ -43,7 +54,12 @@ export function comb(n: number, k: number): number {
 export function cheapTail(pool: number, bricks: number, cap: number, copies: number, look: number, draws: number): number {
   const nonCopyPool = pool - copies;
   let total = 0;
-  for (const { seen, copies: cC, p } of slotDistribution(pool, copies, look, draws)[draws]!) {
+  // `slotDistribution` returns EVERY draw count up to `maxDraws` but is cached on
+  // `maxDraws`, so asking for exactly `draws` rebuilds the whole slot DP for each
+  // distinct value. Requesting a bucketed ceiling and indexing into it collapses that
+  // dimension: one build per (pool, copies, look) instead of one per draw count.
+  const bucket = Math.max(8, Math.ceil(draws / 8) * 8);
+  for (const { seen, copies: cC, p } of slotDistribution(pool, copies, look, bucket)[draws]!) {
     if (p <= 0) continue;
     const triggers = look > 0 ? Math.round((seen - draws) / look) : 0;
     const seenNonCopy = seen - cC;

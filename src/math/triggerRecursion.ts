@@ -180,6 +180,22 @@ export function triggerRecursionDnf(
   /** Exactly one group carries an upper bound -- the brick case, where the cheap
    * tail applies. */
   const boundedGroups = counts.map((n, g) => (hi[0]![g]! >= n ? -1 : g)).filter((g) => g >= 0);
+  /**
+   * One bound, shared identically by every clause -- the shape a distributed
+   * `(A>=2 | B>=2) & brick<=0` produces, and the reason the bounded-OR corner is
+   * expensive: with the bound duplicated, no clause is unbreakable, so nothing absorbs
+   * and every branch runs to the horizon.
+   */
+  const sharedBound = ((): boolean => {
+    if (boundedGroups.length !== 1) return false;
+    const g = boundedGroups[0]!;
+    for (let ci = 0; ci < C; ci++) {
+      if (hi[ci]![g]! !== hi[0]![g]!) return false;
+      if (lo[ci]![g]! > 0) return false;
+      for (let g2 = 0; g2 < G; g2++) if (g2 !== g && hi[ci]![g2]! < counts[g2]!) return false;
+    }
+    return true;
+  })();
 
   /**
    * Absorbing success for a bounded clause. Once every `lo` is met nothing is
@@ -220,9 +236,19 @@ export function triggerRecursionDnf(
     }
     if (!anyAlive) return 0;
     if (d <= 0) return anyMet ? 1 : 0;
-    if (C === 1 && boundedGroups.length === 1 && !unbreakable[0]!
-      && counts.every((_, g) => acq[g]! >= lo[0]![g]!)) {
-      return tail(rem, remC, remO, acq, d);
+    if (boundedGroups.length === 1 && (C === 1 || sharedBound)) {
+      // `cheapTail` is exact only when NO keeps can still occur, so the gate must be
+      // that EVERY live clause is satisfied -- not any. Gating on "any" let a second,
+      // still-hungry clause keep cards, and those keeps burn draws that would otherwise
+      // risk a brick, so the tail came out pessimistic (-0.576pt against -0.188pt).
+      // For a single clause the two conditions coincide, which is why that case was
+      // always correct.
+      const g = boundedGroups[0]!;
+      const allSatisfied = clauses.every((_c, ci) => {
+        if (!alive(acq, ci)) return true;            // dead clauses want nothing
+        return counts.every((_v, g2) => g2 === g || acq[g2]! >= lo[ci]![g2]!);
+      });
+      if (allSatisfied) return tail(rem, remC, remO, acq, d);
     }
     const pool = rem.reduce((a, r) => a + r, 0) + remC + remO;
     if (pool <= 0) return anyMet ? 1 : 0;

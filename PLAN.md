@@ -3913,3 +3913,43 @@ walks to the horizon. Restoring absorption cut states 185724 -> 10418 (18x).
    `brickExtreme.test.ts`, not merely a smaller error.
 4. Run the invariants BEFORE any accuracy sweep. Three of this session's four failed
    attempts would have been caught in one run by doing so.
+
+### Route A attempted: the speedup came from the incorrectness (2026-07-30)
+
+Executed the punch list's Route A in order -- make `cheapTail` cheaper, then correct the
+handoff gate, then measure.
+
+**Step 1, `cheapTail` cost.** First hypothesis (memoise `comb`, which sits in the
+innermost loop) was WRONG: 314ms -> 319ms over 200 calls, accumulator identical. The
+measurement found the real cause in the test's own shape -- `slotDistribution` is cached
+on `maxDraws`, so asking for exactly `draws` rebuilds the entire slot DP for every
+distinct draw count, even though it already returns all counts up to the maximum.
+Requesting a bucketed ceiling and indexing collapses that dimension: **314ms -> 224ms
+(1.4x), bit-identical results.** Kept. The remaining cost is one slot-DP build per
+distinct POOL, which is intrinsic.
+
+**Step 2, the corrected gate.** Results on the corner:
+
+| gate | states | time | error |
+|---|---|---|---|
+| no handoff | 185724 | 91s | -0.188pt |
+| ANY clause satisfied (wrong) | 10418 | **18s** | -0.576pt |
+| EVERY clause satisfied (correct) | 93922 | 73s | **-0.188pt** |
+
+**The speedup came from the incorrectness.** The correct gate restores exactness but
+fires only when every clause is satisfied, which is rare in an OR, so it recovers 2x of
+the state reduction and 1.25x of the time. The wrong gate fired constantly precisely
+because it ignored the still-hungry clause.
+
+So Route A is blocked by the same precondition that broke the first handoff: `cheapTail`
+is exact only with no keeps, and an OR query usually has a clause still wanting cards.
+Getting the 18x honestly requires a tail that PERMITS keeps -- which is not `cheapTail`
+and not a small change; it is the general problem again, restricted to the endgame.
+
+Both changes kept (each exact, each strictly better than before), but the corner is not
+solved: recursion 73s, DP 16s. The DP remains the only correct option there, and MQ the
+only fast one at +1.96pt.
+
+Revised view of the punch list: Route A's remaining blocker is no longer performance
+plumbing, it is the same modelling gap as Route B. That materially weakens the earlier
+claim that Route A was "engineering, not research".
