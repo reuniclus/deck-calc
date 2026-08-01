@@ -3450,3 +3450,46 @@ The one-copy invariant did its job: it is the cheapest possible detector for exa
 this failure, since at t=1 the first, last and mean positions all differ while the
 true answer is known. Any future attempt should be run against it FIRST, before any
 accuracy sweep.
+
+### The sweet point is derivable, not fittable: lambda = keep-mass distribution (2026-07-30)
+
+Proposal: the interpolation weight between the bracket's endpoints is probably a
+FUNCTION of the parameters rather than a constant. Answered analytically -- no
+instrumentation, which matters given three broken probes in a row.
+
+For `t` triggers uniformly placed among `n` draws, `E[p_i] = i(n+1)/(t+1)`. So:
+
+- earliest cap: `n - (n+1)/(t+1)`
+- latest cap: `n - t(n+1)/(t+1)`
+- keeps spread EVENLY across windows: `n - mean_i E[p_i]` = `n - (n+1)/2`
+
+Interpolating the even-spread cap between the endpoints:
+
+    lambda = [(n+1)/2 - (n+1)/(t+1)] / [(t-1)(n+1)/(t+1)]
+           = [(t+1)/2 - 1] / (t-1)
+           = 1/2
+
+**Exactly one half, independent of n, t, deck size, look size -- everything.** So
+under even spread the sweet point would be a universal constant.
+
+**Measured lambda is ~0.26, not 0.5.** That gap is the result: keeps are FRONT-LOADED.
+Mechanically obvious in hindsight -- the first window fires with nothing acquired, so
+everything it sees is needed, while later windows often find nothing worth keeping
+because the need is already met. More keep mass in early windows pulls the effective
+cap toward the first trigger's generous budget.
+
+So lambda is not free; it is determined by the keep-mass distribution:
+
+    lambda = sum_i w_i * (i-1)/(t-1),   w_i = fraction of keeps in window i
+
+Even spread recovers 1/2 by the algebra above. Front-loading gives less. The measured
+0.26 implies roughly two thirds of keep mass in the first window at t ~ 2.
+
+**Consequence for the fix: do not calibrate lambda -- compute `w_i`.** Window i's
+expected keeps follow from how much need survives windows 1..i-1, so weighting the
+caps by `w_i` gives the correct blend with NO fitted constant. The governing terms are
+need, copies and look, since those determine how fast need is consumed.
+
+This also explains the failed per-window attempt directly above: it assumed
+`w_i = 1/t`, i.e. lambda = 1/2, when the truth is ~0.26. It over-restricted, which is
+exactly the direction the numbers moved.
