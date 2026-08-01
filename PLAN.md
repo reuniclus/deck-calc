@@ -4149,3 +4149,28 @@ When composites land, the labelling above becomes necessary rather than precauti
 
 Pinned as `shippableScope.test.ts`, asserting invariance for the four clean shapes and --
 as a known defect -- that scry still splits.
+
+### Hoisting MQ's position loop: exact, 1.35-1.53x, and another wrong cost prediction (2026-07-30)
+
+A position affects the leaf ONLY through the collectable cap it implies, and caps above the
+largest possible keep are indistinguishable. So the position mixture is now collapsed into a
+distribution over CAP VALUES before the window walk instead of being re-enumerated inside
+it -- at most `sum(maxLo)+1` entries (~3) rather than `draws x triggers` (~30).
+
+Exact by construction: it aggregates outcomes that were already identical. Values are
+bit-identical before and after (corner 0.351829518, monotone 3-group 0.920305128).
+
+| config | before | after | speedup |
+|---|---|---|---|
+| corner (OR + brick) | 2275ms | **1685ms** | 1.35x |
+| monotone, 3 groups | 1273ms | **833ms** | 1.53x |
+
+**Predicted ~3x, got 1.35-1.53x.** The position loop was not the bottleneck: the WINDOW
+COMPOSITION enumeration is, with an `evaluate` at each leaf. The position loop was riding
+inside it rather than dominating it.
+
+Worth recording as a pattern: this is the sixth cost prediction of the session to fail in
+the same direction -- assuming that whatever was most recently examined is the bottleneck.
+The profiling run much earlier already said otherwise (4621 distinct `(pool, sizes)`
+combinations dominating, which IS window composition), and that data was not applied here.
+Any further MQ performance work should start from that profile rather than from structure.

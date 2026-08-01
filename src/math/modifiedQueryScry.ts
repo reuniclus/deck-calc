@@ -311,13 +311,31 @@ export function scryModifiedQueryPass(
     const neededTotal = counts.reduce((a, c, gi) => a + (maxLo[gi]! > 0 ? c : 0), 0);
     const needTotal = maxLo.reduce((a, v) => a + v, 0);
     const keepShares = keepMass(pool, neededTotal, Math.max(1, needTotal), examined, draws, triggers);
-    const positions: Array<{ p: number; weight: number }> = [];
+    /**
+     * A position affects the leaf ONLY through the collectable cap it implies, and
+     * caps above the largest possible keep are indistinguishable. So the position
+     * mixture is collapsed into a distribution over CAP VALUES before the window
+     * walk, rather than being re-enumerated inside it.
+     *
+     * Exact -- it aggregates outcomes that were already identical -- and it shrinks
+     * the inner loop from `positions` (up to draws x triggers, ~30) to at most
+     * `sum(maxLo) + 1` entries (~3). The loop was inside the walk purely because
+     * position conditioning was bolted on after the window enumeration existed.
+     */
+    const maxSpend = maxLo.reduce((a, v) => a + v, 0);
+    const capWeights: number[] = new Array(maxSpend + 1).fill(0) as number[];
     for (let i = 1; i <= Math.max(1, triggers); i++) {
       const wi = keepShares[i - 1] ?? 0;
       if (wi <= 0) continue;
       for (const op of orderStatistic(draws, triggers, i)) {
-        positions.push({ p: op.p, weight: wi * op.weight });
+        const cap = Math.max(0, Math.min(scheduled, draws - op.p));
+        const slot = Math.min(cap, maxSpend);
+        capWeights[slot] = (capWeights[slot] ?? 0) + wi * op.weight;
       }
+    }
+    const positions: Array<{ cap: number; weight: number }> = [];
+    for (let c = 0; c <= maxSpend; c++) {
+      if (capWeights[c]! > 0) positions.push({ cap: c, weight: capWeights[c]! });
     }
     const window: number[] = new Array(G).fill(0) as number[];
     const walk = (g: number, left: number, ways: number): void => {
@@ -326,7 +344,7 @@ export function scryModifiedQueryPass(
         const pWindow = (ways * comb(fillerPool, left)) / comb(pool, windowNonCopy);
         if (pWindow <= 0) return;
 
-        for (const { p: firstPos, weight: pPos } of positions) {
+        for (const { cap: capValue, weight: pPos } of positions) {
         // Keep every still-missing piece, bottom the rest. Scry forces no
         // discard, so there is no choice to maximise over.
         let kept = window.map((have, gi) => Math.min(have, maxLo[gi]!));
@@ -334,7 +352,7 @@ export function scryModifiedQueryPass(
         // Keeps are collected by draws that come AFTER the cast, so the cap is
         // set by the trigger's position -- not by `draws - triggers`, which
         // assumed the whole remainder was available and over-credited late casts.
-        const collectable = Math.max(0, Math.min(scheduled, draws - firstPos));
+        const collectable = capValue;
         if (spent > collectable) {
           // Correction 1: cannot keep what there is no draw left to collect.
           let over = spent - collectable;
