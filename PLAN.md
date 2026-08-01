@@ -3352,3 +3352,39 @@ Next isolation should hold the sampling fixed (it is correct) and vary only the 
 BUDGET: give each window its own budget of draws-remaining-at-that-trigger instead of
 one shared pool of keeps. That is a single-variable test of step 4, and it needs
 trigger positions per window rather than just the first.
+
+### The position cap IS the lever: bracketed between first and last trigger (2026-07-30)
+
+Framing that produced this: a keep can only be paid by a draw in a "timeline" where
+that draw comes after the trigger, so the fix is a weighted average over which
+timeline you are in -- not a single cap.
+
+MQ currently caps every keep by the EARLIEST trigger's position, the most generous
+timeline available. Swapping in the LATEST trigger's position (most restrictive) is a
+single-variable bracket test:
+
+| case | first trigger | exact | last trigger |
+|---|---|---|---|
+| A>=2, 8 copies, 12 draws | +0.978pt | 0 | **-2.763pt** |
+| A>=2, 4 copies, 12 draws | +0.390pt | 0 | -0.642pt |
+| A>=3, 8 copies, 15 draws | +1.541pt | 0 | -4.186pt |
+
+**The sign flips, so the position cap is the dominant term** -- the bracket spans
+3.7pt on the first row and the whole error lives inside it. Together with the
+coefficient sweep (trigger budget worth ~20%) and the sampling result (step 5 exact),
+the error is now fully accounted for.
+
+**The asymmetry is informative:** the exact answer sits about 26% of the way from
+first to last, i.e. much closer to the generous end. That fits keeps concentrating in
+EARLY windows -- the first trigger usually fires with most draws still available, so
+most keeps really are collectable, and only later windows get squeezed.
+
+**Implementable fix:** weight each window's keeps by ITS OWN position marginal,
+`C(p-1, i-1) * C(draws-p, t-i) / C(draws, t)` for the i-th of t, instead of putting
+every keep on the first. Closed-form marginals, so it costs an enumeration over `i`
+rather than over joint positions, and it should land near the observed 26%
+automatically because early windows carry more keep mass.
+
+Not implemented: it is a real change to the keep accounting, and three consecutive
+attempts at changes of that shape needed reverting. The bracket is the durable
+artifact -- it proves the lever and bounds the answer.
