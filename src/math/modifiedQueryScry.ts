@@ -110,10 +110,17 @@ function firstTriggerPosition(draws: number, triggers: number): Array<{ p: numbe
   if (triggers <= 0) return [{ p: 0, weight: 1 }];
   const denom = comb(draws, triggers);
   if (denom <= 0) return [{ p: 0, weight: 1 }];
+  // Which WINDOW a keep belongs to decides how many draws can collect it: a keep
+  // from the i-th trigger needs draws after that trigger's position, whose marginal
+  // is the i-th order statistic of t positions drawn from `draws`. Averaging over i
+  // replaces the old behaviour of charging every keep to the FIRST trigger, which
+  // is the most generous timeline and over-credited by up to 1.5pt.
   const out: Array<{ p: number; weight: number }> = [];
-  for (let p = 1; p <= draws - triggers + 1; p++) {
-    const weight = comb(draws - p, triggers - 1) / denom;
-    if (weight > 0) out.push({ p, weight });
+  for (let i = 1; i <= triggers; i++) {
+    for (let p = 1; p <= draws; p++) {
+      const weight = (comb(p - 1, i - 1) * comb(draws - p, triggers - i)) / (denom * triggers);
+      if (weight > 0) out.push({ p, weight });
+    }
   }
   return out;
 }

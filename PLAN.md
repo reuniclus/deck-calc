@@ -3388,3 +3388,39 @@ automatically because early windows carry more keep mass.
 Not implemented: it is a real change to the keep accounting, and three consecutive
 attempts at changes of that shape needed reverting. The bracket is the durable
 artifact -- it proves the lever and bounds the answer.
+
+### Per-window position marginals landed: worst case 2.138 -> 1.455pt (2026-07-30)
+
+Implemented the fix the bracket pointed at: a keep from the i-th trigger can only be
+paid by draws after THAT trigger, so charge it to the i-th order statistic rather
+than putting every keep on the first. Marginals are closed-form
+(`C(p-1,i-1)*C(draws-p,t-i)/C(draws,t)`), averaged over i.
+
+| case | before | after |
+|---|---|---|
+| no copies / nothing kept / one copy | exact | **exact** (invariants held) |
+| fewest draws | +1.466 | **-0.113** |
+| many copies | +0.978 | **-0.453** |
+| smallest look | +0.464 | **-0.086** (in bar) |
+| largest look | +0.902 | -0.978 (slightly worse) |
+| most draws | +0.139 | -0.234 (slightly worse) |
+| one clause + brick | +1.527 | **+1.022** |
+| OR + brick | +2.138 | **+1.455** |
+
+Worst case improved 32%, the biggest single gain being 13x on `fewest draws`. Mass
+stays 1.000000 throughout, and the one-copy invariant holds by construction --
+averaging over windows is a no-op when there is only one.
+
+**Two rows crossed zero and ended slightly further out.** That is the predicted
+overshoot: uniform averaging assumes keeps spread evenly across windows, but they
+concentrate in EARLY ones, since a card is kept while the need is still unmet. The
+bracket said the truth sits ~26% of the way from generous to restrictive; uniform
+averaging puts it near 50%.
+
+**Next refinement, now well-specified:** weight each window by its KEEP MASS rather
+than uniformly. Early windows hold more keeps, so they should carry more of the
+weight, which should move the estimate from ~50% back toward the observed ~26%.
+
+Cost: the corner went 746ms to 2719ms, since the position loop now runs once per
+window index. Still 6x faster than the exact DP's 16251ms, so the trade is worth it
+at current accuracy -- but it is a trade, not a free win.
