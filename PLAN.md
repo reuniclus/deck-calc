@@ -3319,3 +3319,36 @@ already depleted, at a time earlier keeps already shifted. No scalar budget adju
 can express that, which is why every correction attempted on step 1 -- mean deduction,
 distribution-level fixed point, coefficient sweep -- has moved the number by tenths
 while the error stayed above a point.
+
+### Isolation attempt: step 5 turns out not to be an error at all (2026-07-30)
+
+Tried to separate step 4 (pooling the window SLOTS) from step 5 (sampling every
+window from one pool state) by drawing the `t` windows sequentially from a depleting
+pool. Two runs, both confounded -- the first dropped the position cap while changing
+the sampling, the second kept the cap but still came out WORSE than stock (2.702pt
+against 0.978pt) with mass 1.000000.
+
+The useful part is what the failure exposed: **drawing `t*S` cards as one sample is
+distributionally IDENTICAL to drawing `S` at a time from the remainder.** That is
+just the chain rule for sampling without replacement. So "window 2 is really drawn
+from a pool window 1 already depleted" -- an explanation used repeatedly in the
+entries above -- is handled CORRECTLY by the aggregate sample. Step 5 is not an
+approximation.
+
+Relocated:
+
+| step | verdict |
+|---|---|
+| 1 -- trigger budget | real but small, ~20% by the coefficient sweep |
+| 5 -- pooled sampling | **not an error**, distributionally identical |
+| 4 -- pooled keep BUDGET | suspect: one budget spans all windows, so a keep belonging to window 2 can be paid by a draw that came before it |
+| 7 -- single position cap | suspect: the earliest trigger's position is applied to every keep |
+
+The sequential variant coming out worse is not evidence about the model -- it kept
+the pooled budget and the single cap while changing only something that was already
+exact, so the delta measures an implementation error of mine, not a property of MQ.
+
+Next isolation should hold the sampling fixed (it is correct) and vary only the KEEP
+BUDGET: give each window its own budget of draws-remaining-at-that-trigger instead of
+one shared pool of keeps. That is a single-variable test of step 4, and it needs
+trigger positions per window rather than just the first.
