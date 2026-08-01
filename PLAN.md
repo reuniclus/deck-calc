@@ -3758,3 +3758,35 @@ brick-heavy decks. That costs little, because the DP is not merely exact there b
 FAST: bounded queries with bottoming ran 667ms, nothing like the 16s OR corner. The
 expensive corner and the inaccurate corner are not the same place, so routing can
 prefer the DP for bounds and MQ for monotone.
+
+### Corner decomposition: the brick bug IS the corner (2026-07-30)
+
+Argument made: bounded+OR is the corner, bounded almost always means bricks, and it is
+by far the DP's worst case -- so the brick bug is the priority. Measured, deck 60,
+look 3, 8 copies, 15 draws:
+
+| case | MQ error | DP time | MQ time |
+|---|---|---|---|
+| OR, no brick | **0.038pt** | 1347ms | 804ms |
+| 1 clause + brick | **1.418pt** | 531ms | 241ms |
+| OR + brick (corner) | **1.957pt** | **14787ms** | 1989ms |
+
+**MQ's OR handling is already inside the bar at 0.038pt.** So the corner's 1.957pt is
+almost entirely the brick term (1.418pt from bricks alone plus interaction), and fixing
+it should bring the corner down to roughly OR-alone accuracy.
+
+**The DP's cost is the INTERACTION, not either ingredient.** OR alone 1347ms, brick
+alone 531ms, both 14787ms -- a 10-28x blowup from combining them, consistent with the
+absorption analysis: with a brick in every clause, no clause is unbreakable, so nothing
+absorbs and every branch runs to the horizon.
+
+Conclusion, and the priority for the next session: the brick compounding bug is the ONLY
+thing between MQ and being a trustworthy ~7x-faster answer in the single regime where the
+DP is unusable. Everything else in MQ is either exact or within bar. That makes it worth
+more than the remaining items (multivariate cheap tail, greedy-to-max in the recursion,
+multi-type effects), all of which improve places that already have a working option.
+
+Acceptance criteria for a fix, from the extreme test: MQ must reproduce the DP's LINEAR
+per-cantrip increment (0.7x base in that configuration) rather than merely producing a
+smaller number, and must leave the four exact cases untouched -- one-copy monotone,
+nothing-ever-kept, zero copies, and the no-cantrip analytic baseline.
