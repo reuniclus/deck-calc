@@ -3790,3 +3790,44 @@ Acceptance criteria for a fix, from the extreme test: MQ must reproduce the DP's
 per-cantrip increment (0.7x base in that configuration) rather than merely producing a
 smaller number, and must leave the four exact cases untouched -- one-copy monotone,
 nothing-ever-kept, zero copies, and the no-cantrip analytic baseline.
+
+### Shared-bound hoisting: the insight is right, the implementation is not a win (2026-07-30)
+
+Observation that started it: `(A>=2 | B>=2) & brick<=0` is the same query as
+`(A>=2 & brick<=0) | (B>=2 & brick<=0)` but framed with the bound OUTSIDE the OR, and
+the DP's cost comes precisely from the bound being duplicated across clauses (no clause
+unbreakable, so nothing absorbs).
+
+Correct follow-up, and it needed no query rewriting: when the same single bound is shared
+by EVERY clause, satisfying any clause's lower bounds leaves exactly one open question --
+will a bounded card still reach hand -- which `cheapTail` answers exactly. So the early
+exit can be restored where a duplicated bound destroyed it.
+
+First attempt put this in `exactSelectionCurveDnf` and was abandoned before measuring:
+`cheapTail` imports `slotDistribution` from selection.ts, so that direction creates a
+CIRCULAR IMPORT in the reference implementation. Not worth the risk; moved to the
+recursion, which already imports `cheapTail`.
+
+Measured on the corner (deck 60, A=10/B=6/brick=4, look 3, 8 copies, 15 draws):
+
+| | recursion before | with shared-bound tail | exact DP |
+|---|---|---|---|
+| time | 91s | **18.0s** | 23.7s |
+| error | -0.188pt | **-0.576pt** | exact |
+| states | 185724 | **10418** | -- |
+
+**The structural claim is confirmed: 18x fewer states.** The early exit really is what the
+duplicated bound was costing. But the speedup is only 5x, not 18x, so the `cheapTail`
+calls themselves are now the bottleneck -- each is 4-22ms and there are enough distinct
+tail states to absorb the savings. And the error TRIPLED, from -0.188 to -0.576pt.
+
+Reverted: 18s is still unusable, and a strictly-worse-accuracy path is not worth keeping
+even in a research module.
+
+What this leaves for a future attempt, in order of value:
+1. **Make `cheapTail` cheaper.** It is already the degenerate case, but at 4-22ms per
+   distinct tail state it cannot be called thousands of times. Its own slot distribution
+   is cached; the per-call loop over slot outcomes is not.
+2. Understand the accuracy regression before reusing the handoff -- the tail is exact for
+   pure upper bounds, so tripling the error suggests the handoff fires in states where the
+   remaining process is not purely a bound question.
