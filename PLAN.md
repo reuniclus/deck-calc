@@ -4104,3 +4104,48 @@ Pinned as `groupingInvariance.test.ts`, which asserts clairvoyant invariance, th
 DP answer exceeds the ceiling, and -- as a KNOWN BUG -- that the DP currently splits. When
 that last expectation starts failing, the DP has been fixed and it should invert to an
 equality.
+
+## SHIPPABLE SCOPE (2026-07-30) -- only scry is affected
+
+Grouping invariance run per effect shape, deck 60, A=10/B=6/brick=4, look 3, 8 copies,
+15 draws, query `(A>=1 | B>=1) & brick<=0` against `(AB>=1) & brick<=0`:
+
+| effect shape | split |
+|---|---|
+| draw | **NONE** |
+| impulse, keep 1 | **NONE** |
+| impulse, keep = look | **NONE** |
+| **scry** | **0.7952pt** |
+| ponder | **NONE** |
+
+The defect needs all THREE of: keeps cost a draw, non-kept cards leave the pool, and an
+upper bound. That is exactly scry. Ponder pays the draw cost but never bottoms and is
+clean; draw and impulse keep for free and are clean.
+
+**SHIP**
+- draw-shaped, any query -- already live, and therefore the shipped product is UNAFFECTED
+- impulse, any query, either keep cap
+- ponder, any query (also the cheapest shape in the DP at 64ms)
+- scry with MONOTONE queries -- grouping-invariant, brute-force and oracle verified
+
+**SHIP WITH A LABEL, do not block**
+- scry + upper bound. The DP's value is a valid LOWER bound: it is an achievable policy,
+  merely not provably optimal. For a deck-building decision that errs safe -- the user is
+  told the deck is slightly worse than it is, never better. Present as "at least X%".
+
+**DO NOT SHIP**
+- MQ or the per-trigger recursion in any user-facing path; both are research modules with
+  known multi-point errors.
+
+**Rejected mitigations and why:**
+- *Substituting another effect shape when a bound is present* -- Preordain is not
+  Divination. That trades an honest imprecise number for a confidently wrong one.
+- *Blocking bricks together with scry cantrips* -- refuses a legitimate and common question
+  ("does Preordain help my brick-prone deck?") that can be answered as a lower bound.
+
+Practical reprieve: real cantrips are composites (`scry 2 + draw 1`), and the composite
+shape is still unimplemented, so pure-scry with bricks is not reachable from the UI today.
+When composites land, the labelling above becomes necessary rather than precautionary.
+
+Pinned as `shippableScope.test.ts`, asserting invariance for the four clean shapes and --
+as a known defect -- that scry still splits.
