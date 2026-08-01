@@ -4213,3 +4213,27 @@ and it would catch a whole class of per-type bookkeeping error immediately.
 Do NOT start this by extending the DP's `remC` in place. The session's record on in-place
 changes to shipped math was poor (2 successes in 9 attempts), and both successes came from
 deriving the mechanism first with an invariant that held by construction.
+
+### Type invariance: the live multi-type path is sound; the gate now exists (2026-07-30)
+
+Before building a scry/impulse multi-type engine, tested the invariant it must satisfy
+against the multi-type code that already ships. Declaring `T` copies as one effect type
+must equal declaring them as several identical types summing to `T`.
+
+| declaration (deck 60, A=10/B=6, look 3, 12 draws, `A>=2 & B>=1`) | value | deviation |
+|---|---|---|
+| 1 type x 8 copies | 0.725708034 | -- |
+| 2 types x 4 copies | 0.725708034 | -5.6e-14 |
+| 4 types x 2 copies | 0.725708034 | -1.1e-14 |
+| independent single-effect DP | 0.725708034 | -7.1e-13 |
+
+**The live draw-shaped path is sound**, and it also agrees with the independent
+single-effect DP, so the harness itself is validated. Pinned as `typeInvariance.test.ts`.
+
+**Scope note on the scry/impulse engine, from reading the DP:** this is not a small edit.
+The window composition walk currently covers `groups + 1` copy dimension; multi-type needs
+`groups + T`, because copies of each type inside a window are dead but leave the pool
+according to THAT type's rules. `remC` also becomes a vector in the memo key. Roughly 200
+lines of new bookkeeping with several places to miscount silently -- which is precisely
+what type invariance would catch, so write the engine against this test rather than
+measuring accuracy first.
