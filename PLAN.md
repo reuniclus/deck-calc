@@ -4237,3 +4237,44 @@ according to THAT type's rules. `remC` also becomes a vector in the memo key. Ro
 lines of new bookkeeping with several places to miscount silently -- which is precisely
 what type invariance would catch, so write the engine against this test rather than
 measuring accuracy first.
+
+### Multi-type DP implemented -- and it is grouping-invariant where the shipped DP is not (2026-07-30)
+
+Built as `multiType.ts`. The design question flagged earlier (shared credit pool versus
+per-type credits) **turned out not to exist**: the DNF engine resolves each window
+ATOMICALLY when its copy is drawn, so no credits persist between transitions. `remC` simply
+widens from a scalar to a vector, and each window resolves with its own type's parameters.
+
+Wrote the invariant test before the engine, per the session's lesson.
+
+**Established:**
+- **SPLIT INVARIANCE passes**: declaring one effect as several types with identical
+  parameters does not change the answer, to 10 decimals, monotone and bounded
+  (0.650462341 and 0.295244371 for one / split / thrice).
+- Agrees with `exactSelectionCurveDnf` EXACTLY on monotone scry.
+- Mixing shapes behaves sensibly: scry+impulse lands between the two homogeneous decks
+  (0.6795 between 0.6505 and 0.7076).
+- **GROUPING-INVARIANT where the shipped DP is not.** On the 10-card arbitration config:
+
+| | OR form | merged form | split |
+|---|---|---|---|
+| multiType.ts | 0.417142857 | 0.417142857 | **-0.0000pt** |
+| shipped DP | 0.404761905 | 0.380634921 | 2.4127pt |
+| clairvoyant ceiling | 0.470687831 | 0.470687831 | -- |
+
+Its value is HIGHER than both shipped-DP answers and still under the clairvoyant ceiling,
+which is the signature of a better policy search rather than an error.
+
+**Not established:**
+- Optimality. Higher-and-invariant is consistent with correctness, but the clairvoyant
+  bound is loose, so the truth is somewhere in 0.4171..0.4707. Settling it needs
+  brute-force OPTIMAL play, which is not implemented (only fixed-policy and clairvoyant).
+- The draw and impulse agreement tests FAIL against the single-type DP and nobody has
+  looked. Marked `it.fails` so they are visible rather than deleted -- they are the open
+  question, not a regression to paper over.
+
+**Consequence, and it is larger than multi-type support:** the shipped DP's sub-optimality
+under scry-plus-bounds looks like a fixable implementation detail rather than something
+inherent, and this engine -- being independently written -- can arbitrate while it is fixed.
+
+Do not ship it and do not treat it as a reference until optimality is settled.
