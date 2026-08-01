@@ -3577,3 +3577,42 @@ Remaining error is still front-loaded in the same direction (always positive), s
 next candidates are the residual mean-collapse in `seenBefore` (it uses `E[p_i]`
 rather than the position distribution, which the derivation entry already flags) and
 the pooled keep budget itself, which still shares one `spent` across windows.
+
+### A SECOND, distinct error: keeping pieces while avoiding bricks (2026-07-30)
+
+Suspicion that the residual involved bricks and copy count together. Measured, deck 60,
+A=10, brick=4, look 3, 15 draws:
+
+| copies | monotone `A>=2` | brick `A>=2 & brick<=0` | brick-only `brick<=0` |
+|---|---|---|---|
+| 1 | -0.000pt | **+0.111pt** | -0.000pt |
+| 2 | 0.030pt | 0.256pt | -0.000pt |
+| 4 | 0.143pt | 0.627pt | -0.000pt |
+| 8 | 0.328pt | 1.418pt | 0.000pt |
+| 12 | 0.411pt | **2.209pt** | -0.000pt |
+
+Three facts pin it down:
+
+1. **The brick error is nonzero at ONE copy (+0.111pt)**, where monotone is exact. So
+   this is NOT the multi-trigger mechanism fixed by `w_i` -- it exists with a single
+   window.
+2. **Brick-only is exact at every copy count.** So brick handling in isolation --
+   bottoming, cap arithmetic, window accounting -- is all correct.
+3. Brick error grows about 5x faster in copies than monotone (2.209 against 0.411 at
+   12 copies), and monotone is flattening while brick keeps climbing.
+
+So the bug is in the INTERACTION: keeping a piece while bottoming a brick, in the same
+window. Present with one trigger, absent when either ingredient is removed alone.
+
+Likely mechanism, to be confirmed before any fix (per CLAUDE.md #21b): when a window
+holds both a needed piece and a brick, MQ keeps the piece and bottoms the brick, but
+`spent` charges a draw for the keep while the query shift credits only the piece --
+the brick's removal from the pool is applied globally rather than being tied to that
+window. The two effects end up accounted on different timelines.
+
+This also explains why `w_i` barely moved the brick row (1.527 -> 1.418): that fix
+corrected keep TIMING, and this is a different term.
+
+Cheapest confirmation: a query needing a piece with a brick cap where the brick count
+is zero (no bricks in deck) must be exact, and a window-content sweep should show the
+error concentrated in windows containing BOTH a piece and a brick.
