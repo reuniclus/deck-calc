@@ -3424,3 +3424,29 @@ weight, which should move the estimate from ~50% back toward the observed ~26%.
 Cost: the corner went 746ms to 2719ms, since the position loop now runs once per
 window index. Still 6x faster than the exact DP's 16251ms, so the trade is worth it
 at current accuracy -- but it is a trade, not a free win.
+
+### Per-window capacity attempt: reverted, and the invariant caught it (2026-07-30)
+
+Implemented the fix the bracket implied -- spread pooled keeps across the `t` windows
+and cap each share by that window's own remaining draws, using the order-statistic
+mean `E[p_i] = i(n+1)/(t+1)`.
+
+**Reverted. It broke the one-copy invariant immediately:** 0.000pt -> +0.254pt, and
+every other row got worse (c4: 0.390 -> 0.901, c8: 0.978 -> 1.355).
+
+The mistake is worth naming because it is the third instance of the same class this
+session: I replaced the position ENUMERATION with a position MEAN. The existing code
+enumerates `p` with its marginal weights, which is exact at t=1; substituting
+`E[p] = 6.5` is a Jensen collapse, the same error as the mean-field fixed point
+earlier. A nonlinear function of a distribution is not the function of its mean.
+
+What a correct version must preserve: the position DISTRIBUTION per window, not its
+mean. That means weighting each window's keeps by its own marginal
+`C(p-1,i-1)*C(draws-p,t-i)/C(draws,t)` inside an enumeration over both `i` and `p`,
+which is more expensive than the single loop it replaces -- and that cost is probably
+why the shortcut was tempting.
+
+The one-copy invariant did its job: it is the cheapest possible detector for exactly
+this failure, since at t=1 the first, last and mean positions all differ while the
+true answer is known. Any future attempt should be run against it FIRST, before any
+accuracy sweep.
