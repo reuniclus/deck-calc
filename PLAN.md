@@ -3721,3 +3721,40 @@ definite answer, not another hypothesis.
 Diagnostic value of this configuration: the DP's perfectly linear signature gives a
 reference shape, so a correct fix must reproduce increments of 0.7x base rather than
 merely reducing the error.
+
+### Audit: no literal compounding in the code, and why a linear counter-term is the wrong fix (2026-07-30)
+
+Audited the pool accounting for a per-cantrip duplication. **There is none.**
+`windowNonCopy = min(triggers*examined - copiesInWindows, pool)` is computed once per
+slot outcome and subtracted once, and `remaining = counts - windowComposition` likewise.
+No loop applies the removal per cantrip.
+
+So the multiplicative behaviour is EMERGENT from the conditioning, not a duplicated
+term that can be deleted. Mechanism as far as the structure shows: MQ conditions on the
+window composition (for instance "all three window cards were bricks"), which makes the
+remaining pool brick-poorer and raises `P(fresh draws are brick-free)`. Each further
+cantrip adds another window's worth of that conditioning, and because they are all
+applied to one pooled remainder the effects multiply. In the extreme regime, where
+winning requires every drawn card to be a non-brick, that conditioning is worth a great
+deal -- which is why the compounding is most visible there.
+
+**On adding a linear counter-term: advised against, for three specific reasons.**
+
+1. **Exact cases would be at risk.** One-copy monotone, nothing-ever-kept, zero copies
+   and the no-cantrip analytic baseline are all currently EXACT. A term fitted to the
+   brick regime must be gated so tightly that it touches none of them, and every gate
+   is a place to be wrong.
+2. **The 0.7x increment is not a universal.** It is a property of this
+   deck/draws/look/brick combination, so the constant would need refitting per family --
+   which is precisely how the two earlier corrections failed
+   (`1.3*copies*P(1-P)` and `2S*keeps/n`, both overshooting off their fitted family).
+3. **The sign is not stable.** MQ's error is positive here, but the brick-regime error
+   flipped sign for non-monotone queries earlier in the session, so a single-signed
+   correction would be wrong somewhere else.
+
+**Practical position instead:** MQ is usable where it has been measured -- monotone
+queries at roughly 0.4-0.8pt after the `w_i` fix -- and should not be trusted in
+brick-heavy decks. That costs little, because the DP is not merely exact there but also
+FAST: bounded queries with bottoming ran 667ms, nothing like the 16s OR corner. The
+expensive corner and the inaccurate corner are not the same place, so routing can
+prefer the DP for bounds and MQ for monotone.
