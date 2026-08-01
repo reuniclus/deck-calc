@@ -3831,3 +3831,36 @@ What this leaves for a future attempt, in order of value:
 2. Understand the accuracy regression before reusing the handoff -- the tail is exact for
    pure upper bounds, so tripling the error suggests the handoff fires in states where the
    remaining process is not purely a bound question.
+
+### Why the shared-bound handoff was LESS exact: the precondition, not the query (2026-07-30)
+
+Observation: if two logically identical query framings give different accuracy, something
+deeper is wrong. Correct, and the cause is the handoff's precondition rather than the
+query.
+
+`cheapTail` is exact **only when no keeps can occur** -- that is its defining
+simplification, and what removes the window enumeration. The handoff was gated on ANY
+clause's lower bounds being met. For an OR that is the wrong condition: if clause 1 is
+satisfied while clause 2 still wants cards, the greedy keep rule keeps them anyway, so
+keeps DO occur and the tail's premise is violated.
+
+Those keeps are not neutral either. **A keep costs a draw, and a draw not taken is a brick
+not risked.** So keeping toward an unsatisfied clause reduces brick exposure -- a real
+benefit the tail discards by assuming zero keeps. That makes the handoff pessimistic,
+which matches the observed sign and magnitude (-0.576pt against the full recursion's
+-0.188pt).
+
+It also explains why the single-clause handoff was correct all along: with `C === 1`,
+"any clause satisfied" and "all clauses satisfied" are the same statement, so the
+precondition held by accident of arity rather than by design.
+
+**Correct gate: EVERY live clause's lower bounds met** (equivalently, no live clause wants
+anything). Identical to the current behaviour for one clause, strictly narrower for OR --
+so it would fire less often and recover less of the 18x state reduction, but would not
+corrupt the answer.
+
+Second-order point worth carrying: with `optionalResolve`, once satisfied you would
+DECLINE further casts (the window achieves nothing) and keeping is worthwhile only as
+draw-burning. So the endgame of a bounded query has genuinely different optimal play from
+the midgame. The tail models that correctly for the all-satisfied case and not at all for
+the partially-satisfied one, which is exactly the gap that produced the regression.
