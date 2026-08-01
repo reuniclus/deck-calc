@@ -4040,3 +4040,44 @@ Consequences for the plan:
    is masking the very effect being modelled.
 3. The safety-keeps mechanism is now measured, not conjectured: 2.2-3.2pt, exactly the
    magnitude the corner needs.
+
+## HIGH PRIORITY: the DP is grouping-dependent under bounds (2026-07-30)
+
+Observation that at threshold 1 an OR of two groups is logically identical to one merged
+group (`A>=1 | B>=1` == `AB>=1` with `|AB| = |A|+|B|`; this fails at threshold 2, where
+holding one A and one B satisfies the merge but neither clause). That gives a free
+correctness test never run before -- every engine must return IDENTICAL numbers for the
+two forms.
+
+**The exact DP does not.**
+
+| configuration (deck 60, A=10, B=6, brick=4, look 3, 15 draws) | OR form | merged form | difference |
+|---|---|---|---|
+| no effect (copies = 0) | 0.304789957 | 0.304789957 | -5.6e-15 |
+| draw-shaped, 8 copies | 0.169615998 | 0.169615998 | -2.8e-15 |
+| **scry, 8 copies, brick<=0** | **0.322752488** | **0.314800330** | **0.795pt** |
+| scry, 8 copies, no bound | 0.999585890 | 0.999585890 | 0.0e+0 |
+
+**Query handling itself is sound** -- pure hypergeometry, draw-shaped effects, and scry
+without a bound all agree to floating point. The discrepancy requires BOTH keeps that cost
+draws AND an upper bound: exactly the safety-keeps regime identified in the entries above.
+
+**This is in the reference implementation**, so at least one of those two numbers is wrong
+and everything validated against it in that regime is suspect. Note the other engines
+inherit the split (MQ 1.134pt apart, recursion 0.805pt apart), which is expected if they
+follow the same grouping-sensitive logic.
+
+Working hypothesis, to be CONFIRMED before any fix (CLAUDE.md #21b): with separate groups
+the model can keep one A and one B -- two draws burned safely -- while the merged form's
+`caps` saturate at one useful keep. If so the OR form (0.3228) is nearer the truth, the
+merged form under-credits, and **the `caps` saturation is unsound whenever a bounded clause
+exists**, because a card past its threshold still carries value as a safe draw. That
+saturation is sound for monotone queries, which is why nothing caught it until now.
+
+Why this matters beyond the corner: `caps` is a core optimisation in the DP's state space,
+and if it is unsound under bounds then bounded results generally -- not just the corner --
+carry an unknown error. The brute force reaches only ~12 cards and the analytic oracles are
+monotone, so neither would have caught it.
+
+First step, cheap and decisive: brute-force a small bounded case (deck ~12) in both
+groupings and see which of the two the play-out agrees with.
