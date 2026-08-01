@@ -3953,3 +3953,46 @@ only fast one at +1.96pt.
 Revised view of the punch list: Route A's remaining blocker is no longer performance
 plumbing, it is the same modelling gap as Route B. That materially weakens the earlier
 claim that Route A was "engineering, not research".
+
+### The endgame keep rule is SAFETY, not acquisition -- the missing mechanism (2026-07-30)
+
+The bounded-OR corner is not rare in real decks (two combos ruined by the same bad card
+is an ordinary build), so it is worth continuing. Thinking about WHY the corrected gate
+underestimates gives the next model.
+
+**Observation: with a shared bound, once any clause is satisfied the other clause stops
+mattering.** If `A>=2` holds and no brick is in hand, the query is already won -- `B` is
+irrelevant. So the question "why would a player keep toward clause 2" has an answer that
+is not about clause 2 at all:
+
+**Keeping is SAFETY, not acquisition.** A kept card is a KNOWN card. Keeping a known
+non-brick makes the next draw guaranteed safe instead of a gamble against the pool. In
+the endgame of a bounded query, scry's function is not finding pieces -- it is converting
+unknown draws into known-safe ones.
+
+That reframes the tail:
+- `cheapTail` assumes ZERO keeps, so every remaining draw risks a brick -> underestimates;
+- optimal play keeps every safe card it sees, converting up to `min(S, d)` risky draws
+  into safe ones per window -> substantially higher.
+
+Direction confirms it: the recursion with the corrected gate lands at **-0.188pt**, i.e.
+pessimistic, exactly as this predicts.
+
+**So the missing object is not "a tail that permits keeps toward the unsatisfied clause".
+It is a tail with a DIFFERENT KEEP RULE: keep every non-brick seen, bottom every brick,
+purely to burn risky draws.** That should stay closed-form-ish, because it never needs to
+know WHICH pieces are held -- only how many draws were converted to safe ones.
+
+This also explains a measurement noted earlier and not pursued: ponder scores HIGHER than
+scry on brick queries (0.35467 against 0.30347) despite being unable to bottom anything.
+Ponder cannot be forced to draw blind either. **The brick regime rewards INFORMATION
+rather than selection**, and every model built so far -- MQ's keep rule, the recursion's
+greedy, `cheapTail`'s no-keeps -- optimises for selection. That is a single shared blind
+spot rather than three separate bugs, and it is the most promising thing found today for
+the corner.
+
+Next concrete step: write the safety-tail as its own function -- given pool, bricks, cap,
+copies, look, draws, with the rule "keep every non-brick, bottom every brick" -- and check
+it against the DP on states where every clause is satisfied. If it is exact there, wire it
+behind the same correct gate and the corner's absorption becomes both valid AND frequent,
+since the gate no longer has to wait for a hungry clause that never mattered.
