@@ -4278,3 +4278,32 @@ under scry-plus-bounds looks like a fixable implementation detail rather than so
 inherent, and this engine -- being independently written -- can arbitrate while it is fixed.
 
 Do not ship it and do not treat it as a reference until optimality is settled.
+
+### Copies-needed / success cube (2026-07-30) -- shipped-quality, no research required
+
+New top-priority request: "how many copies of A to reach P% of finding K in the top X
+cards?" -- the inverse of the usual question, over three axes (copies, K, X).
+
+**This needs none of the machinery the rest of the session was fighting.** It is pure
+hypergeometry: no effects, no keeps, no policy, no absorption, no grouping subtleties. Every
+cell is exact, and one `evaluate` call yields an entire row over X, so the cube costs one
+call per (copies, K) pair rather than one per cell.
+
+Built as `copiesNeeded.ts`:
+- `successCube({deckSize, maxCopies, maxNeeded, maxSeen})` -> `cube[copies][k][x]`
+- `copiesNeeded({deckSize, needed, seen, target})` -> fewest copies, what it achieves, and
+  **what one fewer achieves**
+
+Verified against the classic figure: at least one of four in the top seven of sixty is
+0.3995, matching `1 - C(56,7)/C(60,7)`. Monotonicity asserted in all three axes, which is
+what makes the inverse well-defined by an upward scan rather than a search.
+
+Sample answers: `>=1 in top 7 of 60 at 90%` needs **16 copies** (90.1%, fifteen gives 88.2%);
+`>=2 in top 12 of 60 at 80%` needs **13 copies** (80.1%, twelve gives 75.6%).
+
+**Design note worth keeping:** reporting the one-fewer value is not decoration. "16 copies"
+alone conceals that 15 reaches 88.2%, and surrendering a deck slot for 1.9pt is usually the
+right call -- so the bare answer would mislead in precisely the case the feature exists for.
+
+Ready to wire to UI. The three axes suit either a cube view or, more usefully, a "copies
+needed" readout per (K, X) with the marginal-copy delta beside it.
