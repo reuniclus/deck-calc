@@ -102,6 +102,7 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
           <span className="hint">Goal:</span>
           <input
             className="advisor-inline"
+            aria-label="goal success rate"
             type="number" min={1} max={100}
             value={Math.round(target * 100)}
             onChange={(e) => dispatch({ type: 'setTarget', target: parseNumOr0(e.target.value) / 100 })}

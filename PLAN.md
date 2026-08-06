@@ -4307,3 +4307,24 @@ right call -- so the bare answer would mislead in precisely the case the feature
 
 Ready to wire to UI. The three axes suit either a cube view or, more usefully, a "copies
 needed" readout per (K, X) with the marginal-copy delta beside it.
+
+### Copies-needed card shipped to the Questions tab (2026-07-30)
+
+Wired `copiesNeeded` into `QuestionsTab` as the FIRST card, ahead of the mulligan and
+cantrip cards, on the grounds that it is both the most commonly asked question and the only
+one answered exactly -- pure hypergeometry with no play assumptions, unlike everything else
+on that tab.
+
+Card shows: fewest copies for the target, what that achieves, **what one fewer achieves**,
+and the marginal value of the last copy, for needing 1+/2+/3+ at once. Cards-seen is entered
+as a raw number rather than derived from a turn, because the question gets asked about
+openers, about "by turn 3", and about arbitrary windows like a Brainstorm's three.
+
+**A pre-existing test was fragile and this exposed it.** `App.smoke.test.tsx` selected the
+global goal input with `getByDisplayValue('90')`, which relied on no other input in the app
+holding that value. Adding a card with its own percentage field made it ambiguous. Fixed
+properly rather than by dodging: the goal input now carries `aria-label="goal success rate"`
+and the test selects by label. Worth noting the failure mode -- a value-based selector in a
+growing UI will break on unrelated additions, and there are likely others.
+
+All 87 UI tests pass, `tsc -b` clean, build and harness both succeed.

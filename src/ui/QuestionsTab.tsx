@@ -4,6 +4,11 @@
  * "Backlog: frequently asked deck-builder questions" section for the full
  * design history.
  *
+ * "How many copies do I need" is the inverse question, and the only card here whose
+ * numbers are EXACT rather than modelled -- pure hypergeometry over copies, how many
+ * you need and how many cards you see, with no play assumptions. Placed first because
+ * it is the question asked most often and the one answered most confidently.
+ *
  * "Is my hand safe to keep" needs no new math at all: it's exactly the same
  * per-hand keep/mulligan table already computed for the Suggestions tab
  * (useMulliganStrategyCtx()), shared via MulliganHandTable rather than
@@ -17,10 +22,16 @@
  */
 import { MulliganHandTable } from './MulliganHandTable';
 import { CantripsCard } from './CantripsCard';
+import { CopiesNeededCard } from './CopiesNeededCard';
 
 export function QuestionsTab() {
   return (
     <div>
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <p className="q-title">How many copies do I need?</p>
+        <CopiesNeededCard />
+      </div>
+
       <div className="panel" style={{ marginBottom: 12 }}>
         <p className="q-title">Is my hand safe to keep?</p>
         <MulliganHandTable />

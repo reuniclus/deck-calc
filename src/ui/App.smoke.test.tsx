@@ -85,7 +85,9 @@ describe('Table tab and resize handle', () => {
   it('changing the target % updates the summary live', () => {
     render(<App />);
     const before = screen.getByText(/Reaches \d+\.\d+% at/).textContent;
-    const targetInput = screen.getByDisplayValue('90');
+    // by role, not by display value: several cards now have their own percentage
+    // inputs, so matching on the value '90' is ambiguous
+    const targetInput = screen.getByLabelText('goal success rate');
     fireEvent.change(targetInput, { target: { value: '50' } });
     const after = screen.getByText(/Reaches \d+\.\d+% at/).textContent;
     expect(after).not.toBe(before);
