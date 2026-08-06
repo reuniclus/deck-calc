@@ -4395,3 +4395,30 @@ second independent number. The original comment is preserved with the revision a
 reason, rather than deleted.
 
 103 UI tests pass, typecheck clean, build and harness succeed.
+
+### The copies-needed card froze the page while typing (2026-07-30)
+
+Reported: the page stutters when editing numbers. Cause was the card added an hour earlier,
+and it was mine.
+
+`CopiesNeededCard` called `copiesNeeded` FOUR times per render (three table rows plus the
+focus line), unmemoised, and `copiesNeeded` scanned copy counts LINEARLY with an `evaluate`
+at every step. Measured cost per render: 10.9ms at deck 40, 13.7ms at 60, **32.3ms at 99**,
+with an unreachable target costing 33.2ms because it scanned to the cap. On a phone that is
+150-300ms per keystroke, on top of everything else the app recomputes.
+
+Two fixes:
+1. **Binary search instead of linear scan.** P is monotone in copies, so the first count
+   reaching the target is found in ~log2(cap) probes rather than up to `cap`. 32.3ms ->
+   13.1ms at deck 99, and the unreachable case 33.2ms -> **0.5ms**.
+2. **`useMemo`.** The card re-renders on ANY app state change, so it was recomputing all
+   four answers when the user typed in completely unrelated fields.
+
+Lesson worth keeping: the monotonicity that made the inverse well-defined was noted in the
+module doc from the start, and it also made the linear scan unnecessary -- the property was
+already written down and simply not used. Worth checking, when a new card is added, what it
+costs PER RENDER rather than per call, since React re-renders on unrelated state.
+
+Also: jsdom cannot detect this class of problem at all (CLAUDE.md #1), and neither can a
+unit test that calls the function once. It took a user on a real phone. A render-cost probe
+would be a reasonable thing to add to the harness.

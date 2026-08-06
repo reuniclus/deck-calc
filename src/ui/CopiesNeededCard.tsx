@@ -17,7 +17,7 @@
  *
  * Local component state only, same treatment as the other Questions cards.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAppState } from '../state/AppState';
 import { copiesNeeded } from '../math/copiesNeeded';
 import { NumberInput } from './NumberInput';
@@ -33,11 +33,17 @@ export function CopiesNeededCard() {
   const [needed, setNeeded] = useState(1);
   const [seen, setSeen] = useState(7);
   const [target, setTarget] = useState(90);
-  const rows = [1, 2, 3].map((k) => ({
-    k,
-    answer: copiesNeeded({ deckSize, needed: k, seen, target: target / 100 }),
-  }));
-  const focus = copiesNeeded({ deckSize, needed, seen, target: target / 100 });
+  // Memoised: this card re-renders whenever ANY app state changes, and each answer is a
+  // binary search over copy counts with an `evaluate` per probe. Recomputing four of them
+  // on every unrelated keystroke was enough to make typing stutter on a phone.
+  const rows = useMemo(
+    () => [1, 2, 3].map((k) => ({ k, answer: copiesNeeded({ deckSize, needed: k, seen, target: target / 100 }) })),
+    [deckSize, seen, target],
+  );
+  const focus = useMemo(
+    () => copiesNeeded({ deckSize, needed, seen, target: target / 100 }),
+    [deckSize, needed, seen, target],
+  );
 
   return (
     <div>
