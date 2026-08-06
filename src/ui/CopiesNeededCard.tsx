@@ -20,7 +20,7 @@
 import { useState } from 'react';
 import { useAppState } from '../state/AppState';
 import { copiesNeeded } from '../math/copiesNeeded';
-import { parseNumOr0 } from './numberInput';
+import { NumberInput } from './NumberInput';
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
@@ -48,26 +48,26 @@ export function CopiesNeededCard() {
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
         <label>
           need at least
-          <input
+          <NumberInput
             type="number" min={1} max={10} value={needed}
-            onChange={(e) => setNeeded(Math.max(1, Math.min(10, parseNumOr0(e.target.value))))}
+            onCommit={(n) => setNeeded(Math.max(1, Math.min(10, n)))}
             style={{ width: 56, marginLeft: 6 }}
           />
         </label>
         <label>
           in the top
-          <input
+          <NumberInput
             type="number" min={1} max={deckSize} value={seen}
-            onChange={(e) => setSeen(Math.max(1, Math.min(deckSize, parseNumOr0(e.target.value))))}
+            onCommit={(n) => setSeen(Math.max(1, Math.min(deckSize, n)))}
             style={{ width: 64, marginLeft: 6 }}
           />
           cards
         </label>
         <label>
           at
-          <input
+          <NumberInput
             type="number" min={1} max={99} value={target}
-            onChange={(e) => setTarget(Math.max(1, Math.min(99, parseNumOr0(e.target.value))))}
+            onCommit={(n) => setTarget(Math.max(1, Math.min(99, n)))}
             style={{ width: 56, marginLeft: 6 }}
           />
           %

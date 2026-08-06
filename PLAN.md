@@ -4367,3 +4367,31 @@ exist -- caught by grepping the stylesheet rather than by any test, since jsdom 
 CSS (CLAUDE.md #1).
 
 89 UI tests pass, typecheck clean, build and harness succeed.
+
+### Generalised the empty-and-retype fix to every numeric input (2026-07-30)
+
+The deck-size fix was applied to one field; the bug was in all thirteen. Extracted
+`NumberInput` (wrapping `useNumberField`) so the behaviour holds BY CONSTRUCTION at every
+call site rather than each one having to remember, and converted every numeric field:
+deck size, opening hand, mulligans, group counts, per-group goal %, advisor goal % and
+turn, combo condition lo/hi, grid max draws, the mobile rail's count, the cantrip card's
+three, and the copies-needed card's three.
+
+Zero raw `parseNumOr0(e.target.value)` handlers remain. Clamping on COMMIT is correct;
+clamping on every keystroke was the bug.
+
+**A THIRD test was pinning the bug** -- "backspacing a combo condition number to empty sets
+it to 0" -- bringing the total to three tests that asserted the broken behaviour and passed
+happily for it. All three are now written as the user's actual sequence: empty stays empty,
+retyping is clean.
+
+**A recorded design decision was overridden, deliberately.** `DeckEditor` carried a comment
+explaining that preset BUTTONS were rejected in favour of a datalist, because buttons could
+show the same number twice and cost mobile width. That reasoning assumed the datalist
+worked; on a phone it renders nothing, so the field was a plain text box with no
+discoverable presets -- strictly worse than the duplication it avoided. Chips added, marked
+`chip-on` when active so the duplicate reads as "this preset is selected" rather than as a
+second independent number. The original comment is preserved with the revision and its
+reason, rather than deleted.
+
+103 UI tests pass, typecheck clean, build and harness succeed.

@@ -139,13 +139,15 @@ describe('QoL fixes: empty-number-input-snaps-to-0, and auto-prune on delete', (
     expect((screen.getByDisplayValue('99') as HTMLInputElement).value).toBe('99');
   });
 
-  it('backspacing a combo condition number to empty sets it to 0', () => {
+  it('a combo condition number can be emptied and retyped', () => {
     render(<App />);
     // default query has two conditions each >=1; find the numeric row inputs (not deck/hand/etc)
     const numInputs = document.querySelectorAll('.combo-row input[type="number"]');
     expect(numInputs.length).toBeGreaterThan(0);
     fireEvent.change(numInputs[0]!, { target: { value: '' } });
-    expect((numInputs[0] as HTMLInputElement).value).toBe('0');
+    expect((numInputs[0] as HTMLInputElement).value).toBe('');
+    fireEvent.change(numInputs[0]!, { target: { value: '3' } });
+    expect((numInputs[0] as HTMLInputElement).value).toBe('3');
   });
 
   it('deleting a group referenced by the query auto-prunes it instead of forcing text mode', () => {

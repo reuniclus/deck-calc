@@ -10,7 +10,7 @@ import { getMulliganWorker } from '../state/mulliganWorkerClient';
 import type { MulliganBatchRequest, MulliganBatchSuccess, MulliganFailure } from '../workers/mulliganProtocol';
 import { effectiveOpeningHand } from '../model/turns';
 import { colorFor } from './DeckEditor';
-import { parseNumOr0 } from './numberInput';
+import { NumberInput } from './NumberInput';
 
 type Mode = 'value' | 'both';
 
@@ -171,9 +171,9 @@ export function GridTab() {
         </label>
         <label className="inline-field">
           <span>Max drawn</span>
-          <input
+          <NumberInput
             type="number" min={1} max={60} value={maxDraws}
-            onChange={(e) => setMaxDraws(Math.max(1, parseNumOr0(e.target.value)))}
+            onCommit={(n) => setMaxDraws(Math.max(1, n))}
           />
         </label>
         <div className="tab-strip" style={{ border: 'none', margin: 0, padding: 0 }}>

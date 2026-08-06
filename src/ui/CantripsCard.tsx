@@ -27,7 +27,7 @@ import {
   cantripSuccessRate, marginalValuePerCopyAutoDilute, copiesNeededForTargetAutoDilute,
   successGivenDrawnVsNot, bestDilutionChoice,
 } from '../math/cantrips';
-import { parseNumOr0 } from './numberInput';
+import { NumberInput } from './NumberInput';
 
 function pct(p: number): string {
   return `${(p * 100).toFixed(0)}%`;
@@ -114,10 +114,10 @@ export function CantripsCard() {
                   onChange={(e) => setEffects(effects.map((eff, i) => (i === row.i ? { ...eff, name: e.target.value } : eff)))}
                 />
                 <span className="hint" style={{ marginLeft: 4 }}>sees</span>
-                <input
+                <NumberInput
                   type="number" min={0} style={{ width: 34, marginLeft: 4 }}
                   value={row.bonus}
-                  onChange={(e) => setEffects(effects.map((eff, i) => (i === row.i ? { ...eff, bonus: parseNumOr0(e.target.value) } : eff)))}
+                  onCommit={(bonus) => setEffects(effects.map((eff, i) => (i === row.i ? { ...eff, bonus } : eff)))}
                 />
               </td>
               <td>{row.marginal >= 0 ? `+${pct(row.marginal)}` : pct(row.marginal)}</td>
@@ -147,16 +147,16 @@ export function CantripsCard() {
           <div className="look-list">
             {mix.map((row, i) => (
               <div className="look-row" key={i}>
-                <input
+                <NumberInput
                   type="number" min={0} className="q-blank"
                   value={row.count}
-                  onChange={(e) => setMix(mix.map((m, j) => (j === i ? { ...m, count: parseNumOr0(e.target.value) } : m)))}
+                  onCommit={(count) => setMix(mix.map((m, j) => (j === i ? { ...m, count } : m)))}
                 />
                 <span>that see</span>
-                <input
+                <NumberInput
                   type="number" min={0} className="q-blank"
                   value={row.bonus}
-                  onChange={(e) => setMix(mix.map((m, j) => (j === i ? { ...m, bonus: parseNumOr0(e.target.value) } : m)))}
+                  onCommit={(bonus) => setMix(mix.map((m, j) => (j === i ? { ...m, bonus } : m)))}
                 />
                 <span>cards</span>
                 <span style={{ flex: 1 }} />

@@ -4,7 +4,8 @@ import { parseQuery } from '../math/parse';
 import { printExpr } from '../math/print';
 import { pruneGroups, collectGroups } from '../math/expr';
 import { resolverFor, nameOfFactory } from '../state/useQueryModel';
-import { parseNumOr0, useNumberField } from './numberInput';
+import { useNumberField } from './numberInput';
+import { NumberInput } from './NumberInput';
 import { evaluate } from '../math/evaluate';
 import { minSlotsForTarget } from '../math/allocate';
 
@@ -161,12 +162,16 @@ export function DeckEditor() {
               numeric keyboard on mobile while making the combobox actually
               reliable. */}
           {/* Native combobox: type any size directly, or open the list for
-              the common ones. Deliberately not 4 separate boxes (a plain
-              value + 3 preset buttons) -- that layout could show the SAME
-              number twice at once (e.g. "40" typed AND "40" highlighted as
-              a separate, seemingly independent element) and cost real width
-              on mobile for very little. One field can't have that problem:
-              there's only ever one number on screen. */}
+              the common ones.
+              REVISED 2026-07-30: this originally had no preset buttons, on the
+              reasoning that they could show the same number twice (typed AND
+              highlighted) and cost mobile width for little gain. That reasoning
+              still holds in principle, but it assumed the datalist WORKED -- and
+              on a phone it shows nothing at all, so the field was a plain text
+              box with no discoverable presets, which is strictly worse than the
+              duplication it was avoiding. The chips are marked `chip-on` when
+              they match the current value, so the duplicate reads as "this is
+              the active preset" rather than as an independent second number. */}
           <datalist id="deck-size-presets">
             <option value="40" />
             <option value="60" />
@@ -175,26 +180,24 @@ export function DeckEditor() {
         </label>
         <label className="inline-field">
           <span>Hand</span>
-          <input
+          <NumberInput
             className="deck-num"
             type="number"
             min={0}
             max={60}
             value={turnCfg.openingHand}
-            onChange={(e) =>
-              dispatch({ type: 'setTurnCfg', turnCfg: { openingHand: parseNumOr0(e.target.value) } })}
+            onCommit={(n) => dispatch({ type: 'setTurnCfg', turnCfg: { openingHand: n } })}
           />
         </label>
         <label className="inline-field">
           <span>Mull.</span>
-          <input
+          <NumberInput
             className="deck-num"
             type="number"
             min={0}
             max={60}
             value={turnCfg.mulligans}
-            onChange={(e) =>
-              dispatch({ type: 'setTurnCfg', turnCfg: { mulligans: parseNumOr0(e.target.value) } })}
+            onCommit={(n) => dispatch({ type: 'setTurnCfg', turnCfg: { mulligans: n } })}
           />
         </label>
       </div>
@@ -217,14 +220,14 @@ export function DeckEditor() {
                 onCommit={(count) => dispatch({ type: 'setGroupCount', id: g.id, count })}
               />
               <span className="goal-pct-sign">&rarr;</span>
-              <input
+              <NumberInput
                 className="goal-input"
                 type="number"
                 min={0}
                 max={100}
                 value={pct}
-                onChange={(e) => {
-                  const target = Math.max(0, Math.min(100, parseNumOr0(e.target.value))) / 100;
+                onCommit={(raw) => {
+                  const target = Math.max(0, Math.min(100, raw)) / 100;
                   const { count } = solveCountForTarget(deckSize, turnCfg.openingHand, target, available);
                   dispatch({ type: 'setGroupCount', id: g.id, count });
                 }}

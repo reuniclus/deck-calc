@@ -1,7 +1,7 @@
 import { useAppDispatch, useAppState } from '../state/AppState';
 import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
 import { colorFor } from './DeckEditor';
-import { parseNumOr0 } from './numberInput';
+import { NumberInput } from './NumberInput';
 import { collectGroups } from '../math/expr';
 import { useSuggestionsCtx } from '../state/useSuggestions';
 import { useMulliganStrategyCtx } from '../state/useMulliganStrategy';
@@ -100,19 +100,19 @@ export function AdvisorStrip({ onSeeSuggestions }: { onSeeSuggestions: () => voi
       <div className="row-line" style={{ marginBottom: 4 }}>
         <div className="no-wrap-group">
           <span className="hint">Goal:</span>
-          <input
+          <NumberInput
             className="advisor-inline"
             aria-label="goal success rate"
             type="number" min={1} max={100}
             value={Math.round(target * 100)}
-            onChange={(e) => dispatch({ type: 'setTarget', target: parseNumOr0(e.target.value) / 100 })}
+            onCommit={(n) => dispatch({ type: 'setTarget', target: n / 100 })}
           />
           <span className="hint">success rate by turn</span>
-          <input
+          <NumberInput
             className="advisor-inline"
             type="number" min={0} max={60}
             value={adviseTurn}
-            onChange={(e) => dispatch({ type: 'setAdviseTurn', adviseTurn: parseNumOr0(e.target.value) })}
+            onCommit={(n) => dispatch({ type: 'setAdviseTurn', adviseTurn: n })}
           />
         </div>
         <label className="inline-field" style={{ marginLeft: 6 }}>

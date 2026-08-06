@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppState } from '../state/AppState';
 import { colorFor } from './DeckEditor';
-import { parseNumOr0 } from './numberInput';
+import { NumberInput } from './NumberInput';
 import { DeckEditor } from './DeckEditor';
 import { CombosEditor } from './CombosEditor';
 
@@ -34,12 +34,12 @@ function CountChip({ groupId, name, count }: { groupId: string; name: string; co
       <span className="dot" style={{ background: colorFor(groupId) }} />
       <span className="chip-name">{name}</span>
       <button aria-label={`decrease ${name}`} onClick={() => set(count - 1)}>&minus;</button>
-      <input
+      <NumberInput
         className="chip-num"
         type="number"
         min={0}
         value={count}
-        onChange={(e) => set(parseNumOr0(e.target.value))}
+        onCommit={set}
       />
       <button aria-label={`increase ${name}`} onClick={() => set(count + 1)}>+</button>
     </div>

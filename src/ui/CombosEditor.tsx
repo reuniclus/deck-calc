@@ -4,7 +4,7 @@ import { useQueryModelCtx, nameOfFactory } from '../state/useQueryModel';
 import { compileFlat, type Row, type FlatQuery } from '../math/builder';
 import { printExpr } from '../math/print';
 import { colorFor } from './DeckEditor';
-import { parseNumOr0 } from './numberInput';
+import { NumberInput } from './NumberInput';
 
 type Cmp = 'gte' | 'lte' | 'eq' | 'range';
 
@@ -75,13 +75,12 @@ function ComboRow({
         <option value="eq">=</option>
         <option value="range">range</option>
       </select>
-      <input
+      <NumberInput
         type="number"
         min={0}
         className="num-sm"
         value={cmp === 'lte' ? row.hi ?? 0 : row.lo}
-        onChange={(e) => {
-          const v = parseNumOr0(e.target.value);
+        onCommit={(v) => {
           if (cmp === 'lte') onChange({ ...row, hi: v });
           else if (cmp === 'eq') onChange({ ...row, lo: v, hi: v });
           else onChange({ ...row, lo: v });
@@ -90,12 +89,12 @@ function ComboRow({
       {cmp === 'range' && (
         <>
           <span className="hint">to</span>
-          <input
+          <NumberInput
             type="number"
             min={0}
             className="num-sm"
             value={row.hi ?? 0}
-            onChange={(e) => onChange({ ...row, hi: parseNumOr0(e.target.value) })}
+            onCommit={(hi) => onChange({ ...row, hi })}
           />
         </>
       )}
