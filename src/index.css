@@ -255,3 +255,34 @@ table.heat-table td.na { background: var(--surface-2); color: var(--muted); text
 table.heat-table tr.active-row th, table.heat-table tr.active-row td {
   border-top: 1px solid var(--accent); border-bottom: 1px solid var(--accent);
 }
+
+/* Small selectable pill, used by the deck-size presets and the copies-needed card's
+   "top N" shortcuts. Added when those were written -- the pre-existing chip styles
+   (.count-chip, .chip-row) are specific to the mobile group rail and are scoped inside
+   a media query, so they were not reusable here. */
+.chip {
+  padding: 2px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  line-height: 1.6;
+}
+.chip:hover { border-color: var(--accent, currentColor); }
+.chip-on {
+  border-color: var(--accent, currentColor);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-weight: 600;
+}
+
+/* Visible deck-size presets. The datalist combobox is kept for desktop, but mobile
+   browsers frequently render no suggestions at all, which made the field look like a
+   plain text box with nothing to pick from. */
+.deck-size-presets {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}

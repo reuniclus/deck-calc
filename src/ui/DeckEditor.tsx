@@ -4,7 +4,7 @@ import { parseQuery } from '../math/parse';
 import { printExpr } from '../math/print';
 import { pruneGroups, collectGroups } from '../math/expr';
 import { resolverFor, nameOfFactory } from '../state/useQueryModel';
-import { parseNumOr0 } from './numberInput';
+import { parseNumOr0, useNumberField } from './numberInput';
 import { evaluate } from '../math/evaluate';
 import { minSlotsForTarget } from '../math/allocate';
 
@@ -42,10 +42,31 @@ export function colorFor(id: string): string {
   return `hsl(${hueFor(id)}deg 65% 58%)`;
 }
 
+/**
+ * Own component purely so each row can hold its own in-progress text -- a hook cannot
+ * be called inside the rows' map. Same reason as the deck-size field: emptying the box
+ * must not snap to a clamped value while the user is still typing.
+ */
+function GroupCountInput({ count, onCommit }: { count: number; onCommit: (n: number) => void }) {
+  const field = useNumberField(count, onCommit);
+  return (
+    <input
+      className="group-count"
+      type="number"
+      min={0}
+      {...field}
+      onChange={(e) => field.onChange(e.target.value)}
+    />
+  );
+}
+
 export function DeckEditor() {
   const { deckSize, groups, turnCfg, query } = useAppState();
   const dispatch = useAppDispatch();
   const [notice, setNotice] = useState<string | null>(null);
+  // local edit state so backspacing to empty does not snap to the clamped minimum
+  // mid-type (which turned "backspace then 99" into "199")
+  const deckSizeField = useNumberField(deckSize, (n) => dispatch({ type: 'setDeckSize', deckSize: n }));
 
   /**
    * A group's id never changes, but the query is stored as TEXT (name-based),
@@ -115,9 +136,24 @@ export function DeckEditor() {
             type="text"
             inputMode="numeric"
             list="deck-size-presets"
-            value={deckSize}
-            onChange={(e) => dispatch({ type: 'setDeckSize', deckSize: parseNumOr0(e.target.value) })}
+            {...deckSizeField}
+            onChange={(e) => deckSizeField.onChange(e.target.value)}
           />
+          {/* Visible preset chips as well as the datalist: datalist suggestions are
+              unreliable on mobile (iOS Safari frequently shows nothing at all), so on a
+              phone the combobox looked like a plain text field with no presets. */}
+          <span className="deck-size-presets">
+            {[40, 60, 99].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={n === deckSize ? 'chip chip-on' : 'chip'}
+                onClick={() => dispatch({ type: 'setDeckSize', deckSize: n })}
+              >
+                {n}
+              </button>
+            ))}
+          </span>
           {/* type=text + inputMode=numeric, not type=number -- type=number
               has real, confirmed cross-browser inconsistency showing
               datalist suggestions (Safari in particular often only shows
@@ -176,13 +212,9 @@ export function DeckEditor() {
                 value={g.name}
                 onChange={(e) => renameGroup(g.id, e.target.value)}
               />
-              <input
-                className="group-count"
-                type="number"
-                min={0}
-                value={g.count}
-                onChange={(e) =>
-                  dispatch({ type: 'setGroupCount', id: g.id, count: parseNumOr0(e.target.value) })}
+              <GroupCountInput
+                count={g.count}
+                onCommit={(count) => dispatch({ type: 'setGroupCount', id: g.id, count })}
               />
               <span className="goal-pct-sign">&rarr;</span>
               <input

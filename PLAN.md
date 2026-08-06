@@ -4328,3 +4328,42 @@ and the test selects by label. Worth noting the failure mode -- a value-based se
 growing UI will break on unrelated additions, and there are likely others.
 
 All 87 UI tests pass, `tsc -b` clean, build and harness both succeed.
+
+### Input UX fixes: empty-then-retype, and visible deck-size presets (2026-07-30)
+
+Two reported phone bugs, both real.
+
+**1. Every numeric field snapped to a clamped minimum when emptied.** `parseNumOr0` returns
+0 on an empty string, the reducer clamps deck size to 1, and the field redisplays "1" -- so
+backspace-then-type-99 produced **"199"**. The field fought the user.
+
+`parseNumOr0` existed for a good reason: a CONTROLLED input goes stuck-blank if nothing is
+dispatched, because React only touches the DOM when the bound value changes and it didn't.
+The fix keeps that insight but moves the in-progress text into LOCAL state
+(`useNumberField`), so the input is bound to a string that may legitimately be empty and the
+parent only ever hears parseable values. On blur an abandoned edit restores the last
+committed value rather than a minimum, so backing out of an edit does not silently rewrite
+the field.
+
+Group counts needed their own component (`GroupCountInput`) since a hook cannot be called
+inside the rows' map.
+
+**2. Deck-size presets were invisible on mobile.** The combobox relied on a `datalist`, with
+a comment explaining that `type=text` + `inputMode=numeric` was chosen because `type=number`
+breaks datalist rendering. But mobile browsers frequently show NO datalist suggestions at
+all, so on a phone the field looked like a plain text box. Added real preset buttons
+(40/60/99) alongside the datalist rather than replacing it.
+
+**Two tests were pinning the bugs** -- "backspacing a group count to empty sets it to 0" and
+"backspacing deck size to empty snaps to the reducer minimum (1)". Both rewritten to assert
+the intended behaviour (empty stays empty, retyping is clean, blur restores), plus new tests
+for blur-restore and for the presets being real buttons. A test asserting current behaviour
+is not the same as a test asserting correct behaviour, and these had frozen a bug in place.
+
+Also added generic `.chip` / `.chip-on` styles: the existing chip classes are specific to the
+mobile group rail and scoped inside a media query, so they were not reusable. Both the deck
+presets and the copies-needed card's "top N" shortcuts were relying on classes that did not
+exist -- caught by grepping the stylesheet rather than by any test, since jsdom cannot see
+CSS (CLAUDE.md #1).
+
+89 UI tests pass, typecheck clean, build and harness succeed.

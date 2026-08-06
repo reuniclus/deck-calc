@@ -101,20 +101,42 @@ describe('Table tab and resize handle', () => {
 });
 
 describe('QoL fixes: empty-number-input-snaps-to-0, and auto-prune on delete', () => {
-  it('backspacing a group count to empty sets it to 0, not stuck-blank', () => {
+  it('a group count can be emptied and retyped without a digit being prepended', () => {
+    // Previously the field snapped to 0 on empty, so backspace-then-"12" produced "012".
+    // The field now holds its own in-progress text and stays visibly empty.
     render(<App />);
     const countInput = screen.getAllByDisplayValue('4')[0]! as HTMLInputElement;
     fireEvent.change(countInput, { target: { value: '' } });
-    expect(countInput.value).toBe('0');
-    // Others should have recalculated too, proving state actually updated (not just DOM)
-    expect(document.querySelector('.others-count')?.textContent).toBe('37'); // 40 - 0 - 3
+    expect(countInput.value).toBe('');
+    fireEvent.change(countInput, { target: { value: '12' } });
+    expect(countInput.value).toBe('12');
   });
 
-  it('backspacing deck size to empty snaps to the reducer minimum (1), not stuck-blank', () => {
+  it('deck size can be emptied and retyped without snapping to the minimum', () => {
+    // This is the reported bug: emptying dispatched 0, the reducer clamped to 1, and the
+    // field redisplayed "1" -- so backspace-then-"99" produced "199".
     render(<App />);
     const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
     fireEvent.change(deckInput, { target: { value: '' } });
-    expect(deckInput.value).toBe('1');
+    expect(deckInput.value).toBe('');
+    fireEvent.change(deckInput, { target: { value: '99' } });
+    expect(deckInput.value).toBe('99');
+  });
+
+  it('abandoning an empty edit restores the previous value on blur', () => {
+    render(<App />);
+    const deckInput = screen.getByDisplayValue('40') as HTMLInputElement;
+    fireEvent.change(deckInput, { target: { value: '' } });
+    fireEvent.blur(deckInput);
+    expect(deckInput.value).toBe('40');
+  });
+
+  it('deck size presets are visible and set the value', () => {
+    // datalist suggestions are unreliable on mobile, so the presets are real buttons
+    render(<App />);
+    const preset = screen.getByRole('button', { name: '99' });
+    fireEvent.click(preset);
+    expect((screen.getByDisplayValue('99') as HTMLInputElement).value).toBe('99');
   });
 
   it('backspacing a combo condition number to empty sets it to 0', () => {
