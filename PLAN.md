@@ -4464,3 +4464,43 @@ independently.
 Note the spec's own status line: stage 1 settled, stage 2 settled in spec but partially
 implemented, stage 3 shape only. And `SPEC.md` lists a Delta against its own `src/`, so that
 code should not be copied without applying it.
+
+### Manabase spec imported; stage 1 core ported; spec error found (2026-07-30)
+
+A three-stage manabase spec arrived from another session (639 lines, authoritative over
+its own reference code, with an explicit Delta listing errors in that code). Copied to
+`docs/manabase-spec.md` so it cannot be lost, and ported the smallest verifiable slice.
+
+**Ported (`src/math/manaSources.ts`):** `cardsSeen`, `minSources`, `sourceTable`, and the
+EDH/SIXTY/LIMITED presets -- exactly the pieces the spec's Delta marks "retain as-is".
+Reuses `sfAtLeast` from `hyper.ts` instead of duplicating a hypergeometric layer, since
+the spec's `hypergeomAtLeast` is the same function; one of them is enough.
+
+**NOT ported:** stage 1's `joint[]` constraints and `tapAffordance` (the latter needs the
+bipartite-matching algorithm; the spec is explicit that the existing
+`Σ max(0, turn - mv)` is wrong in STRUCTURE, not just placement), and all of stages 2-3.
+
+**Found an error in the spec.** Its anchor `minSources(99, 11, 1, 0.90) === 18` holds
+exactly (0.903815, inside its own stated 0.903-0.905 window). But its remark that "in 1v1
+Commander... the anchor becomes 19" is off by one. Verified with plain products sharing no
+code with `hyper.ts`:
+
+| sources | 11 seen (multiplayer) | 10 seen (1v1) |
+|---|---|---|
+| 18 | **0.903815** | 0.879430 |
+| 19 | 0.916877 | 0.894315 (under 0.90) |
+| 20 | -- | **0.907526** |
+
+The spec's reasoning is right -- the starting player does skip the turn-1 draw, so
+`seen(4) = 10` -- only the number is wrong. Corrected in `docs/manabase-spec.md` with the
+evidence, and pinned as a test. Worth noting the anchor STRUCTURE is what caught it: a spec
+that states its own expected probabilities to four decimals is checkable, and this one was
+checked against itself.
+
+Also corrected one of my own test assumptions: `minSources(60, 7, 4, 0.90)` is 43, not
+Infinity. Four pips off seven cards is reachable when most of the deck produces the colour;
+"unreachable" means more pips than cards seen.
+
+**For the colours tab:** stage 1 alone answers the question people ask most ("how many
+sources of each colour?") and needs no card catalog or collection data, which stages 2-3 do.
+That is the slice to build UI on first.
