@@ -644,3 +644,94 @@ Listed so a reader does not re-derive them from an earlier copy.
 Root cause of #1 and #4 is the same: assuming the available rung set is
 contiguous `1..m`. It is not, at m=5. Any formula referencing `m-1` as "the rung
 below the top" is suspect — use `r2` from `rungs(m)`.
+
+---
+
+# Revision notes (deck-calc, 2026-07-30)
+
+Three gaps found while reviewing stage 1 against extreme cases. The first two are
+parameterisation; the third needs a second model.
+
+## The requirement surface, measured
+
+`minSources` over (pips, turn), EDH 99 at 90%:
+
+| pips | T1 | T2 | T3 | T4 | T5 | T6 | T8 | T10 |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 24 | 22 | 20 | **18** | 17 | 16 | 14 | 12 |
+| 2 | 40 | 36 | 33 | **30** | 28 | 26 | 23 | 20 |
+| 3 | 53 | 48 | 44 | **40** | 38 | 35 | 31 | 27 |
+
+**A turn step costs ~2 sources; a pip step costs ~12.** So `requirements[c] = max(...)`
+is set almost entirely by the highest-PIP card of that colour, and barely at all by
+timing. The collapse is into pip count, not into early turns.
+
+## 1. `castByTurn` defaults are right for the curve, wrong for splashes
+
+Defaulting to `mv` is correct for a card you intend to cast on curve. It is wrong for a
+splash: a single `{U}` card defaults to `castByTurn = 1` and demands 24 sources, when
+what the player wants is "available at some point", not "on turn one".
+
+The field already exists, so this is not a model change -- it is a DEFAULT and a UI
+affordance. Deadline must be adjustable per card, and per GROUP for bulk edits, and
+visible rather than silent. The model cannot infer intent here and should not try.
+
+## 2. Multiplicity versus bricking: display the trade, do not pick for the user
+
+`1x {W}{W}{W}` and `30x {W}{W}{W}` both yield 40. Those are different decks. And the
+fragile-outlier case (`1x {W}{W}` at T2 needing 36, alongside `30x {W}` at T6 needing
+16) is a genuine tension, not an error: the 1-of really might brick, and avoiding that
+is what a manabase is for.
+
+But both sides are computable, so neither needs to be guessed:
+- **cost** of insuring the outlier: 36 - 16 = **20 sources**
+- **benefit**: P(draw it early AND cannot cast it), from the same hypergeometric
+
+So present "this 1-of costs 20 sources; without them it bricks in X% of games" and let
+the user decide. `cutCurve` already holds exactly this data; collapsing it to index 0 is
+what discards it. The spec's own escape hatch -- step down `cutCurve` and re-run -- is a
+concession that index 0 is frequently the wrong answer.
+
+## 3. Simultaneous casting: a second model, and Hall's condition is the tool
+
+The spec states the limit itself: *"one spell per turn. Real turns cast several, which
+makes this a ceiling."* The sharp case: 2 Plains + 5 Wastes casts `{4}{W}` and casts
+`{W}{W}`, but cannot do both on T7. Per-card analysis sees only the first two facts,
+because it asks about each card independently.
+
+**The inner question is exactly solvable and cheap.** "Can this set of lands pay for
+this set of spells" is bipartite matching from lands to pips, and by Hall's condition
+reduces to: for every subset `S` of colours,
+
+```
+sum of pips demanding a colour in S  <=  # lands producing some colour in S
+```
+
+plus `total lands >= total MV`. That is `2^5 = 32` bitmask checks for five colours --
+exact, microseconds, no sampling. The 2-Plains case falls out immediately: `S = {W}`
+gives 3 pips > 2 sources, infeasible, while each spell alone passes.
+
+Note this is the SAME Gale-Ryser / Hall machinery the spec already specifies for stage
+2's feasible region. The tool is in the design; it is simply not applied to deployment.
+
+**Only the outer layer needs sampling, and often not even that:**
+
+| land classes x lands drawn | method |
+|---|---|
+| few classes (<=5), <=10 lands | ENUMERATE compositions exactly (multivariate hypergeometric) x Hall per composition -> exact |
+| many classes | Monte Carlo the draw, Hall per sample |
+
+Monte Carlo is the fallback, not the primary. When sampling, report the interval:
+standard error is `sqrt(p(1-p)/n)`, so ~250k samples for 0.1pt. Each sample is 32
+bitmask checks, so that is affordable -- but the honest output is `47.3% +/- 0.2`, not
+`47.3%`.
+
+**Suggested metric:** not "is my curve castable" (binary and brittle) but EXPECTED MANA
+OR SPELLS DEPLOYED by turn T. That is what the Plains/Wastes case is really about, and
+it degrades gracefully instead of flipping.
+
+**This is a separate model, not an extension of `minSources`.** Karsten's method is
+per-card sampling by construction; deployment is a joint property of hand and board. The
+two should sit side by side, and disagreement between them is expected rather than a
+bug -- the "one spell per turn" note is precisely the seam where one ends and the other
+begins.
