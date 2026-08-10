@@ -4504,3 +4504,53 @@ Infinity. Four pips off seven cards is reachable when most of the deck produces 
 **For the colours tab:** stage 1 alone answers the question people ask most ("how many
 sources of each colour?") and needs no card catalog or collection data, which stages 2-3 do.
 That is the slice to build UI on first.
+
+### Stage 1 critique: the max is fine, the missing input is COPY COUNT (2026-07-30)
+
+Doubt raised that stage 1 "collapses everything into the early turns". Computed the
+surface `minSources` is maximised over, EDH 99 at 90%:
+
+```
+turn:      1    2    3    4    5    6    7    8
+k=1:      24   22   20   18   17   16   14   14
+k=2:      40   36   33   30   28   26   24   23
+k=3:      53   48   44   40   38   35   33   31
+```
+
+**Pip steps are roughly 6x turn steps.** `k=1 -> 2` at T4 costs +12 sources; `T4 -> T6` at
+k=1 saves 2. So a `{W}{W}` card at turn SIX (26) outweighs a `{W}` card at turn ONE (24).
+The max collapses onto the pip-heaviest card, not the earliest -- which is what the spec
+already claims ("the floor is a max, not a sum"), so on this point the spec is right and the
+worry does not land.
+
+**But there is a real hole, in the INPUT rather than the aggregation.** `minSources` asks
+"if I hold this card, can I cast it?" -- Karsten's convention, defensible -- and stage 1 then
+maxes over cards. Nothing anywhere knows how MANY copies demand each level:
+
+| case | floor | sound? |
+|---|---|---|
+| 1 copy of a `{W}{W}{W}` bomb at T4 | 40 | NO -- 40 sources for a card you hold ~25% of the time |
+| 10 copies of the same | 40 | yes |
+| 30x `{W}` plus **one** off-colour `{U}` at T5 | 17 U | NO -- 17 sources to splash a single card |
+| 30x `{W}` plus eight `{U}` at T5 | 17 U | yes |
+
+Identical floors, opposite correct decisions. `cutCurve` partly compensates -- it shows what
+cutting the top demand saves -- but it cannot distinguish "cut one 1-of you rarely draw" from
+"cut a staple you always have", because copies are not in the model.
+
+**Proposed revision, smallest form:** add `copies` to `Card`/`Demand`, and emit alongside
+each cut-curve step the probability of HOLDING at least one card at that demand level by its
+deadline (a hypergeometric already available). The floor stays a max -- that part is right --
+but each rung is then labelled with how much of the deck actually wants it.
+
+Extreme cases to pin when implementing:
+1. 1-of versus 10-of at the same (k, turn) must produce the same FLOOR but visibly different
+   cut economics.
+2. `{W}` at T1 (24) versus `{W}{W}` at T6 (26): the later card must bind. Guards against
+   anyone "fixing" stage 1 by weighting turns.
+3. A mono-colour deck whose earliest coloured card is T3 must floor at 20, not 24 -- the
+   absent 1-drop is worth 4 sources.
+4. Splashing a single off-colour card must be visibly distinguishable from splashing eight.
+
+Not implemented. Recorded because the diagnosis (input, not aggregation) determines what the
+fix touches, and the surface above is the evidence for it.
