@@ -4422,3 +4422,45 @@ costs PER RENDER rather than per call, since React re-renders on unrelated state
 Also: jsdom cannot detect this class of problem at all (CLAUDE.md #1), and neither can a
 unit test that calls the function once. It took a user on a real phone. A render-cost probe
 would be a reasonable thing to add to the harness.
+
+## Colours / manabase tab (2026-07-30) -- spec received, first check done
+
+A `manabase` spec from another session was handed over (three stages: requirements ->
+feasibility geometry -> composition). Two findings before any code.
+
+**1. Stage 1 is already built here.** Its core primitive, `minSources(N, n, k, q)` --
+binary search for the fewest sources whose hypergeometric tail clears a confidence
+threshold -- is exactly `copiesNeeded`, arrived at independently earlier today. So the
+colours tab does not start from zero; it starts from a shipped, tested primitive.
+
+**2. Its anchor validates this implementation, and its 1v1 variant is wrong.**
+- `minSources(99, seen=11, k=1, 0.90) === 18` -- CONFIRMED, P = 0.903815, and 17 sources
+  give 0.888913, matching the spec's companion assertion.
+- The spec then says 1v1 Commander (`seen = 10`) makes the anchor 19. It is **20**:
+  nineteen sources give 0.894315, short of 0.90. Pinned in `manabaseAnchor.test.ts`.
+
+That the audited primary anchor matched exactly while a secondary remark drifted is worth
+noting: the spec's core is trustworthy, its asides less so.
+
+**What the spec adds that is genuinely new here:**
+- **The floor is a MAX, not a sum** -- 20 cards at one pip and 10 at two pips both total 20
+  pips but their source floors differ by ~10. Total pips is for tiebreaking only.
+- **`cutCurve`** -- the sorted list of per-card source demands, so an infeasible manabase can
+  step down one card at a time. A steep first drop means one fragile card sets the floor; a
+  flat curve means it is structural. That is a genuinely good diagnostic and has no analogue
+  in the current tool.
+- **Stage 2 geometry** -- feasible-region limits given a land count, with a Gale-Ryser
+  realizability gate on the rung profile.
+- **Joint constraints and tapland affordance pass through stage 2 untouched**, because stage
+  2 is composition- and timing-blind.
+
+**Suggested build order**, smallest useful thing first: a colours tab that does Stage 1 only
+-- enter spells with pips and cast turns, get per-colour source floors plus the cut curve.
+That is entirely reachable from `copiesNeeded` plus the sort, needs no new math, and answers
+the question people actually ask ("how many red sources do I need?"). Stage 2 geometry is a
+larger piece and depends on nothing in stage 1 beyond its output vector, so it can follow
+independently.
+
+Note the spec's own status line: stage 1 settled, stage 2 settled in spec but partially
+implemented, stage 3 shape only. And `SPEC.md` lists a Delta against its own `src/`, so that
+code should not be copied without applying it.
