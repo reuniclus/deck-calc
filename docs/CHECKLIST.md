@@ -47,6 +47,12 @@ conflicts with this file, this file is later.
 - [ ] MQ monotone residual 0.3–0.8pt. Highest-confidence lead: `seenBefore` in
       `keepMass` uses `E[p_i]` instead of the position distribution
 
+## Colours tab — math is ready, UI is not
+
+Everything needed is built and tested: `manaSources` (requirements), `basicsBudget`
+(budget + must/want), `landTypes` (mixed types + fetches), `proposeManabase` (proposal +
+price + heuristic). Nothing is wired to the UI.
+
 ## Open questions, specified but not started
 
 - [ ] Multi-type exact DP does **not scale**: 49ms → 313ms → 8022ms for 1 → 2 → 3 types.
@@ -60,9 +66,9 @@ conflicts with this file, this file is later.
       fetch colours, and the two failure modes separated: enough cards that FIND a colour
       versus enough lands producing it that EXIST. Catches "1 Island + 10 fetches cannot
       cast UU", which no source count detects
-- [ ] Wire `landTypes` into `basicsBudget` — the budget identity still assumes one
-      uniform `coloursPerNonBasic`, so it and the supply model do not yet talk to each
-      other. `checkSupply` verifies a manabase; it does not yet propose one
+- [x] **`proposeManabase.ts`** — proposes a composition (and verifies its own proposal
+      with `checkSupply`), prices basics as a staircase, and gives the 2/3/4/5-colour
+      heuristic for even requirements with no musts
 - [ ] Fetch tempo (enters tapped, costs life), deck thinning, and fetches drawn after
       their target — all unmodelled, making the current treatment a mild ceiling
 - [ ] **Deployment model** — Hall's condition over colour subsets (32 bitmask checks),

@@ -4645,3 +4645,47 @@ Still open: `landTypes` and `basicsBudget` do not yet talk to each other. `check
 VERIFIES a manabase; it does not propose one. Turning the budget into a proposal over
 mixed types is a covering problem, and Hall's condition over colour subsets is the tool --
 the same one the deployment model needs.
+
+### Proposal, basics pricing, and the general heuristic (2026-07-30)
+
+Three things: propose a manabase rather than only verify one, price basics for a given land
+count and requirements, and give a general heuristic for 2/3/4/5 colours under an even
+spread with no musts.
+
+**The heuristic** (EDH 99, 38 lands, one pip by T4, even spread, no musts):
+
+| colours | nonbasic | max basics | next basic costs |
+|---|---|---|---|
+| 2 | dual | **38 (all)** | -- |
+| 3 | dual | 21 | 1.49pt |
+| 3 | triome | 30 | 1.49pt |
+| 4 | dual | **4** | 1.49pt |
+| 4 | triome | 20 | 1.49pt |
+| 5 | dual | **infeasible** | 5.12pt short at ZERO basics |
+| 5 | triome | 11 | 1.49pt |
+| 5 | rainbow | 25 | 1.49pt |
+
+`maxBasics < 0` is the signal that the land TYPES are wrong rather than the basic count --
+five colours off duals fails even with no basics at all.
+
+**Basics price as a STAIRCASE, not a slope.** Three colours with duals, 38 lands:
+
+    18b 91.7% | 19-21b 90.4% | 22-24b 88.9% | 25-27b 87.2% | 28-30b 85.3%
+
+Flat then stepping, because with three colours it takes three basics to cost every colour
+one source. Averaging it to "~0.5pt per basic" would misdescribe the shape -- the 22nd
+basic is free relative to the 21st and the 25th is not.
+
+**The identity is an upper bound, the proposal is the answer.** `basicsBudget` says 22 for
+3-colour duals; `proposeManabase` constructs and verifies 21. The identity counts
+colour-slots and ignores integrality and colour assignment, so the one-land gap is expected
+rather than a defect. Pinned as a test so nobody later "fixes" the identity to match.
+
+`proposeManabase` checks its own output with `checkSupply` rather than trusting the
+arithmetic that built it: the construction is greedy, so it yields a FEASIBLE composition
+rather than a proven optimum, and a greedy answer that passes verification is useful while
+one that fails is a bug.
+
+**The colours tab now has everything it needs.** `manaSources` for requirements,
+`basicsBudget` for budget and must/want, `landTypes` for mixed types and fetches,
+`proposeManabase` for the proposal, price and heuristic. All tested; none wired to UI.
