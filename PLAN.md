@@ -4604,3 +4604,44 @@ Still open: mixed land types in one deck (a real 4-colour manabase runs duals AN
 triomes, and `coloursPerNonBasic` is a single scalar), and fetchlands, whose colour sets
 are DERIVED from what they can fetch rather than declared -- a fetch-basic is only a blue
 source if Islands are actually in the deck.
+
+
+### Fetchlands and mixed land types (2026-07-30)
+
+`basicsBudget` took one uniform `coloursPerNonBasic`, which cannot express a real
+four-colour manabase (duals AND triomes together) and has no way to talk about fetches.
+`landTypes.ts` replaces that with an arbitrary type list.
+
+**Fetch colours are DERIVED, not declared.** Run zero Islands and Flooded Strand is not a
+blue source, so a fetch's colour set comes from what it can actually retrieve given the
+rest of the deck.
+
+**The trap that made fetches need their own rule rather than just a colour set:**
+
+> **1 Island + 10 fetches cannot cast `{U}{U}`.**
+
+Every fetch finds the same single Island. Any one of them is as good as an Island for ONE
+blue pip -- so the source count reads 11 and looks healthy -- but two blue lands can never
+be on the battlefield simultaneously. Fetches multiply ACCESS to targets; they do not
+multiply the targets.
+
+So the model reports two independent quantities, and a manabase can pass one while failing
+the other:
+
+| quantity | meaning | catches |
+|---|---|---|
+| `producers[c]` | cards that can put a c-producer on the battlefield (direct + fetches) | ordinary source-count shortfalls |
+| `distinct[c]` | c-producing lands that EXIST | the one-Island trap: `distinct < pips` is unfixable by any fetch count |
+
+That also explains mechanically why fetches are so strong for SPLASHES (one pip off a
+single target is fine, and ten fetches make it reliable) and useless for a heavy colour
+commitment (they cannot manufacture a second blue land).
+
+Not modelled, and each makes this a mild ceiling rather than an error: fetch tempo (most
+enter tapped or cost life), deck thinning, and a fetch drawn after its target was already
+drawn.
+
+Still open: `landTypes` and `basicsBudget` do not yet talk to each other. `checkSupply`
+VERIFIES a manabase; it does not propose one. Turning the budget into a proposal over
+mixed types is a covering problem, and Hall's condition over colour subsets is the tool --
+the same one the deployment model needs.

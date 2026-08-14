@@ -56,14 +56,15 @@ conflicts with this file, this file is later.
       Serum Visions are currently approximated as a plain draw bonus
 - [ ] Manabase stage 1 revisions (`docs/manabase-spec.md`): per-card/per-group
       `castByTurn`, and displaying the multiplicity/brick trade rather than collapsing it
-- [ ] **Mixed land types.** `basicsBudget` still takes ONE `coloursPerNonBasic`, so it
-      cannot express a real 4-colour manabase mixing duals and triomes. Needs a land-type
-      list (`{count, colours, isBasic}`)
-- [ ] **Fetchlands.** A fetch contributes the colours of what it can FETCH, so a
-      fetch-basic depends on those basics existing (zero Islands means Flooded Strand is
-      not a blue source) and a fetch-any covers every colour you have a basic for. Not a
-      parameter change: colour sets become derived rather than declared, and the aggregate
-      identity degrades to a sanity bound with Hall's condition doing the real work
+- [x] **Mixed land types and fetchlands** — `landTypes.ts`. Arbitrary types with derived
+      fetch colours, and the two failure modes separated: enough cards that FIND a colour
+      versus enough lands producing it that EXIST. Catches "1 Island + 10 fetches cannot
+      cast UU", which no source count detects
+- [ ] Wire `landTypes` into `basicsBudget` — the budget identity still assumes one
+      uniform `coloursPerNonBasic`, so it and the supply model do not yet talk to each
+      other. `checkSupply` verifies a manabase; it does not yet propose one
+- [ ] Fetch tempo (enters tapped, costs life), deck thinning, and fetches drawn after
+      their target — all unmodelled, making the current treatment a mild ceiling
 - [ ] **Deployment model** — Hall's condition over colour subsets (32 bitmask checks),
       enumerate land compositions where possible, MC only as fallback. A second model
       alongside `minSources`, not an extension
