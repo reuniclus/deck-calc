@@ -15,11 +15,23 @@ conflicts with this file, this file is later.
 
 - [x] `manaSources.ts` — stage 1 core: `cardsSeen`, `minSources`, `sourceTable`.
       Anchored on `minSources(99,11,1,0.90) === 18`
-- [x] `basicsBudget.ts` — `B <= k*L - R`, plus the per-source consistency price
+- [x] `basicsBudget.ts` — `B <= (kL - R)/(k-1)`, per-source consistency price, and
+      deck-shape requirements with **must/want** separation. Land count and draw are
+      inputs, never constants
 - [x] `cheapTail.ts` — exact closed-form tail for pure upper-bound queries
 - [x] `triggerRecursion.ts` — exact and 2–5x faster than the DP on monotone scry
 - [ ] **Colours tab** — nothing built. `manaSources` + `basicsBudget` are the slice to
       build on; they need no card catalog or collection data
+
+## Fixed since first draft
+
+- [x] **`basicsBudget` divisor bug.** Shipped as `B <= kL - R`, omitting that each basic
+      DISPLACES a k-colour land. Coincides with the truth at `k=2`, which is why six
+      duals-based checks passed; wrong from `k=3` up (claimed 60 basics for 3c triomes
+      against a true 30). Found by asking about triomes. Now verified by CONSTRUCTION
+      rather than by formula
+- [x] Land count and requirements hard-coded at 38/18 in the tests. Now parameterised,
+      with a slope test (`dB/dL = k/(k-1)`, so each land buys two basics at `k=2`)
 
 ## Known defects
 
@@ -44,6 +56,14 @@ conflicts with this file, this file is later.
       Serum Visions are currently approximated as a plain draw bonus
 - [ ] Manabase stage 1 revisions (`docs/manabase-spec.md`): per-card/per-group
       `castByTurn`, and displaying the multiplicity/brick trade rather than collapsing it
+- [ ] **Mixed land types.** `basicsBudget` still takes ONE `coloursPerNonBasic`, so it
+      cannot express a real 4-colour manabase mixing duals and triomes. Needs a land-type
+      list (`{count, colours, isBasic}`)
+- [ ] **Fetchlands.** A fetch contributes the colours of what it can FETCH, so a
+      fetch-basic depends on those basics existing (zero Islands means Flooded Strand is
+      not a blue source) and a fetch-any covers every colour you have a basic for. Not a
+      parameter change: colour sets become derived rather than declared, and the aggregate
+      identity degrades to a sanity bound with Hall's condition doing the real work
 - [ ] **Deployment model** — Hall's condition over colour subsets (32 bitmask checks),
       enumerate land compositions where possible, MC only as fallback. A second model
       alongside `minSources`, not an extension

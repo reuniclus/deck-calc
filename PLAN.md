@@ -4554,3 +4554,53 @@ Extreme cases to pin when implementing:
 
 Not implemented. Recorded because the diagnosis (input, not aggregation) determines what the
 fix touches, and the surface above is the evidence for it.
+
+### basicsBudget: divisor bug fixed, and requirements now deck-driven (2026-07-30)
+
+**Bug shipped an hour earlier, found by asking about triomes.** The identity was written
+`B <= k*L - R`, omitting that each basic DISPLACES a k-colour land, so it costs `k-1`
+slots rather than 1:
+
+    B + k(L - B) >= R   =>   B <= (k*L - R) / (k - 1)
+
+At `k=2` the divisor is 1 and both forms agree -- and five of the six cases used to
+"validate" the original were duals. The two that were not (`3c triomes`, `5c rainbows`)
+were read as confirmation ("triomes free you entirely") when they were exactly the cases
+being got wrong: 60 claimed against a true 30, and 100 against a true 25.
+
+Corrected and now verified BY CONSTRUCTION rather than by formula -- the test rebuilds
+`B + (L-B)*k` and checks it meets demand while one more basic does not:
+
+| deck (L=38, 1-pip reqs) | max basics |
+|---|---|
+| 2c duals | 38 (all) |
+| 3c duals | 22 |
+| 3c triomes | **30** |
+| 4c duals | 4 |
+| 4c triomes | **21** |
+| 5c duals | infeasible |
+| 5c rainbows | **25** |
+
+**Land count and requirements are now inputs.** They had been hard-coded at 38 and 18,
+which both hid the sensitivity and weakened the validation. `dB/dL = k/(k-1)`, so at
+`k=2` each land buys TWO basics -- 4-colour duals allows 2 basics at 37 lands, 4 at 38,
+6 at 39. A pinned slope test now asserts that structurally.
+
+**Must versus want, from two real decks.** Requirements are now a list of
+`{colour, pips, turn, must}`:
+
+- **38-land deck, must = 3G by T4** -> 40 sources, which EXCEEDS the land count. No
+  land-only manabase reaches it however it is built, so the model now reports
+  `needsNonLandSources` instead of an impossible budget. That is a more useful output
+  than a number.
+- **30-land draw-heavy deck, must = 1G + 1W by T3** -> 16 sources with draw against 20
+  without. **This is where the cantrip work meets the manabase**: seeing more cards
+  genuinely lets a deck run a worse mana base, and `extraDrawPerTurn` makes that
+  explicit.
+- A WANT (the splash) now reports `mustSources = 0` with the price in `wantPremium`,
+  which fixes the case where one off-colour card dictated the whole manabase.
+
+Still open: mixed land types in one deck (a real 4-colour manabase runs duals AND
+triomes, and `coloursPerNonBasic` is a single scalar), and fetchlands, whose colour sets
+are DERIVED from what they can fetch rather than declared -- a fetch-basic is only a blue
+source if Islands are actually in the deck.
