@@ -4689,3 +4689,49 @@ one that fails is a bug.
 **The colours tab now has everything it needs.** `manaSources` for requirements,
 `basicsBudget` for budget and must/want, `landTypes` for mixed types and fetches,
 `proposeManabase` for the proposal, price and heuristic. All tested; none wired to UI.
+
+### The manabase in dimensionless form (2026-07-30)
+
+Proposed working in ratios instead of counts. It holds, and reduces the whole problem to
+a five-line system:
+
+    phi*(n, conf, pips)          required sources as a FRACTION of the deck
+    Phi = sum_c phi*_c           total colour demand
+    lambda = lands / deck        land fraction
+    rho = Phi / lambda           colour-slots demanded per land
+    beta <= (k - rho)/(k - 1)    basics as a fraction of lands
+    feasible  <=>  rho <= k
+
+The last line is the manabase question in five symbols: colour demand per land cannot
+exceed how many colours your lands produce.
+
+**Why ratios are licensed.** Measured the required FRACTION against the exact
+hypergeometric at fixed cards seen:
+
+| cards seen | EDH 99 | 60-card | limited 40 | binomial limit |
+|---|---|---|---|---|
+| 9 | -- | 21.7% | 22.5% | 22.6% |
+| 10 | 20.2% | 20.0% | 20.0% | 20.6% |
+| 11 | 18.2% | 18.3% | 17.5% | 18.9% |
+
+Within about a point from 40 to 99 cards, so DECK SIZE DROPS OUT. The closed form
+`phi = 1 - (1-conf)^(1/n)` is within ~0.7pt and biased high (it ignores the
+finite-population correction).
+
+**The one irreducibly absolute quantity is `n`, cards seen.** That is not a defect, it is
+the physics: seeing more cards is exactly what loosens a manabase. It explains why a
+30-land draw-heavy deck needs fewer sources than a 38-land midrange one -- card draw
+raises `n` without touching any ratio -- and it is precisely where the manabase work meets
+the cantrip work. A test pins it: raising cards seen from 11 to 16 lowers `rho` and raises
+the affordable basics fraction with land count untouched.
+
+**Cross-checked against the count formulation** so the two cannot drift apart; they agree
+to integer rounding across colours and land breadths.
+
+`landFractionNeeded = Phi/k` falls out for free, and is the more useful thing to tell a
+user whose deck is infeasible: not "impossible" but "you need this land fraction, or
+broader lands".
+
+Consequence for the UI, following the earlier point that land TYPES are ranked rather than
+chosen: the user needs two dials, `lambda` and `k`, and gets `beta` plus a feasibility
+verdict. Not a combinatorial explorer.

@@ -66,6 +66,9 @@ price + heuristic). Nothing is wired to the UI.
       fetch colours, and the two failure modes separated: enough cards that FIND a colour
       versus enough lands producing it that EXIST. Catches "1 Island + 10 fetches cannot
       cast UU", which no source count detects
+- [x] **`manaRatios.ts`** — the whole problem in dimensionless form: `rho = Phi/lambda`,
+      `beta <= (k-rho)/(k-1)`, feasible iff `rho <= k`. Cross-checked against the
+      count-based budget. Cards seen is the ONE quantity that cannot be a ratio
 - [x] **`proposeManabase.ts`** — proposes a composition (and verifies its own proposal
       with `checkSupply`), prices basics as a staircase, and gives the 2/3/4/5-colour
       heuristic for even requirements with no musts
