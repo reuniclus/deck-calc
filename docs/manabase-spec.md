@@ -743,12 +743,36 @@ spread, no musts. Requirement is 18 sources per colour.
 
 ### Basics affordable
 
-| colours | duals | triomes | rainbow |
+Breadth is capped at the deck's colour count: a rainbow in a two-colour deck IS a dual,
+and a WUB triome in a WU deck is a WU dual. (An earlier version of this table omitted
+that cap and wrongly credited a three-colour deck with 34 basics off rainbows.)
+
+| colours | duals | triomes | rainbow / fetch-any |
 |---|---|---|---|
 | 2 | 38 (all) | 38 | 38 |
-| 3 | 22 | 30 | 34 |
-| 4 | **4** | 21 | 29 |
+| 3 | 22 | 30 | 30 |
+| 4 | **4** | 21 | 26 |
 | 5 | **infeasible** | 12 | 25 |
+
+The two-colour row being flat across all three columns is the check that the cap is
+applied: extra breadth cannot help a deck that has no further colours to reach.
+
+### Where fetchlands sit
+
+For the BUDGET, a fetch is a non-basic whose breadth is how many of your colours it can
+reach, so it maps onto a column above rather than needing one of its own:
+
+- **fetch-any** (Prismatic Vista, Fabled Passage) -> the rightmost column
+- **fetch-basic** (Flooded Strand and friends) -> the duals column, reaching two colours
+
+That is why fetches fix so well: they buy triome-or-better breadth on a land that is
+otherwise a basic-fetcher.
+
+The budget is not the whole story for them, though. `landTypes.ts` tracks a second
+quantity the budget cannot see: fetches multiply ACCESS to targets without multiplying
+the targets, so a fetch only counts if the basics it wants are actually in the deck, and
+`distinct[c] >= pips` still has to hold. One Island plus ten fetches satisfies every
+budget here and still cannot cast `{U}{U}`.
 
 Upper bound from the budget identity; a constructed composition typically lands one
 lower, since the identity ignores integrality and colour assignment.
@@ -762,14 +786,14 @@ the effective land count: `B <= (k(L-U) - R)/(k-1)`, feasible iff `U <= L - R/k`
 rainbows. Broader lands make utility lands cheaper, which is not obvious before writing it
 down.
 
-Maximum utility lands before colour fails:
+Maximum utility lands before colour fails (breadth capped at colour count):
 
-| colours | duals | triomes | rainbow |
+| colours | duals | triomes | rainbow / fetch-any |
 |---|---|---|---|
-| 2 | 20 | 26 | 30 |
-| 3 | 11 | 20 | 27 |
-| 4 | **2** | 14 | 23 |
-| 5 | **0** | 8 | 20 |
+| 2 | 20 | 20 | 20 |
+| 3 | 11 | 20 | 20 |
+| 4 | **2** | 14 | 20 |
+| 5 | — | 8 | 20 |
 
 Four colours off duals supports two colourless utility lands; five supports none. That
 matches how such decks are built in practice, which is the reason to trust the table.

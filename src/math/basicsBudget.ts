@@ -60,7 +60,7 @@ export interface BasicsBudget {
 }
 
 export function basicsBudget(
-  landCount: number, requirements: number[], coloursPerNonBasic: number,
+  landCount: number, requirements: number[], coloursPerNonBasicRaw: number,
   /**
    * Colourless utility lands (Reliquary Tower, Rogue's Passage, and friends). They
    * produce NO coloured mana, so they contribute zero colour-slots and simply reduce the
@@ -75,6 +75,13 @@ export function basicsBudget(
   utilityLands = 0,
 ): BasicsBudget {
   const demand = requirements.reduce((a, r) => a + r, 0);
+  /**
+   * Breadth is capped at the deck's colour count. A rainbow in a two-colour deck is a
+   * DUAL -- its other three colours do nothing -- and a WUB triome in a WU deck is a WU
+   * dual. Failing to cap this made the reference tables claim a three-colour deck could
+   * run 34 basics off rainbows when the true figure equals the triome one.
+   */
+  const coloursPerNonBasic = Math.min(coloursPerNonBasicRaw, requirements.length);
   const effective = Math.max(0, landCount - utilityLands);
   const supply = coloursPerNonBasic * effective;
   if (coloursPerNonBasic < 2) {

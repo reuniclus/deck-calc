@@ -31,6 +31,16 @@ describe('basics budget', () => {
     }
   });
 
+  it('breadth is capped at the deck colour count', () => {
+    // A rainbow in a two-colour deck IS a dual, and a WUB triome in a WU deck is a WU
+    // dual. Without the cap the tables claimed a three-colour deck could run 34 basics
+    // off rainbows, when the true figure equals the triome one.
+    expect(basicsBudget(38, req18(2), 5).maxBasics).toBe(basicsBudget(38, req18(2), 2).maxBasics);
+    expect(basicsBudget(38, req18(3), 5).maxBasics).toBe(basicsBudget(38, req18(3), 3).maxBasics);
+    // and it still distinguishes where breadth genuinely helps
+    expect(basicsBudget(38, req18(4), 5).maxBasics).toBeGreaterThan(basicsBudget(38, req18(4), 3).maxBasics);
+  });
+
   it('a colourless utility land costs k/(k-1) basics', () => {
     // Utility lands produce no coloured mana, so they contribute zero colour-slots and
     // reduce the effective land count. With duals each one costs TWO basics; broader
