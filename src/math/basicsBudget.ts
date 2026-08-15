@@ -61,23 +61,36 @@ export interface BasicsBudget {
 
 export function basicsBudget(
   landCount: number, requirements: number[], coloursPerNonBasic: number,
+  /**
+   * Colourless utility lands (Reliquary Tower, Rogue's Passage, and friends). They
+   * produce NO coloured mana, so they contribute zero colour-slots and simply reduce the
+   * effective land count -- `L` becomes `L - U` everywhere. That makes each one strictly
+   * worse than a basic for colour: a basic gives one slot, a utility land gives none.
+   *
+   * Consequence worth surfacing to a user: utility lands are paid for in the same
+   * currency as basics, and at a worse rate. A deck that "can afford 22 basics" can
+   * instead afford 21 basics and one utility land, or 20 and two -- but with duals
+   * (`k=2`) each utility land costs TWO basics, since it has to be covered by a dual.
+   */
+  utilityLands = 0,
 ): BasicsBudget {
   const demand = requirements.reduce((a, r) => a + r, 0);
-  const supply = coloursPerNonBasic * landCount;
+  const effective = Math.max(0, landCount - utilityLands);
+  const supply = coloursPerNonBasic * effective;
   if (coloursPerNonBasic < 2) {
     // every land single-colour: basics are all you have, and coverage is just L >= R
     return {
-      demand, supply: landCount, maxBasics: landCount,
-      infeasible: landCount < demand, basicsFree: landCount >= demand,
+      demand, supply: effective, maxBasics: effective,
+      infeasible: effective < demand, basicsFree: effective >= demand,
     };
   }
   const raw = (supply - demand) / (coloursPerNonBasic - 1);
   return {
     demand,
     supply,
-    maxBasics: supply < demand ? 0 : Math.max(0, Math.min(landCount, Math.floor(raw))),
+    maxBasics: supply < demand ? 0 : Math.max(0, Math.min(effective, Math.floor(raw))),
     infeasible: supply < demand,
-    basicsFree: raw >= landCount,
+    basicsFree: raw >= effective,
   };
 }
 

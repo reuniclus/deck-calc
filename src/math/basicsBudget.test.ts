@@ -31,6 +31,27 @@ describe('basics budget', () => {
     }
   });
 
+  it('a colourless utility land costs k/(k-1) basics', () => {
+    // Utility lands produce no coloured mana, so they contribute zero colour-slots and
+    // reduce the effective land count. With duals each one costs TWO basics; broader
+    // lands make them cheaper, which is not obvious until it is written down.
+    const at = (u: number) => basicsBudget(38, req18(3), 2, u).maxBasics;
+    expect(at(0) - at(1)).toBe(2);
+    expect(at(1) - at(2)).toBe(2);
+    const tri = (u: number) => basicsBudget(38, req18(3), 3, u).maxBasics;
+    expect(tri(0) - tri(2)).toBe(3); // 1.5 each
+  });
+
+  it('caps how many utility lands a deck can support', () => {
+    // U <= L - R/k. A four-colour dual manabase supports two; a five-colour one none,
+    // which is how those decks are actually built.
+    expect(basicsBudget(38, req18(4), 2, 2).infeasible).toBe(false);
+    expect(basicsBudget(38, req18(4), 2, 3).infeasible).toBe(true);
+    expect(basicsBudget(38, req18(5), 2, 0).infeasible).toBe(true);
+    expect(basicsBudget(38, req18(5), 3, 8).infeasible).toBe(false);
+    expect(basicsBudget(38, req18(5), 3, 9).infeasible).toBe(true);
+  });
+
   it('land count is an input, and the slope is k/(k-1)', () => {
     // At k=2 each extra land buys TWO basics, so a one-land change swings the answer by
     // half in a tight deck. This is why L must never be hard-coded.

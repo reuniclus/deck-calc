@@ -735,3 +735,41 @@ per-card sampling by construction; deployment is a joint property of hand and bo
 two should sit side by side, and disagreement between them is expected rather than a
 bug -- the "one spell per turn" note is precisely the seam where one ends and the other
 begins.
+
+## Reference tables (deck-calc, 2026-07-30)
+
+EDH 99, 38 lands, **no cantrips** (n = 11 by T4), one pip, 90% confidence, even colour
+spread, no musts. Requirement is 18 sources per colour.
+
+### Basics affordable
+
+| colours | duals | triomes | rainbow |
+|---|---|---|---|
+| 2 | 38 (all) | 38 | 38 |
+| 3 | 22 | 30 | 34 |
+| 4 | **4** | 21 | 29 |
+| 5 | **infeasible** | 12 | 25 |
+
+Upper bound from the budget identity; a constructed composition typically lands one
+lower, since the identity ignores integrality and colour assignment.
+
+### Colourless utility lands
+
+A utility land produces no coloured mana, so it contributes zero colour-slots and reduces
+the effective land count: `B <= (k(L-U) - R)/(k-1)`, feasible iff `U <= L - R/k`.
+
+**Each utility land costs `k/(k-1)` basics** -- two with duals, 1.5 with triomes, 1.25 with
+rainbows. Broader lands make utility lands cheaper, which is not obvious before writing it
+down.
+
+Maximum utility lands before colour fails:
+
+| colours | duals | triomes | rainbow |
+|---|---|---|---|
+| 2 | 20 | 26 | 30 |
+| 3 | 11 | 20 | 27 |
+| 4 | **2** | 14 | 23 |
+| 5 | **0** | 8 | 20 |
+
+Four colours off duals supports two colourless utility lands; five supports none. That
+matches how such decks are built in practice, which is the reason to trust the table.
