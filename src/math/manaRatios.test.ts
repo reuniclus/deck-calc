@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { basicsFromRatios, phiApprox, phiExact, ratioVerdict } from './manaRatios';
+import {
+  basicsFromRatios, castabilityOverSeen, phiApprox, phiExact, ratioVerdict, sourcesOverSeen,
+} from './manaRatios';
+import { sfAtLeast } from './hyper';
+import { slotDistribution } from './selection';
 import { basicsBudget } from './basicsBudget';
 import { cardsSeen, EDH, LIMITED, SIXTY } from './manaSources';
 
@@ -67,5 +71,36 @@ describe('the manabase in dimensionless form', () => {
     });
     expect(drawy.rho).toBeLessThan(tight.rho);
     expect(drawy.basicsFraction).toBeGreaterThan(tight.basicsFraction);
+  });
+});
+
+
+describe('cards seen as a distribution', () => {
+  // 99 cards, 11 scheduled draws, 8 look-3 cantrips. slotDistribution already yields the
+  // distribution of cards seen, so the draw half of the project feeds the manabase half.
+  const dist = slotDistribution(99, 8, 3, 11)[11]!.map((o) => ({ seen: o.seen, p: o.p }));
+
+  it('mixing over the spread differs materially from using the mean', () => {
+    const mean = dist.reduce((a, d) => a + d.p * d.seen, 0);
+    const atMean = sfAtLeast(99, 18, Math.round(mean), 1);
+    const mixed = castabilityOverSeen(99, 18, 1, dist);
+    // concave in n, so the mean OVERSTATES -- by 1.2pt here, twelve times the bar
+    expect(mixed).toBeLessThan(atMean);
+    expect((atMean - mixed) * 100).toBeGreaterThan(1);
+    expect(dist.reduce((a, d) => a + d.p, 0)).toBeCloseTo(1, 9);
+  });
+
+  it('a wider spread costs more than a narrow one at equal mean', () => {
+    const mean = dist.reduce((a, d) => a + d.p * d.seen, 0);
+    const point = [{ seen: Math.round(mean), p: 1 }];
+    expect(castabilityOverSeen(99, 18, 1, dist))
+      .toBeLessThan(castabilityOverSeen(99, 18, 1, point));
+  });
+
+  it('requires more sources once the spread is respected', () => {
+    const mean = Math.round(dist.reduce((a, d) => a + d.p * d.seen, 0));
+    const naive = sourcesOverSeen(99, 1, 0.9, [{ seen: mean, p: 1 }]);
+    const honest = sourcesOverSeen(99, 1, 0.9, dist);
+    expect(honest).toBeGreaterThanOrEqual(naive);
   });
 });

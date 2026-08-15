@@ -4735,3 +4735,38 @@ broader lands".
 Consequence for the UI, following the earlier point that land TYPES are ranked rather than
 chosen: the user needs two dials, `lambda` and `k`, and gets `beta` plus a feasibility
 verdict. Not a combinatorial explorer.
+
+### Cards seen as a DISTRIBUTION, not a point (2026-07-30)
+
+Suggested that `n` -- the one quantity the ratio form cannot normalise away -- be carried
+as a distribution rather than a point. That is right, and it turns out to matter
+numerically rather than only presentationally.
+
+**`slotDistribution` already produces exactly this distribution**, which is where the two
+halves of the project meet: the cantrip engine's `{seen, p}` outcomes ARE the bell curve
+the manabase needs.
+
+**And the mean is not a safe summary.** `P(>= k sources | n)` is CONCAVE in `n`, so
+`E[P(n)] < P(E[n])`. Measured on 99 cards, 11 draws, 8 look-3 cantrips:
+
+| | |
+|---|---|
+| mean cards seen | 13.67 |
+| P at the mean | 95.202% |
+| E[P(n)], mixed | 93.983% |
+| **Jensen gap** | **1.219pt** |
+| seen range | 11 to 35 |
+
+So evaluating at the mean OVERSTATES castability by twelve times the 0.1pt bar. The
+spread is wide with a long right tail (cantrip chaining), which is exactly the regime
+where a mean summarises badly.
+
+Worth naming: this is the FOURTH appearance of the same error class in this session --
+after the mean-field fixed point, the mean-position keep cap, and the `seenBefore`
+collapse in `keepMass`. A mean substituted for a distribution has been wrong every single
+time it has come up here. The suggestion to keep `n` distributional avoids it by
+construction rather than by remembering.
+
+`castabilityOverSeen` and `sourcesOverSeen` implement the mixture, with tests pinning the
+direction (mixed < at-mean), the mass (exactly 1), and that respecting the spread requires
+at least as many sources.

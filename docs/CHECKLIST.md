@@ -66,6 +66,9 @@ price + heuristic). Nothing is wired to the UI.
       fetch colours, and the two failure modes separated: enough cards that FIND a colour
       versus enough lands producing it that EXIST. Catches "1 Island + 10 fetches cannot
       cast UU", which no source count detects
+- [x] Cards seen carried as a DISTRIBUTION (`castabilityOverSeen`) — fed directly by
+      `slotDistribution`, joining the draw and manabase halves. Using the mean overstates
+      castability by 1.2pt
 - [x] **`manaRatios.ts`** — the whole problem in dimensionless form: `rho = Phi/lambda`,
       `beta <= (k-rho)/(k-1)`, feasible iff `rho <= k`. Cross-checked against the
       count-based budget. Cards seen is the ONE quantity that cannot be a ratio
