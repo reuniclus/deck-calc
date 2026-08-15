@@ -339,3 +339,46 @@ export function coverage(deckSize: number, cardsSeen: number, shares: ColourShar
   );
   return { coverage: total, perColour, worstOffender: worst ? worst.colour : null };
 }
+
+export interface HeuristicCell {
+  colours: number;
+  landCount: number;
+  lambda: number;
+  rho: number;
+  /** Basics as a fraction of lands with duals, or null when infeasible. */
+  withDuals: number | null;
+  /** Same with triomes. */
+  withTriomes: number | null;
+}
+
+/**
+ * The even-distribution heuristic table: what fraction of lands can be basics, by colour
+ * count and land count.
+ *
+ * Generated rather than hard-coded so it cannot drift from the functions it summarises,
+ * and so a caller can regenerate it for a different format, confidence, pip count or turn.
+ *
+ * Assumes an even colour spread and no musts, which is what makes it a HEURISTIC: real
+ * decks are skewed, and `coverage` plus `rhoProfile` are what handle that. This is the
+ * number to start from, not the number to build on.
+ */
+export function evenDistributionTable(
+  deckSize: number, cardsSeen: number, confidence: number,
+  landCounts: number[], colourCounts: number[], pips = 1,
+): HeuristicCell[] {
+  const phi = phiExact(deckSize, cardsSeen, pips, confidence);
+  const out: HeuristicCell[] = [];
+  for (const landCount of landCounts) {
+    const lambda = landCount / deckSize;
+    for (const colours of colourCounts) {
+      const rho = (colours * phi) / lambda;
+      const beta = (kRaw: number): number | null => {
+        const k = Math.min(kRaw, colours);
+        if (k < 2) return rho <= 1 ? 1 : null;
+        return rho > k ? null : Math.min(1, (k - rho) / (k - 1));
+      };
+      out.push({ colours, landCount, lambda, rho, withDuals: beta(2), withTriomes: beta(3) });
+    }
+  }
+  return out;
+}

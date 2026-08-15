@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   basicsFromRatios, castabilityOverSeen, feasibleFrom, phiApprox, phiExact, ratioVerdict,
-  coverage, rhoProfile, sourcesOverSeen, verdictOverDistribution, verdictOverN,
+  coverage, evenDistributionTable, rhoProfile, sourcesOverSeen, verdictOverDistribution, verdictOverN,
 } from './manaRatios';
 import { sfAtLeast } from './hyper';
 import { slotDistribution } from './selection';
@@ -231,5 +231,38 @@ describe('coverage: what rho cannot see', () => {
     const at = (s: number) => coverage(deck, seen, [{ colour: 'U', share: 1, sources: s, pips: 1 }]).coverage;
     expect(at(10)).toBeLessThan(at(20));
     expect(at(99)).toBeCloseTo(1, 6);
+  });
+});
+
+describe('the even-distribution heuristic table', () => {
+  const table = evenDistributionTable(99, 11, 0.9, [34, 36, 38, 40, 42], [2, 3, 4, 5]);
+  const cell = (colours: number, landCount: number) =>
+    table.find((c) => c.colours === colours && c.landCount === landCount)!;
+
+  it('matches the published figures', () => {
+    expect(cell(3, 38).withDuals!).toBeCloseTo(0.58, 2);
+    expect(cell(3, 38).withTriomes!).toBeCloseTo(0.79, 2);
+    expect(cell(4, 38).withDuals!).toBeCloseTo(0.11, 2);
+    expect(cell(2, 38).withDuals!).toBe(1);
+  });
+
+  it('five colours off duals is infeasible at EVERY land count', () => {
+    // Not a tuning problem: the land TYPE is wrong, whatever the count.
+    for (const L of [34, 36, 38, 40, 42]) expect(cell(5, L).withDuals).toBeNull();
+    for (const L of [34, 36, 38, 40, 42]) expect(cell(5, L).withTriomes).not.toBeNull();
+  });
+
+  it('four colours is the knife edge -- it swings hardest on land count', () => {
+    const swing = (c: number) =>
+      (cell(c, 42).withDuals ?? 0) - (cell(c, 36).withDuals ?? 0);
+    expect(swing(4)).toBeGreaterThan(swing(2)); // 2c is pinned at 100%, no swing
+    expect(cell(4, 36).withDuals!).toBeLessThan(0.05);
+    expect(cell(4, 42).withDuals!).toBeGreaterThan(0.25);
+  });
+
+  it('is generated, so it tracks the functions it summarises', () => {
+    // Regenerating at a later turn must loosen every cell, since phi falls with cards seen.
+    const later = evenDistributionTable(99, 13, 0.9, [38], [3]);
+    expect(later[0]!.withDuals!).toBeGreaterThan(cell(3, 38).withDuals!);
   });
 });
