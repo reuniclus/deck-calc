@@ -4892,3 +4892,43 @@ Three readings that fall out and are not obvious beforehand:
 The table is explicitly labelled with what it cannot see: an even spread says nothing
 about a 10/20/70 colour split (that is `coverage`), and `rho <= k` is necessary rather
 than sufficient (that is `checkSupply`).
+
+### Generic mana is a separate axis, and it is the BINDING one (2026-07-30)
+
+Corrected a misreading: `{3}{G}` is MV 4 with ONE green pip, not `{G}{G}{G}`. I had
+analysed it as three green pips and reported that it needed 40 sources against 38 lands.
+Wrong requirement, wrong conclusion.
+
+Redone properly, the card imposes TWO separate constraints:
+
+| constraint | requirement | status |
+|---|---|---|
+| colour: 1 green pip by T4 | 18 green sources | trivial -- mono-green, all 38 basics fine |
+| mana: 4 LANDS by T4 | 38 lands gives **67.6%** | the actual problem |
+
+**Lands needed to make a land drop at 90% confidence:**
+
+| target | lands |
+|---|---|
+| 3 by T3 | 44 |
+| 4 by T4 | **50** |
+| 5 by T5 | 55 |
+
+Nobody runs 50 lands. So **the generic/total-mana axis is far harder than the colour axis**,
+and the colour analysis everyone does -- Karsten's, and everything above in this file -- is
+the EASIER half of the problem.
+
+Two consequences worth carrying:
+
+- **The real risk in most decks is "three lands on turn four", not "no green source".** At
+  38 lands that is about a one-in-three failure, while the colour requirement is
+  comfortably met.
+- **The 90% standard is axis-specific, and that is not inconsistency.** Players demand 90%
+  on colour and tolerate 65-75% on land drops because 90% on land drops is unreachable
+  without absurd land counts. Any UI that applies one confidence to both will give
+  nonsense on one of them.
+
+Model gap this exposes: nothing here treats MV / generic cost. `manaSources` and everything
+built on it handles COLOUR only. Total mana by turn T is a plain hypergeometric on land
+count -- cheap to add -- and it should be reported ALONGSIDE colour rather than folded into
+it, since the two have different achievable standards.
