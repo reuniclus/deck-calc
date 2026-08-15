@@ -4770,3 +4770,30 @@ construction rather than by remembering.
 `castabilityOverSeen` and `sourcesOverSeen` implement the mixture, with tests pinning the
 direction (mixed < at-mean), the mass (exactly 1), and that respecting the spread requires
 at least as many sources.
+
+### Cards seen carried as a DISTRIBUTION, not a point (2026-07-30)
+
+Since `n` is the only quantity the ratio form cannot normalise away, the natural move is to
+stop pinning it: report the verdict as a curve over `n`, and let the deck's draw profile
+select the point -- or integrate over it.
+
+Added `verdictOverN` (feasibility and affordable basics as a function of cards seen),
+`feasibleFrom` (the threshold `n` above which a manabase works), and
+`verdictOverDistribution` (P(feasible) and expected/safe basics fraction over a
+distribution of cards seen).
+
+**This converts a verdict into a requirement on the deck's draw**, which is a far more
+useful statement than yes/no: five colours off duals is not "impossible", it is "feasible
+only above n ~ 12", and a cantrip package that raises `n` is a real alternative to changing
+lands.
+
+It also joins up with `castabilityOverSeen`, written earlier in the session, which makes
+the same point from the castability side with a measurement: `P(>=k sources | n)` is
+CONCAVE in `n`, so `E[P(n)] < P(E[n])` and evaluating at the mean OVERSTATES castability --
+1.2pt on a 99-card deck with eight look-3 cantrips (mean seen 13.67, 95.202% at the mean
+against 93.983% mixed), twelve times the 0.1pt bar. So carrying the distribution is not
+presentational; the point estimate is biased.
+
+Bug found and fixed while testing: `safeBasicsFraction` only assigned inside `cum <= 0.1`,
+so a first bucket heavier than 10% of the mass left it at its initialiser and it reported
+a fraction of 1. Now takes the value at the first bucket reaching the tail.

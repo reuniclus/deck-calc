@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  basicsFromRatios, castabilityOverSeen, phiApprox, phiExact, ratioVerdict, sourcesOverSeen,
+  basicsFromRatios, castabilityOverSeen, feasibleFrom, phiApprox, phiExact, ratioVerdict,
+  sourcesOverSeen, verdictOverDistribution, verdictOverN,
 } from './manaRatios';
 import { sfAtLeast } from './hyper';
 import { slotDistribution } from './selection';
@@ -102,5 +103,51 @@ describe('cards seen as a distribution', () => {
     const naive = sourcesOverSeen(99, 1, 0.9, [{ seen: mean, p: 1 }]);
     const honest = sourcesOverSeen(99, 1, 0.9, dist);
     expect(honest).toBeGreaterThanOrEqual(naive);
+  });
+});
+
+
+describe('cards seen as the free variable', () => {
+  it('a manabase is feasible ABOVE a threshold n, not absolutely', () => {
+    // Since n is the only non-normalisable quantity, sweeping it turns a verdict into a
+    // requirement on the deck's draw -- a more useful statement than yes or no.
+    const pts = verdictOverN(5, 38 / 99, 2, 0.9, [8, 10, 12, 14, 16, 18, 20, 24]);
+    const threshold = feasibleFrom(pts);
+    expect(threshold).not.toBeNull();
+    // five colours off duals is infeasible at ordinary draw and becomes feasible only
+    // once the deck sees appreciably more cards
+    expect(threshold!).toBeGreaterThan(11);
+    for (const p of pts) {
+      if (p.n < threshold!) expect(p.feasible).toBe(false);
+      else expect(p.feasible).toBe(true);
+    }
+  });
+
+  it('the affordable basics fraction rises monotonically with cards seen', () => {
+    const pts = verdictOverN(3, 38 / 99, 2, 0.9, [9, 11, 13, 15, 17]);
+    for (let i = 1; i < pts.length; i++) {
+      expect(pts[i]!.basicsFraction).toBeGreaterThanOrEqual(pts[i - 1]!.basicsFraction - 1e-12);
+    }
+  });
+
+  it('integrates over a distribution of cards seen', () => {
+    // A cantrip deck does not see a fixed n. Feeding the distribution gives P(feasible)
+    // rather than a false binary, which is the honest output.
+    const dist = [
+      { n: 10, p: 0.15 }, { n: 11, p: 0.25 }, { n: 12, p: 0.3 },
+      { n: 13, p: 0.2 }, { n: 14, p: 0.1 },
+    ];
+    const v = verdictOverDistribution(4, 38 / 99, 2, 0.9, dist);
+    expect(v.pFeasible).toBeGreaterThan(0);
+    expect(v.pFeasible).toBeLessThanOrEqual(1);
+    expect(v.expectedBasicsFraction).toBeGreaterThanOrEqual(0);
+    // the safe figure never exceeds the expected one, since it is taken from the worst draws
+    expect(v.safeBasicsFraction).toBeLessThanOrEqual(v.expectedBasicsFraction + 1e-9);
+  });
+
+  it('a draw-heavy deck shifts the whole curve', () => {
+    const dry = verdictOverDistribution(3, 38 / 99, 2, 0.9, [{ n: 11, p: 1 }]);
+    const drawy = verdictOverDistribution(3, 38 / 99, 2, 0.9, [{ n: 16, p: 1 }]);
+    expect(drawy.expectedBasicsFraction).toBeGreaterThan(dry.expectedBasicsFraction);
   });
 });

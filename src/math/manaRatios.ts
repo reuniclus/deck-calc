@@ -143,3 +143,88 @@ export function sourcesOverSeen(
   }
   return Infinity;
 }
+
+export interface NPoint {
+  /** Cards seen. */
+  n: number;
+  /** Required source fraction at this `n`. */
+  phi: number;
+  /** Colour-slots demanded per land. */
+  rho: number;
+  /** Affordable basics as a fraction of lands. */
+  basicsFraction: number;
+  feasible: boolean;
+}
+
+/**
+ * The verdict as a CURVE over cards seen.
+ *
+ * Since `n` is the only quantity that cannot be normalised away, sweeping it keeps the
+ * result generic: a manabase is not "feasible" or not, it is feasible ABOVE SOME `n`.
+ * That single threshold is more useful than any point estimate, because it converts a
+ * verdict into a requirement on the deck's draw.
+ */
+export function verdictOverN(
+  colours: number, landFraction: number, coloursPerNonBasic: number,
+  confidence: number, nRange: number[],
+): NPoint[] {
+  return nRange.map((n) => {
+    const phi = phiApprox(n, confidence);
+    const v = ratioVerdict({
+      demandFraction: colours * phi, landFraction, coloursPerNonBasic,
+    });
+    return { n, phi, rho: v.rho, basicsFraction: v.basicsFraction, feasible: v.feasible };
+  });
+}
+
+/** Smallest `n` at which the manabase becomes feasible, or null within the range. */
+export function feasibleFrom(points: NPoint[]): number | null {
+  const hit = points.find((p) => p.feasible);
+  return hit ? hit.n : null;
+}
+
+/**
+ * Integrate the verdict over a DISTRIBUTION of cards seen.
+ *
+ * A deck with cantrips does not see a fixed number of cards by turn T -- it sees a
+ * distribution, which the draw machinery already computes. So the honest output is not
+ * "feasible" but P(feasible), plus the basics fraction one can afford at a chosen
+ * reliability.
+ *
+ * This is where the two halves of the project meet: the cantrip engines produce the
+ * distribution over `n`, and the manabase consumes it.
+ */
+export function verdictOverDistribution(
+  colours: number, landFraction: number, coloursPerNonBasic: number,
+  confidence: number, nDistribution: Array<{ n: number; p: number }>,
+): { pFeasible: number; expectedBasicsFraction: number; safeBasicsFraction: number } {
+  let pFeasible = 0;
+  let expected = 0;
+  const sorted = [...nDistribution].sort((a, b) => a.n - b.n);
+  // The basics fraction that still holds up on a BAD draw: the value at the 10th
+  // percentile of cards seen, taken at the first bucket whose cumulative mass reaches
+  // the tail. An earlier version only assigned inside `cum <= 0.1`, so a first bucket
+  // heavier than 10% left it at its initial value and it reported 1.
+  let safe: number | null = null;
+  let cum = 0;
+  for (const { n, p } of sorted) {
+    const v = ratioVerdict({
+      demandFraction: colours * phiApprox(n, confidence), landFraction, coloursPerNonBasic,
+    });
+    if (v.feasible) pFeasible += p;
+    expected += p * v.basicsFraction;
+    cum += p;
+    if (safe === null && cum >= 0.1) safe = v.basicsFraction;
+  }
+  const worstAtReliability = safe ?? (sorted.length > 0
+    ? ratioVerdict({
+      demandFraction: colours * phiApprox(sorted[0]!.n, confidence),
+      landFraction, coloursPerNonBasic,
+    }).basicsFraction
+    : 0);
+  return {
+    pFeasible,
+    expectedBasicsFraction: expected,
+    safeBasicsFraction: worstAtReliability,
+  };
+}
