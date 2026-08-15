@@ -4872,3 +4872,23 @@ total castability than one at 12 sources needed by 10%.
 Use it ALONGSIDE the requirement view, not instead of it. A floor answers "will this card
 work"; coverage answers "how much of my deck works". They disagree precisely at splashes,
 which is where the disagreement is informative rather than a defect.
+
+### The even-distribution heuristic table (2026-07-30)
+
+Consolidated the manabase work into one starting table: colours x pips -> `rho`, the
+minimum land breadth required, and affordable basics at each breadth. EDH 99, 38 lands,
+T4, 90%, even spread, no musts.
+
+Three readings that fall out and are not obvious beforehand:
+
+- **A second pip costs more than a second colour.** Three colours at one pip is
+  `rho = 1.42`; two colours at two pips is `rho = 1.58`.
+- **Double pips force breadth.** Two pips over three colours needs triomes minimum; over
+  four needs four-colour lands; over five needs four-plus and still allows only 2% basics.
+- **`need k > colours` means no land-only manabase works** -- the answer is rocks, dorks
+  or fewer pips, not better lands. The `{G}{G}{G}` by T4 deck lands here at 40 sources
+  against 38 lands.
+
+The table is explicitly labelled with what it cannot see: an even spread says nothing
+about a 10/20/70 colour split (that is `coverage`), and `rho <= k` is necessary rather
+than sufficient (that is `checkSupply`).

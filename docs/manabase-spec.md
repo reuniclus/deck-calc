@@ -736,6 +736,41 @@ two should sit side by side, and disagreement between them is expected rather th
 bug -- the "one spell per turn" note is precisely the seam where one ends and the other
 begins.
 
+## The even-distribution heuristic (deck-calc, 2026-07-30)
+
+The one table to start from. EDH 99, 38 lands, castable by T4 (`n = 11`), 90%
+confidence, requirements spread evenly across colours, no musts.
+
+| colours | pips | req/colour | rho | need k >= | k=2 | k=3 | k=4 | k=5 |
+|---|---|---|---|---|---|---|---|---|
+| 2c | 1 | 18 | 0.95 | 1 | **100%** | 100% | 100% | 100% |
+| 2c | 2 | 30 | 1.58 | 2 | 42% | 42% | 42% | 42% |
+| 3c | 1 | 18 | 1.42 | 2 | 58% | 79% | 79% | 79% |
+| 3c | 2 | 30 | 2.37 | **3** | — | 32% | 32% | 32% |
+| 4c | 1 | 18 | 1.89 | 2 | 11% | 55% | 70% | 70% |
+| 4c | 2 | 30 | 3.16 | **4** | — | — | 28% | 28% |
+| 5c | 1 | 18 | 2.37 | **3** | — | 32% | 54% | 66% |
+| 5c | 2 | 30 | 3.95 | **4** | — | — | 2% | 26% |
+
+`basics%` is a fraction of LANDS. `k` is capped at the colour count, since breadth beyond
+your colours does nothing -- which is why the rows flatten to the right.
+
+Three readings:
+
+- **A second pip costs more than a second colour.** 3c at one pip is `rho = 1.42`; 2c at
+  two pips is `rho = 1.58`. Adding a whole colour is cheaper than doubling a pip.
+- **Double pips force breadth.** Two pips across three colours needs triomes at minimum;
+  across four it needs four-colour lands; across five it needs four-plus and still leaves
+  2% basics. This is the arithmetic behind "double-pip costs in four-colour decks are a
+  trap".
+- **`need k > colours` means no manabase works.** Not "build it better" -- land-only
+  cannot reach it, and the answer is mana rocks, dorks, or fewer pips. A deck wanting
+  `{G}{G}{G}` by T4 lands here: 40 sources against 38 lands.
+
+Caveats carried from the sections below: this assumes an EVEN spread, so it says nothing
+about a 10/20/70 colour split (use `coverage` for that), and `rho <= k` is necessary
+rather than sufficient (use `checkSupply` to verify a real composition).
+
 ## Reference tables in RATIO form (deck-calc, 2026-07-30)
 
 The count tables below are a worked instance; these are the general statement. Because
