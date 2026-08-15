@@ -4797,3 +4797,23 @@ presentational; the point estimate is biased.
 Bug found and fixed while testing: `safeBasicsFraction` only assigned inside `cum <= 0.1`,
 so a first bucket heavier than 10% of the mass left it at its initialiser and it reported
 a fraction of 1. Now takes the value at the first bucket reaching the tail.
+
+### Reference tables restated in ratio form (2026-07-30)
+
+Pointed out that the tables should be ratios rather than counts, which was right -- the
+count tables were a worked instance presented as the general result.
+
+Since `beta = (k - rho)/(k - 1)` depends ONLY on `rho` and `k`, a single table covers
+every deck size, land count, colour count and format. Deck specifics enter solely through
+`rho = Phi/lambda`, so the reference material is now one universal table plus a short list
+of `rho` values.
+
+Two facts the ratio form exposes that the count tables concealed:
+
+- **Cutting lands costs about as much as adding a colour.** A three-colour EDH deck at 38
+  lands has `rho` 1.42 (58% basics); at 30 lands it is 1.80 (20% basics). That is
+  comparable to the three-to-four colour jump, and nothing in the count tables suggested
+  land count and colour count were substitutable at that rate.
+- **Three-colour 60-card is easier than three-colour EDH** (`rho` 1.36 vs 1.42), since
+  24/60 is a higher land fraction than 38/99. Formats rank by `lambda`, not by deck size,
+  which is not the intuition most players carry.

@@ -736,7 +736,60 @@ two should sit side by side, and disagreement between them is expected rather th
 bug -- the "one spell per turn" note is precisely the seam where one ends and the other
 begins.
 
-## Reference tables (deck-calc, 2026-07-30)
+## Reference tables in RATIO form (deck-calc, 2026-07-30)
+
+The count tables below are a worked instance; these are the general statement. Because
+`beta = (k - rho)/(k - 1)` depends only on `rho` and `k`, ONE table covers every deck
+size, land count, colour count and format. Deck specifics enter solely through
+`rho = Phi/lambda`.
+
+### Basics as a percentage of lands
+
+| rho | k=2 | k=3 | k=4 | k=5 |
+|---|---|---|---|---|
+| 1.0 | 100% | 100% | 100% | 100% |
+| 1.2 | 80% | 90% | 93% | 95% |
+| 1.4 | 60% | 80% | 87% | 90% |
+| 1.6 | 40% | 70% | 80% | 85% |
+| 1.8 | 20% | 60% | 73% | 80% |
+| 2.0 | 0% | 50% | 67% | 75% |
+| 2.4 | — | 30% | 53% | 65% |
+| 2.8 | — | 10% | 40% | 55% |
+| 3.2 | — | — | 27% | 45% |
+
+(`rho < 1` gives `beta > 100%`, i.e. all basics with room to spare. Clamp at 100%.)
+
+### Colourless utility lands as a percentage of lands, `1 - rho/k`
+
+| rho | k=2 | k=3 | k=4 | k=5 |
+|---|---|---|---|---|
+| 1.2 | 40% | 60% | 70% | 76% |
+| 1.6 | 20% | 47% | 60% | 68% |
+| 2.0 | 0% | 33% | 50% | 60% |
+| 2.4 | — | 20% | 40% | 52% |
+| 2.8 | — | 7% | 30% | 44% |
+
+### `rho` for common decks (phi = 0.182 at n = 11, one pip, 90%)
+
+| deck | lambda | rho |
+|---|---|---|
+| 2c EDH, 38 lands | 0.384 | 0.95 |
+| 3c EDH, 38 lands | 0.384 | 1.42 |
+| 4c EDH, 38 lands | 0.384 | 1.90 |
+| 5c EDH, 38 lands | 0.384 | 2.37 |
+| 3c EDH, **30 lands** | 0.303 | **1.80** |
+| 3c 60-card, 24 lands | 0.400 | **1.36** |
+
+Two things the ratio form shows that the count tables concealed:
+
+- **Cutting lands costs about as much as adding a colour.** Taking a three-colour EDH
+  deck from 38 lands to 30 moves `rho` from 1.42 to 1.80, i.e. 58% basics down to 20% --
+  comparable to the jump from three colours to four.
+- **Three-colour 60-card is EASIER than three-colour EDH** (`rho` 1.36 against 1.42),
+  because 24/60 is a higher land fraction than 38/99. Formats are not ranked by deck
+  size; they are ranked by `lambda`.
+
+## Reference tables in COUNT form (a worked instance of the above)
 
 EDH 99, 38 lands, **no cantrips** (n = 11 by T4), one pip, 90% confidence, even colour
 spread, no musts. Requirement is 18 sources per colour.
