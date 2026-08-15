@@ -289,3 +289,53 @@ export function rhoProfile(
         : perColourOk ? 'aggregate' : 'per-colour',
   };
 }
+
+export interface ColourShare {
+  colour: string;
+  /** Fraction of the deck's coloured spells needing this colour. Shares sum to 1. */
+  share: number;
+  /** Sources of this colour the manabase actually provides. */
+  sources: number;
+  /** Pips of this colour on a typical card needing it. */
+  pips: number;
+}
+
+export interface Coverage {
+  /** Expected fraction of coloured spells castable on time. */
+  coverage: number;
+  /** Per-colour contribution, so the worst offender is visible. */
+  perColour: Array<{ colour: string; share: number; castability: number; lostPt: number }>;
+  /** Colour whose shortfall costs the most, share-weighted. */
+  worstOffender: string | null;
+}
+
+/**
+ * Expected fraction of coloured spells castable on time.
+ *
+ * This is the metric that distinguishes a 10/20/70 colour split from an even one, which
+ * `rho_c` CANNOT: because requirements are a max over cards, a colour on one card and a
+ * colour on thirty cards demand the same sources, so the shares vanish. Weighting
+ * castability by share restores them -- failing a 70% colour costs seven times what
+ * failing a 10% colour costs, and no floor-based figure says so.
+ *
+ * Use alongside the requirement view, not instead of it: a floor answers "will this card
+ * work", coverage answers "how much of my deck works". They disagree usefully, and a
+ * splash is exactly where they should.
+ */
+export function coverage(deckSize: number, cardsSeen: number, shares: ColourShare[]): Coverage {
+  const perColour = shares.map((s) => {
+    const castability = sfAtLeast(deckSize, s.sources, cardsSeen, s.pips);
+    return {
+      colour: s.colour,
+      share: s.share,
+      castability,
+      lostPt: s.share * (1 - castability) * 100,
+    };
+  });
+  const total = perColour.reduce((a, r) => a + r.share * r.castability, 0);
+  const worst = perColour.reduce<{ colour: string; lostPt: number } | null>(
+    (a, r) => (a === null || r.lostPt > a.lostPt ? { colour: r.colour, lostPt: r.lostPt } : a),
+    null,
+  );
+  return { coverage: total, perColour, worstOffender: worst ? worst.colour : null };
+}

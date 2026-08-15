@@ -4848,3 +4848,27 @@ The two ends catch genuinely different failures:
 
 `binding` names which end fails, since the remedies differ -- a per-colour failure needs
 more lands or fewer pips, an aggregate failure needs broader lands.
+
+### Coverage: the metric that sees colour SHARE (2026-07-30)
+
+Asked how a 10/20/70 G/W/U deck is distinguished from an even one. Honest answer: `rho_c`
+mostly CANNOT, and that is the multiplicity blind spot from the stage-1 review resurfacing.
+
+Because `req_c` is a MAX over cards, a colour appearing on one card at one pip by T4 needs
+18 sources and a colour appearing on thirty such cards also needs 18. The share never
+enters. It reaches the model only through proxies -- a 70% colour probably has double-pip
+cards and earlier deadlines, a 10% splash probably has one pip cast late -- but where pips
+and turns genuinely match, the vectors are identical and the model is blind.
+
+**What distinguishes them is a weighted metric rather than a floor:**
+
+    coverage = sum_c  share_c * P(castable on time | sources_c)
+
+Failing a 70% colour costs seven times what failing a 10% colour costs, and no
+floor-based figure says so. `coverage` also names the worst offender share-weighted, which
+is not the worst-supplied colour: a colour at 16 sources needed by 70% of spells loses more
+total castability than one at 12 sources needed by 10%.
+
+Use it ALONGSIDE the requirement view, not instead of it. A floor answers "will this card
+work"; coverage answers "how much of my deck works". They disagree precisely at splashes,
+which is where the disagreement is informative rather than a defect.

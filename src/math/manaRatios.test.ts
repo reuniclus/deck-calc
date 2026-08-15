@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   basicsFromRatios, castabilityOverSeen, feasibleFrom, phiApprox, phiExact, ratioVerdict,
-  rhoProfile, sourcesOverSeen, verdictOverDistribution, verdictOverN,
+  coverage, rhoProfile, sourcesOverSeen, verdictOverDistribution, verdictOverN,
 } from './manaRatios';
 import { sfAtLeast } from './hyper';
 import { slotDistribution } from './selection';
@@ -188,5 +188,48 @@ describe('per-colour rho and the two ends of Hall', () => {
 
   it('passes a deck that is fine at both ends', () => {
     expect(rhoProfile(reqs([18, 18]), 38, 2).binding).toBeNull();
+  });
+});
+
+describe('coverage: what rho cannot see', () => {
+  const seen = 11, deck = 99;
+
+  it('rho_c is IDENTICAL for very different colour splits', () => {
+    // The blind spot, stated as a test. Requirements are a max over cards, so a colour on
+    // one card and a colour on thirty demand the same sources.
+    const even = rhoProfile(
+      [{ colour: 'G', sources: 18 }, { colour: 'W', sources: 18 }, { colour: 'U', sources: 18 }], 38, 2);
+    const skewedDeck = rhoProfile(
+      [{ colour: 'G', sources: 18 }, { colour: 'W', sources: 18 }, { colour: 'U', sources: 18 }], 38, 2);
+    expect(skewedDeck.total).toBeCloseTo(even.total, 12); // no information about share
+  });
+
+  it('coverage DOES distinguish them', () => {
+    // Same sources everywhere, same requirements -- only the shares differ.
+    const under = (share: number[]) => coverage(deck, seen, [
+      { colour: 'G', share: share[0]!, sources: 14, pips: 1 },
+      { colour: 'W', share: share[1]!, sources: 18, pips: 1 },
+      { colour: 'U', share: share[2]!, sources: 18, pips: 1 },
+    ]);
+    const balanced = under([1 / 3, 1 / 3, 1 / 3]);
+    const greenLight = under([0.1, 0.2, 0.7]);
+    // green is the under-supplied colour, so a deck that barely uses it fares better
+    expect(greenLight.coverage).toBeGreaterThan(balanced.coverage);
+  });
+
+  it('names the colour whose shortfall costs most, share-weighted', () => {
+    const c = coverage(deck, seen, [
+      { colour: 'G', share: 0.1, sources: 12, pips: 1 },  // badly short, rarely needed
+      { colour: 'U', share: 0.7, sources: 16, pips: 1 },  // mildly short, needed constantly
+      { colour: 'W', share: 0.2, sources: 18, pips: 1 },
+    ]);
+    // blue loses more total castability despite being better supplied
+    expect(c.worstOffender).toBe('U');
+  });
+
+  it('is bounded and monotone in sources', () => {
+    const at = (s: number) => coverage(deck, seen, [{ colour: 'U', share: 1, sources: s, pips: 1 }]).coverage;
+    expect(at(10)).toBeLessThan(at(20));
+    expect(at(99)).toBeCloseTo(1, 6);
   });
 });
