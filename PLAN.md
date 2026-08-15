@@ -4817,3 +4817,34 @@ Two facts the ratio form exposes that the count tables concealed:
 - **Three-colour 60-card is easier than three-colour EDH** (`rho` 1.36 vs 1.42), since
   24/60 is a higher land fraction than 38/99. Formats rank by `lambda`, not by deck size,
   which is not the intuition most players carry.
+
+### Per-colour rho: the two ends of Hall's condition (2026-07-30)
+
+Observed that `rho` is one-dimensional and asked whether a per-colour version could inform
+the aggregate. It can, and the pair turns out to be the two ENDS of Hall's condition rather
+than a heuristic layered on a heuristic:
+
+    rho_c = req_c / L        per colour
+    rho   = sum_c rho_c      aggregate -- the scalar IS the sum of the vector
+
+    singleton subsets:  rho_c <= 1     no colour may demand more than every land
+    the full subset:    rho   <= k     total demand within total breadth
+
+Both necessary, neither implying the other, and every intermediate subset is a further
+condition -- which is exactly Hall. So the "heuristic for a heuristic" framing is really a
+hierarchy indexed by subset size, with these two ends cheap to compute and the middle left
+to `checkSupply`.
+
+**Why the aggregate alone was not enough.** Three colours needing 18 each and three needing
+30/12/12 share `rho = 1.42` and are not equally buildable: the second wants 30 of 38 lands
+producing green specifically. `skew` (worst colour over the mean) reports that, and above
+about 1.3 the aggregate stops being a fair summary.
+
+The two ends catch genuinely different failures:
+- **per-colour**: 40 green sources from 38 lands is dead however broad the lands are, while
+  the aggregate looks survivable;
+- **aggregate**: five colours off duals fails on total breadth while every colour is
+  individually fine.
+
+`binding` names which end fails, since the remedies differ -- a per-colour failure needs
+more lands or fewer pips, an aggregate failure needs broader lands.

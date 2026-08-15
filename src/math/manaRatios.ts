@@ -228,3 +228,64 @@ export function verdictOverDistribution(
     safeBasicsFraction: worstAtReliability,
   };
 }
+
+export interface RhoProfile {
+  /** Per-colour demand, `req_c / L`. */
+  perColour: Array<{ colour: string; rho: number }>;
+  /** Aggregate demand, the SUM of the per-colour values. */
+  total: number;
+  /** Largest per-colour demand -- the singleton end of Hall's condition. */
+  worstColour: number;
+  /**
+   * 1 when demands are even, higher when skewed. Above ~1.3 the aggregate is a poor
+   * summary and the per-colour end is likelier to bind.
+   */
+  skew: number;
+  /** `rho_c <= 1` for every colour: no colour may demand more than every land. */
+  perColourOk: boolean;
+  /** `rho <= k`: total demand within total breadth. */
+  aggregateOk: boolean;
+  /** Which end binds, or `null` when both pass. */
+  binding: 'per-colour' | 'aggregate' | 'both' | null;
+}
+
+/**
+ * The two ends of Hall's condition, reported together.
+ *
+ * `rho` alone is an aggregate and therefore blind to SHAPE: 3 colours needing 18 each and
+ * 3 colours needing 30/12/12 share `rho = 1.42` and are not equally buildable. The
+ * per-colour vector restores what the sum discards, and the pair of checks is far
+ * stronger than either alone:
+ *
+ *  - `rho_c <= 1` (singleton subsets) -- a colour needing more sources than you have
+ *    lands is dead however broad those lands are;
+ *  - `rho <= k` (the full subset) -- total demand cannot exceed total breadth.
+ *
+ * Intermediate subsets are the rest of Hall's condition and are not checked here; this is
+ * a SCREEN, not a proof. `checkSupply` in `landTypes.ts` decides an actual composition.
+ */
+export function rhoProfile(
+  requirements: Array<{ colour: string; sources: number }>,
+  landCount: number, coloursPerNonBasic: number,
+): RhoProfile {
+  const perColour = requirements.map((r) => ({
+    colour: r.colour, rho: landCount > 0 ? r.sources / landCount : Infinity,
+  }));
+  const total = perColour.reduce((a, r) => a + r.rho, 0);
+  const worstColour = perColour.reduce((a, r) => Math.max(a, r.rho), 0);
+  const mean = perColour.length > 0 ? total / perColour.length : 0;
+  const k = Math.min(coloursPerNonBasic, Math.max(1, requirements.length));
+  const perColourOk = worstColour <= 1 + 1e-9;
+  const aggregateOk = total <= k + 1e-9;
+  return {
+    perColour,
+    total,
+    worstColour,
+    skew: mean > 0 ? worstColour / mean : 1,
+    perColourOk,
+    aggregateOk,
+    binding: perColourOk && aggregateOk ? null
+      : !perColourOk && !aggregateOk ? 'both'
+        : perColourOk ? 'aggregate' : 'per-colour',
+  };
+}

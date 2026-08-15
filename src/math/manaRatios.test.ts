@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   basicsFromRatios, castabilityOverSeen, feasibleFrom, phiApprox, phiExact, ratioVerdict,
-  sourcesOverSeen, verdictOverDistribution, verdictOverN,
+  rhoProfile, sourcesOverSeen, verdictOverDistribution, verdictOverN,
 } from './manaRatios';
 import { sfAtLeast } from './hyper';
 import { slotDistribution } from './selection';
@@ -149,5 +149,44 @@ describe('cards seen as the free variable', () => {
     const dry = verdictOverDistribution(3, 38 / 99, 2, 0.9, [{ n: 11, p: 1 }]);
     const drawy = verdictOverDistribution(3, 38 / 99, 2, 0.9, [{ n: 16, p: 1 }]);
     expect(drawy.expectedBasicsFraction).toBeGreaterThan(dry.expectedBasicsFraction);
+  });
+});
+
+describe('per-colour rho and the two ends of Hall', () => {
+  const reqs = (xs: number[]) => xs.map((sources, i) => ({ colour: 'WUBRG'[i]!, sources }));
+
+  it('the aggregate is the sum of the per-colour values', () => {
+    const p = rhoProfile(reqs([18, 18, 18]), 38, 2);
+    expect(p.total).toBeCloseTo(p.perColour.reduce((a, r) => a + r.rho, 0), 12);
+    expect(p.total).toBeCloseTo(54 / 38, 6);
+  });
+
+  it('same aggregate, different shape -- which is what the scalar hides', () => {
+    const even = rhoProfile(reqs([18, 18, 18]), 38, 2);
+    const skewed = rhoProfile(reqs([30, 12, 12]), 38, 2);
+    expect(skewed.total).toBeCloseTo(even.total, 9); // identical rho
+    expect(skewed.skew).toBeGreaterThan(even.skew);  // very different decks
+    expect(skewed.worstColour).toBeGreaterThan(even.worstColour);
+  });
+
+  it('catches a colour needing more sources than there are lands', () => {
+    // The singleton end. No land breadth rescues this: 40 green sources cannot come from
+    // 38 lands, so it fails per-colour while the aggregate looks survivable.
+    const p = rhoProfile(reqs([40, 8]), 38, 2);
+    expect(p.perColourOk).toBe(false);
+    expect(p.aggregateOk).toBe(true);
+    expect(p.binding).toBe('per-colour');
+  });
+
+  it('catches total demand exceeding total breadth', () => {
+    // The full-set end: five colours off duals. Every colour is individually fine.
+    const p = rhoProfile(reqs([18, 18, 18, 18, 18]), 38, 2);
+    expect(p.perColourOk).toBe(true);
+    expect(p.aggregateOk).toBe(false);
+    expect(p.binding).toBe('aggregate');
+  });
+
+  it('passes a deck that is fine at both ends', () => {
+    expect(rhoProfile(reqs([18, 18]), 38, 2).binding).toBeNull();
   });
 });
