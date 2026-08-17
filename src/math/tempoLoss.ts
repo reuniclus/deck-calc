@@ -59,6 +59,16 @@ export interface TempoResult {
   stderr: number;
   /** Share of games where the tapped mix cost nothing at all. */
   freeGames: number;
+  /**
+   * Mean number of TURNS on which the tapped world spent less than the untapped one.
+   *
+   * Reported because total mana over the horizon misses delays that catch up: casting a
+   * three-drop on turn four instead of turn three spends the same total by turn six, so
+   * the totals show zero loss for a full turn of tempo. This counts those.
+   */
+  turnsAffected: number;
+  /** Mean mana behind, summed over turns -- delay weighted by how long it lasted. */
+  cumulativeBehind: number;
 }
 
 type Card = { land: true; tapped: boolean } | { land: false; mv: number; produces: number; earliest: number };
@@ -92,11 +102,11 @@ function bestSpend(costs: number[], available: number): { spent: number; used: n
  * that turn and one mana from the next. Both are permanently untapped afterwards, so the
  * only asymmetry is the turn they arrive -- which is exactly the effect being measured.
  */
-function playOut(hand: Card[], draws: Card[], turns: number): number {
+function playOut(hand: Card[], draws: Card[], turns: number): number[] {
   const inHand = [...hand];
   let landsInPlay = 0;
   let rampMana = 0;
-  let totalSpent = 0;
+  const perTurn: number[] = [];
   for (let turn = 1; turn <= turns; turn++) {
     if (turn > 1) { const d = draws[turn - 2]; if (d) inHand.push(d); }
     const hasUntapped = inHand.some((c) => c.land && !c.tapped);
@@ -130,14 +140,14 @@ function playOut(hand: Card[], draws: Card[], turns: number): number {
       if (li >= 0) { inHand.splice(li, 1); landsInPlay += 1; }
     }
 
-    totalSpent += Math.max(0, best.spent);
+    perTurn.push(Math.max(0, best.spent));
     for (const c of best.used) {
       const at = inHand.indexOf(c);
       if (at >= 0) inHand.splice(at, 1);
       rampMana += c.produces;
     }
   }
-  return totalSpent;
+  return perTurn;
 }
 
 export function tempoLoss(opts: TempoOptions): TempoResult {
@@ -157,7 +167,7 @@ export function tempoLoss(opts: TempoOptions): TempoResult {
   const filler = deckSize - opts.lands - spells.length;
   if (filler < 0) throw new Error('lands plus spells exceed the deck');
 
-  let sum = 0, sumSq = 0, free = 0, sumU = 0, sumT = 0;
+  let sum = 0, sumSq = 0, free = 0, sumU = 0, sumT = 0, turnsAff = 0, cumBehind = 0;
   for (let r = 0; r < runs; r++) {
     // one shuffle, two worlds
     const deck: Array<{ kind: 'land'; tapped: boolean } | { kind: 'spell'; i: number } | { kind: 'filler' }> = [];
@@ -183,8 +193,16 @@ export function tempoLoss(opts: TempoOptions): TempoResult {
         .filter((c): c is Card => c !== null),
     });
     const a = build(true), b = build(false);
-    const su = playOut(a.hand, a.draws, turns);
-    const st = playOut(b.hand, b.draws, turns);
+    const pu = playOut(a.hand, a.draws, turns);
+    const pt = playOut(b.hand, b.draws, turns);
+    const su = pu.reduce((x, y) => x + y, 0);
+    const st = pt.reduce((x, y) => x + y, 0);
+    // per-turn: how many turns was the tapped world behind, and by how much cumulatively
+    let cu = 0, ct = 0;
+    for (let t = 0; t < turns; t++) {
+      cu += pu[t] ?? 0; ct += pt[t] ?? 0;
+      if (ct < cu) { turnsAff++; cumBehind += cu - ct; }
+    }
     const d = su - st;
     sum += d; sumSq += d * d; sumU += su; sumT += st;
     if (d <= 0) free++;
@@ -196,5 +214,7 @@ export function tempoLoss(opts: TempoOptions): TempoResult {
     loss: mean,
     stderr: Math.sqrt(Math.max(0, sumSq / runs - mean * mean) / runs),
     freeGames: free / runs,
+    turnsAffected: turnsAff / runs,
+    cumulativeBehind: cumBehind / runs,
   };
 }
