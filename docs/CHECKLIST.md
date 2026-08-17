@@ -47,6 +47,16 @@ conflicts with this file, this file is later.
 - [ ] MQ monotone residual 0.3–0.8pt. Highest-confidence lead: `seenBefore` in
       `keepMass` uses `E[p_i]` instead of the position distribution
 
+## Hand-level and tempo models (2026-07-30)
+
+- [x] `handSim.ts` — Hall matching, hybrid pips, bouncelands, derived lands, multi-source
+      cards; `firstHandQuality` (unconditional), `rankSwaps`
+- [x] `sacredBlink.fixture.ts` — a real deck with its corrections recorded
+- [x] `manaReport.ts` — fixed report format so runs are diffable
+- [x] `tempoLoss.ts` — PAIRED counterfactual for tapped lands, colourless by design
+- [ ] Tempo model needs iteration: no colours, no reactive-vs-proactive distinction, and
+      "mana spent" is a proxy for tempo rather than a measure of it
+
 ## Colours tab — math is ready, UI is not
 
 Everything needed is built and tested: `manaSources` (requirements), `basicsBudget`
